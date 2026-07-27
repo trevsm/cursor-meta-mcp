@@ -152,9 +152,10 @@ function renderFull(data) {
         const cp = exp.checkpoint ?? {};
         const last = cp.lastTick;
         const attempted =
-          cp.metrics != null
+          cp.attemptedTicks ??
+          (cp.metrics != null
             ? Math.max(0, (cp.metrics.ticks ?? 0) - (cp.metrics.softSkips ?? 0))
-            : cp.ticks;
+            : cp.ticks);
         const notes = [
           exp.relaunchCount ? `relaunch ×${exp.relaunchCount}` : "",
           cp.stoppedBecause ? `stopped: ${cp.stoppedBecause}` : "",
