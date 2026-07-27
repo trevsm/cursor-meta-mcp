@@ -235,6 +235,37 @@ test("buildWorkerActivity maps error live event kind", () => {
   assert.equal(rows[0]?.liveEvents[0]?.kind, "error");
 });
 
+test("buildWorkerActivity keeps error status when recent live events exist", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-error-status-"));
+  const agentId = "agent-error-status";
+  appendRunEvent(
+    "run-error-status",
+    { type: "thinking", message: "Still streaming after failure" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: {
+          exists: true,
+          ticks: 3,
+          lastTick: { tick: 3, error: "Agent transport dropped" },
+        },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.status, "error");
+  assert.match(rows[0]?.statusText ?? "", /transport dropped/i);
+});
+
 test("buildWorkerActivity caps live events at eight newest rows", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-cap-"));
   const runsDir = join(metaDir, "runs");

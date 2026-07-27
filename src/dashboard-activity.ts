@@ -158,7 +158,7 @@ export function buildWorkerActivity(
         displayName,
         alive,
         role: WORKER_ROLES[exp.name] ?? "Ships verified diffs: test → commit → push",
-        status: activeRun ? "active" : status,
+        status: err ? "error" : activeRun ? "active" : status,
         statusText: err
           ? err.slice(0, 160)
           : activeRun
