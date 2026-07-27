@@ -105,6 +105,40 @@ test("buildWorkerActivity marks busy-skipped sdk worker as active", () => {
   assert.equal(rows[0]?.status, "active");
 });
 
+test("buildWorkerActivity merges live events from multiple sdk runs", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-multi-"));
+  const agentId = "agent-multi";
+  appendRunEvent(
+    "run-a",
+    { type: "thinking", message: "First run thought" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+  appendRunEvent(
+    "run-b",
+    { type: "tool_call", message: "grep: completed" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.liveEvents.length, 2);
+  const kinds = rows[0]?.liveEvents.map((event) => event.kind) ?? [];
+  assert.ok(kinds.includes("thinking"));
+  assert.ok(kinds.includes("tool"));
+});
+
 test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const errorRows = buildWorkerActivity([
     {
