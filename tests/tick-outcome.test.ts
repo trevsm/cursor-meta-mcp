@@ -104,3 +104,22 @@ test("summarizeTickOutcome detects push that clears ahead-of-origin", () => {
   assert.equal(outcome.committed, false);
   assert.equal(outcome.pushed, true);
 });
+
+test("summarizeTickOutcome detects commit and push in one tick from synced", () => {
+  const dir = initRepo();
+  const bare = mkdtempSync(join(tmpdir(), "tick-origin-sync-"));
+  execFileSync("git", ["init", "--bare", "-b", "main"], { cwd: bare, stdio: "ignore" });
+  execFileSync("git", ["branch", "-M", "main"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", bare], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["push", "-u", "origin", "HEAD"], { cwd: dir, stdio: "ignore" });
+  const before = captureRepoSnapshot(dir);
+  assert.equal(before.aheadOfUpstream, 0);
+  writeFileSync(join(dir, "c.txt"), "three\n");
+  execFileSync("git", ["add", "c.txt"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "ship"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["push"], { cwd: dir, stdio: "ignore" });
+  const outcome = summarizeTickOutcome({ cwd: dir, before });
+  assert.equal(outcome.committed, true);
+  assert.equal(outcome.pushed, true);
+  assert.equal(outcome.producedWork, true);
+});
