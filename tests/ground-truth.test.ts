@@ -69,6 +69,8 @@ test("detectCompletionClaims ignores conditional tests-pass phrasing", () => {
   assert.equal(detectCompletionClaims("before tests pass we should not commit").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("ensure tests pass before merge").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("tests pass in CI only").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("test suite passes in CI").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("tests pass locally only").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("make tests pass before claiming").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("tests are passing now").claimedTestsPass, true);
 });
