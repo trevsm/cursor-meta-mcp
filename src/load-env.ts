@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -45,13 +45,43 @@ export function hasCursorApiKey(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.CURSOR_API_KEY?.trim());
 }
 
+function nvmVersionSortKey(dirName: string): number[] {
+  return dirName
+    .replace(/^v/, "")
+    .split(".")
+    .map((part) => Number(part) || 0);
+}
+
+/** Newest installed nvm node binary for a major version, or null. */
+export function findNvmNodeBin(major: number, homeDir: string = homedir()): string | null {
+  const base = join(homeDir, ".nvm", "versions", "node");
+  if (!existsSync(base)) return null;
+  const dirs = readdirSync(base)
+    .filter((name) => name.startsWith(`v${major}.`))
+    .sort((a, b) => {
+      const aa = nvmVersionSortKey(a);
+      const bb = nvmVersionSortKey(b);
+      for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+        const delta = (bb[i] ?? 0) - (aa[i] ?? 0);
+        if (delta) return delta;
+      }
+      return 0;
+    });
+  for (const dir of dirs) {
+    const bin = join(base, dir, "bin", "node");
+    if (existsSync(bin)) return bin;
+  }
+  return null;
+}
+
 /** Prefer Node 22 for detached workers — better-sqlite3 pulse/history breaks on Node 24+. */
-export function resolveWorkerNodeBin(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveWorkerNodeBin(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir: string = homedir(),
+): string {
   const override = env.CURSOR_META_NODE?.trim();
   if (override) return override;
   const major = Number(process.version.slice(1).split(".")[0]);
   if (major === 22) return process.execPath;
-  const nvm22 = join(homedir(), ".nvm/versions/node/v22.22.3/bin/node");
-  if (existsSync(nvm22)) return nvm22;
-  return process.execPath;
+  return findNvmNodeBin(22, homeDir) ?? process.execPath;
 }

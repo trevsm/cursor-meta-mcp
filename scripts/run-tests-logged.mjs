@@ -6,21 +6,25 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, createWriteStream } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { resolveWorkerNodeBin } from "../src/load-env.js";
 
-const ROOT = "/Users/trevorsmith/Projects/cursor-meta-mcp";
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = join(homedir(), ".cursor-meta", "experiments");
 mkdirSync(OUT_DIR, { recursive: true });
 const logPath = join(OUT_DIR, "npm-test-latest.log");
+const nodeBin = resolveWorkerNodeBin();
+const nodeDir = dirname(nodeBin);
 
 const out = createWriteStream(logPath, { flags: "w" });
-out.write(`[${new Date().toISOString()}] npm test starting\n`);
+out.write(`[${new Date().toISOString()}] npm test starting via ${nodeBin}\n`);
 
 const child = spawn("npm", ["test"], {
   cwd: ROOT,
   env: {
     ...process.env,
-    PATH: `${process.env.HOME}/.nvm/versions/node/v22.22.3/bin:${process.env.PATH}`,
+    PATH: `${nodeDir}:${process.env.PATH ?? ""}`,
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

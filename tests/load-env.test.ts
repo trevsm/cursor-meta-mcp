@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
@@ -8,7 +8,9 @@ mock.module("../src/agent-cli.js", {
   namedExports: { isAgentCliLoggedIn: async () => false },
 });
 
-const { parseDotenv, hasCursorApiKey, resolveWorkerNodeBin } = await import("../src/load-env.js");
+const { parseDotenv, hasCursorApiKey, findNvmNodeBin, resolveWorkerNodeBin } = await import(
+  "../src/load-env.js"
+);
 const { resolveHonestWorkerMode } = await import("../src/worker-auth.js");
 
 test("parseDotenv reads KEY=VALUE lines", () => {
@@ -31,4 +33,33 @@ test("resolveHonestWorkerMode falls back to ide without auth", async () => {
 
 test("resolveWorkerNodeBin prefers explicit override", () => {
   assert.equal(resolveWorkerNodeBin({ CURSOR_META_NODE: "/custom/node" }), "/custom/node");
+});
+
+test("findNvmNodeBin picks newest matching major", () => {
+  const home = mkdtempSync(join(tmpdir(), "nvm-home-"));
+  const older = join(home, ".nvm/versions/node/v22.11.0/bin");
+  const newer = join(home, ".nvm/versions/node/v22.22.3/bin");
+  mkdirSync(older, { recursive: true });
+  mkdirSync(newer, { recursive: true });
+  writeFileSync(join(older, "node"), "#!/bin/sh\n");
+  writeFileSync(join(newer, "node"), "#!/bin/sh\n");
+  chmodSync(join(older, "node"), 0o755);
+  chmodSync(join(newer, "node"), 0o755);
+  assert.equal(findNvmNodeBin(22, home), join(newer, "node"));
+  assert.equal(findNvmNodeBin(20, home), null);
+});
+
+test("resolveWorkerNodeBin falls back to nvm when not on Node 22", () => {
+  const home = mkdtempSync(join(tmpdir(), "nvm-resolve-"));
+  const binDir = join(home, ".nvm/versions/node/v22.22.3/bin");
+  mkdirSync(binDir, { recursive: true });
+  const bin = join(binDir, "node");
+  writeFileSync(bin, "#!/bin/sh\n");
+  chmodSync(bin, 0o755);
+  const major = Number(process.version.slice(1).split(".")[0]);
+  if (major === 22) {
+    assert.equal(resolveWorkerNodeBin({}, home), process.execPath);
+  } else {
+    assert.equal(resolveWorkerNodeBin({}, home), bin);
+  }
 });

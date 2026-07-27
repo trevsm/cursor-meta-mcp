@@ -10,17 +10,17 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22.13"
+    "node": "22.x"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=79 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --test-coverage-exclude=src/history-store.ts --test-coverage-exclude=src/chat-activity.ts --test-coverage-exclude=src/agent-cli.ts --test-coverage-exclude=src/relentless-loop.ts --import tsx tests/**/*.test.ts",
-    "test:fast": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --test --experimental-test-module-mocks --import tsx tests/**/*.test.ts",
-    "test:files": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --test --experimental-test-module-mocks --import tsx",
+    "test": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=79 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --test-coverage-exclude=src/history-store.ts --test-coverage-exclude=src/chat-activity.ts --test-coverage-exclude=src/agent-cli.ts --test-coverage-exclude=src/relentless-loop.ts --import tsx tests/**/*.test.ts",
+    "test:fast": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx tests/**/*.test.ts",
+    "test:files": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx",
     "test:coverage": "npm test",
-    "test:logged": "node scripts/run-tests-logged.mjs",
+    "test:logged": "node --import tsx scripts/run-tests-logged.mjs",
     "sentiment": "node scripts/sentiment-analysis.mjs",
     "sentiment:classify": "node scripts/sentiment-classify.mjs",
     "relentless": "node --import tsx scripts/relentless-loop.mjs",
