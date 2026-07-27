@@ -16,8 +16,9 @@ export async function probeWorkerAuth(env: NodeJS.ProcessEnv = envForWorkers()):
 /** Prefer SDK when creds exist; otherwise IDE long-session (agent --resume). */
 export async function resolveHonestWorkerMode(
   requested: "ide" | "sdk" | "hybrid" | undefined,
+  env: NodeJS.ProcessEnv = envForWorkers(),
 ): Promise<"ide" | "sdk" | "hybrid"> {
-  const auth = await probeWorkerAuth();
+  const auth = await probeWorkerAuth(env);
   if (requested === "ide") return "ide";
   if (requested === "hybrid") return auth.sdk ? "hybrid" : "ide";
   if (requested === "sdk") return auth.sdk ? "sdk" : "ide";

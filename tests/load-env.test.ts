@@ -25,9 +25,7 @@ test("hasCursorApiKey detects non-empty key", () => {
 });
 
 test("resolveHonestWorkerMode falls back to ide without auth", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "worker-auth-"));
-  writeFileSync(join(dir, ".env"), "# empty\n");
-  const mode = await resolveHonestWorkerMode("sdk");
+  const mode = await resolveHonestWorkerMode("sdk", {});
   assert.equal(mode, "ide");
 });
 
