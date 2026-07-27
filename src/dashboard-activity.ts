@@ -72,7 +72,7 @@ export function extractWorkSummary(tail?: string): string | undefined {
   for (const line of tail.split(/\r?\n/)) {
     const text = line.trim().replace(/^[-*]\s+/, "").replace(/\*\*/g, "");
     if (!text || text.startsWith("#")) continue;
-    if (/^ground truth:/i.test(text)) break;
+    if (/^ground[- ]truth:/i.test(text)) break;
     if (/^tick \d+/i.test(text) && text.includes("—")) return text.slice(0, 180);
     if (text.length > 12) return text.slice(0, 180);
   }

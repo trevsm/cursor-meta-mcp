@@ -22,6 +22,7 @@ test("extractWorkSummary skips empty and markdown noise", () => {
   assert.equal(extractWorkSummary("  \n**bold**\n"), undefined);
   assert.equal(extractWorkSummary("Shipped fleet metrics gate"), "Shipped fleet metrics gate");
   assert.equal(extractWorkSummary("Ground truth: npm test passed"), undefined);
+  assert.equal(extractWorkSummary("Ground-truth: npm test passed"), undefined);
 });
 
 test("extractWorkSummary strips list markers and markdown emphasis", () => {
