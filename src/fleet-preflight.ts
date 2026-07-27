@@ -31,8 +31,12 @@ export async function runFleetPreflight(options?: {
   }
 
   const major = Number(process.versions.node.split(".")[0]);
-  if (major !== 22) {
-    failures.push(`Node ${process.version} — fleet requires Node 22.x (see package.json engines)`);
+  if (major < 22) {
+    failures.push(`Node ${process.version} — fleet requires Node >= 22`);
+  } else if (major !== 22) {
+    warnings.push(
+      `Node ${process.version} — MCP host is not 22.x; detached workers will use nvm Node 22 when available`,
+    );
   }
 
   try {

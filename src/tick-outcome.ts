@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { resolveVerifyCommand } from "./fleet-target.js";
+import type { VerifyCommand } from "./fleet-target.js";
+import { formatVerifyCommandLabel, resolveVerifyCommands } from "./fleet-target.js";
 
 /**
  * Verified result of one worker tick.
@@ -194,11 +195,41 @@ export const FAST_TEST_ARGS = ["run", "--silent", "test:fast"];
  * Run the fast (no-coverage) suite for inner-loop verification. The full coverage
  * gate stays in `npm test` for pre-commit and CI.
  */
-/** Default per-tick verifier: uses test:fast on cursor-meta-mcp, best script on external repos. */
+/** Default per-tick verifier: package-manager aware, runs test (+ lint when configured). */
 export function createDefaultVerifyTests(): (cwd: string) => TestOutcome | undefined {
-  return (cwd: string) => {
-    const resolved = resolveVerifyCommand(cwd);
-    return runTests({ cwd, command: resolved.command, args: resolved.args });
+  return (cwd: string) => runVerifyCommands(cwd, resolveVerifyCommands(cwd));
+}
+
+export function runVerifyCommands(cwd: string, commands: VerifyCommand[]): TestOutcome {
+  if (commands.length === 0) {
+    return runTests({ cwd });
+  }
+
+  let durationMs = 0;
+  let last: TestOutcome | undefined;
+  for (const command of commands) {
+    last = runTests({
+      cwd,
+      command: command.command,
+      args: command.args,
+    });
+    durationMs += last.durationMs;
+    if (!last.passed) {
+      return {
+        ...last,
+        durationMs,
+        command: formatVerifyCommandLabel(commands),
+      };
+    }
+  }
+
+  return {
+    ran: true,
+    passed: true,
+    durationMs,
+    command: formatVerifyCommandLabel(commands),
+    total: last?.total,
+    failed: last?.failed ?? 0,
   };
 }
 

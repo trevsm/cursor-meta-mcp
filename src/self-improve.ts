@@ -18,7 +18,7 @@ import {
 import { spawnLongSession, type LongSessionParams } from "./long-session.js";
 import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 import { formatGenomeForPrompt, ensureGenome } from "./genome.js";
-import { fleetTargetWarning, resolveVerifyCommand } from "./fleet-target.js";
+import { fleetTargetWarning, formatVerifyCommandLabel, resolveVerifyCommands } from "./fleet-target.js";
 import { TICK_REPORT_INSTRUCTION } from "./ground-truth.js";
 import { formatLearningsForPrompt } from "./learnings.js";
 import { spawnSdkWorker, type SdkWorkerParams } from "./sdk-worker.js";
@@ -158,10 +158,10 @@ export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: str
     /* pulse is best-effort */
   }
 
-  const verify = resolveVerifyCommand(cwd);
+  const verify = formatVerifyCommandLabel(resolveVerifyCommands(cwd));
   lines.push(
     "Rules: no user questions, no architecture theater.",
-    `Verify before tick report: ${verify.label}`,
+    `Verify before tick report: ${verify}`,
     TICK_REPORT_INSTRUCTION,
     SELF_IMPROVE_GIT_RULES,
   );

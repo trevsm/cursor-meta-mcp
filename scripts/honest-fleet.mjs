@@ -3,9 +3,15 @@
  * Honest loop fleet — one locked SDK worker in an isolated worktree.
  * Requires CURSOR_API_KEY; exits before spawn when the key is missing.
  *
- * Prefer an external repo: export CURSOR_META_FLEET_CWD=/path/to/your-app
+ * Env: CURSOR_META_FLEET_CWD, CURSOR_META_FLEET_FILTER (@faciliq/web),
+ *      CURSOR_META_FLEET_VERIFY (test,lint), CURSOR_META_FLEET_GOAL
  */
-import { fleetTargetWarning, resolveFleetTargetCwd } from "../src/fleet-target.js";
+import {
+  FLEET_FILTER_ENV,
+  FLEET_VERIFY_SCRIPTS_ENV,
+  fleetTargetWarning,
+  resolveFleetTargetCwd,
+} from "../src/fleet-target.js";
 import { launchSelfImproveFleet } from "../src/self-improve.js";
 import { runFleetPreflight } from "../src/fleet-preflight.js";
 import { resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
@@ -29,6 +35,12 @@ const auth = preflight.auth;
 const mode = await resolveHonestWorkerMode("sdk");
 console.error(`[honest-fleet] preflight auth=${JSON.stringify(auth)} resolvedMode=${mode}`);
 console.error(`[honest-fleet] target=${cwd}`);
+if (process.env[FLEET_FILTER_ENV]?.trim()) {
+  console.error(`[honest-fleet] filter=${process.env[FLEET_FILTER_ENV].trim()}`);
+}
+if (process.env[FLEET_VERIFY_SCRIPTS_ENV]?.trim()) {
+  console.error(`[honest-fleet] verify=${process.env[FLEET_VERIFY_SCRIPTS_ENV].trim()}`);
+}
 console.error(`[honest-fleet] ${workerAuthHint(auth)}`);
 if (!auth.apiKey) {
   console.error(
