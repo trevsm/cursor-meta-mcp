@@ -65,6 +65,9 @@ export function lessonFromTickError(error: string | undefined): string | null {
   ) {
     return "Never spawn Agent CLI with shell:true — prompts with ;/`()` are executed by sh; pass argv without a shell";
   }
+  if (/connection lost|reconnect(?:ing|ed)? to https?:\/\/agent/i.test(msg)) {
+    return "Agent transport dropped mid-tick — retry once; if persistent, check network or fall back to IDE worker";
+  }
   return `Tick infra failure: ${msg.slice(0, 200)}`;
 }
 

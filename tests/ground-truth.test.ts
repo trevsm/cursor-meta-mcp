@@ -110,3 +110,14 @@ test("recordTickLesson maps shell-metacharacter CLI failures", () => {
   assert.match(lesson, /shell:true/i);
   assert.match(formatLearningsForPrompt(metaDir), /argv without a shell/i);
 });
+
+test("recordTickLesson maps agent transport drops", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-conn-"));
+  const lesson = recordTickLesson({
+    metaDir,
+    error:
+      "Connection lost, reconnecting to https://agentn.global.api5.cursor.sh (attempt 1)...",
+  });
+  assert.ok(lesson);
+  assert.match(lesson, /transport dropped/i);
+});
