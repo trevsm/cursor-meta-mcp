@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,7 +9,9 @@ import {
   addBelief,
   appendEpisode,
   applyWorldRecord,
+  compactGoals,
   completeGoal,
+  dedupeActiveGoals,
   formatWorldModelForPrompt,
   listSkills,
   loadWorldModel,
@@ -57,6 +59,50 @@ test("world model persists north star, goals, beliefs, failures, episodes", () =
   const prompt = formatWorldModelForPrompt(model, episodes);
   assert.match(prompt, /North star/);
   assert.match(prompt, /Recent episodes/);
+});
+
+test("dedupeActiveGoals abandons raced duplicate actives", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "world-dedupe-"));
+  mkdirSync(join(metaDir, "world"), { recursive: true });
+  writeFileSync(
+    join(metaDir, "world", "goals.json"),
+    JSON.stringify({
+      northStar: "Build AGI",
+      updatedAt: new Date().toISOString(),
+      goals: [
+        {
+          id: "goal-a",
+          text: "Ship one verified diff",
+          status: "active",
+          createdAt: "2026-07-27T05:00:00.000Z",
+        },
+        {
+          id: "goal-b",
+          text: "Ship one verified diff",
+          status: "active",
+          createdAt: "2026-07-27T05:01:00.000Z",
+        },
+        {
+          id: "goal-c",
+          text: "  Ship one verified DIFF  ",
+          status: "active",
+          createdAt: "2026-07-27T05:02:00.000Z",
+        },
+      ],
+    }),
+  );
+
+  const compacted = compactGoals(metaDir);
+  assert.equal(activeGoals(compacted).length, 1);
+  assert.equal(activeGoals(compacted)[0]?.id, "goal-a");
+  assert.equal(compacted.goals.filter((g) => g.status === "abandoned").length, 2);
+
+  const rows = dedupeActiveGoals([
+    { id: "1", text: "A", status: "active", createdAt: "t1" },
+    { id: "2", text: "A", status: "active", createdAt: "t2" },
+  ]);
+  assert.equal(rows[0]?.status, "active");
+  assert.equal(rows[1]?.status, "abandoned");
 });
 
 test("extractSkillFromEpisode saves successful procedures", () => {

@@ -102,6 +102,25 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Collapse raced duplicate active goals with the same text (keep earliest). */
+export function dedupeActiveGoals(goals: WorldGoal[]): WorldGoal[] {
+  const seen = new Map<string, string>();
+  const now = new Date().toISOString();
+  return goals.map((goal) => {
+    if (goal.status !== "active") return goal;
+    const key = goal.text.trim().replace(/\s+/g, " ").toLowerCase();
+    if (seen.has(key)) {
+      return {
+        ...goal,
+        status: "abandoned" as const,
+        completedAt: goal.completedAt ?? now,
+      };
+    }
+    seen.set(key, goal.id);
+    return goal;
+  });
+}
+
 export function loadWorldModel(metaDir?: string): WorldModel {
   const goalsFile = readJsonFile<{ northStar?: string; updatedAt?: string; goals?: WorldGoal[] }>(
     goalsPath(metaDir),
@@ -112,7 +131,7 @@ export function loadWorldModel(metaDir?: string): WorldModel {
   return {
     northStar: goalsFile.northStar,
     updatedAt: goalsFile.updatedAt ?? new Date(0).toISOString(),
-    goals: goalsFile.goals ?? [],
+    goals: dedupeActiveGoals(goalsFile.goals ?? []),
     beliefs: beliefsFile.beliefs ?? [],
     failures: failuresFile.failures ?? [],
   };
@@ -122,8 +141,15 @@ function saveGoals(metaDir: string | undefined, northStar: string | undefined, g
   writeJsonFile(goalsPath(metaDir), {
     northStar,
     updatedAt: new Date().toISOString(),
-    goals,
+    goals: dedupeActiveGoals(goals),
   });
+}
+
+/** Persist deduped goals so raced fleet launches do not leave duplicate actives on disk. */
+export function compactGoals(metaDir?: string): WorldModel {
+  const model = loadWorldModel(metaDir);
+  saveGoals(metaDir, model.northStar, model.goals);
+  return loadWorldModel(metaDir);
 }
 
 export function setNorthStar(text: string, metaDir?: string): WorldModel {
@@ -137,7 +163,11 @@ export function pushGoal(text: string, metaDir?: string, parentId?: string): Wor
   const model = loadWorldModel(metaDir);
   const trimmed = text.trim();
   const existing = model.goals.find((row) => row.status === "active" && row.text === trimmed);
-  if (existing) return existing;
+  if (existing) {
+    // Persist load-time dedupe so raced duplicate actives are abandoned on disk.
+    saveGoals(metaDir, model.northStar, model.goals);
+    return existing;
+  }
   const goal: WorldGoal = {
     id: newId("goal"),
     text: trimmed,
