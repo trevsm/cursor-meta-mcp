@@ -52,6 +52,22 @@ test("describeTickOutcome summarizes repo changes", () => {
     }),
     /1 commit.*pushed/,
   );
+  assert.match(
+    describeTickOutcome({
+      headBefore: "abc",
+      headAfter: "def",
+      committed: true,
+      pushed: false,
+      commits: 1,
+      filesChanged: 1,
+      insertions: 4,
+      deletions: 0,
+      dirtyFiles: 0,
+      producedWork: true,
+      tests: { ran: true, passed: false, failed: 3, durationMs: 500, command: "npm run test:fast" },
+    }),
+    /TESTS FAIL \(3 failing\)/,
+  );
 });
 
 test("summarizeTickOutcome detects content change on untracked dirty file", () => {
