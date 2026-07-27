@@ -14,11 +14,11 @@ export interface GroundTruthAudit extends CompletionClaims {
 }
 
 const DONE_CLAIM =
-  /\b(all done|finished|complete|ready to merge|should work now|this is done|task complete)\b/i;
+  /\b(all done|task (?:is )?complete|ready to merge|should work now|this is done|finished(?:\.|!|$)|work is finished)\b/i;
 const TESTS_PASS_CLAIM =
   /\b(tests pass(?:ed)?|all tests pass|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
 const COMMIT_CLAIM =
-  /(?<!\bnot )(?<!\bno )\b(committed|git commit|pushed to origin|git push(?:ed)?)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(committed|git commit|pushed to origin|git push(?:ed)?)\b/i;
 
 /** Extract completion claims from the assistant tail of a tick. */
 export function detectCompletionClaims(text: string | undefined): CompletionClaims {

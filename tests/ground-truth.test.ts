@@ -19,6 +19,13 @@ test("detectCompletionClaims ignores negated commit language", () => {
   assert.equal(claims.claimedTestsPass, true);
 });
 
+test("detectCompletionClaims ignores haven't/didn't commit and imperative complete", () => {
+  assert.equal(detectCompletionClaims("I haven't committed these changes.").claimedCommitted, false);
+  assert.equal(detectCompletionClaims("I didn't commit yet.").claimedCommitted, false);
+  assert.equal(detectCompletionClaims("Next: complete the helper and add tests.").claimedDone, false);
+  assert.equal(detectCompletionClaims("All done. Task is complete.").claimedDone, true);
+});
+
 test("auditGroundTruth blocks false tests-pass claims", () => {
   const audit = auditGroundTruth("All tests pass now.", {
     headBefore: "a",
