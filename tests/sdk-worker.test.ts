@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSdkWorkerArgs, summarizeSdkWorker } from "../src/sdk-worker.js";
+import { buildSdkWorkerArgs, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
 
 test("summarizeSdkWorker aggregates tick outcomes", () => {
   const summary = summarizeSdkWorker({
@@ -85,4 +88,23 @@ test("buildSdkWorkerArgs forwards worker options", () => {
   assert.ok(args.includes("composer"));
   assert.ok(args.includes("--meta-dir"));
   assert.ok(args.includes("/meta"));
+});
+
+test("writeSdkCheckpoint persists worker state to disk", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sdk-worker-checkpoint-"));
+  const path = join(dir, "worker.json");
+  const state = {
+    startedAt: "2026-07-27T00:00:00.000Z",
+    cwd: "/repo",
+    durationMs: 60_000,
+    maxTicks: 3,
+    prompt: "work",
+    ticks: [{ tick: 1, at: "2026-07-27T00:00:01.000Z", watchedMs: 10 }],
+    stoppedBecause: "duration" as const,
+  };
+  assert.equal(writeSdkCheckpoint(state, path), path);
+  const saved = JSON.parse(readFileSync(path, "utf8")) as typeof state;
+  assert.equal(saved.cwd, "/repo");
+  assert.equal(saved.ticks.length, 1);
+  assert.equal(saved.stoppedBecause, "duration");
 });
