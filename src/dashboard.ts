@@ -12,6 +12,7 @@ import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
 import {
   analyzeWorkerCheckpoint,
+  attemptedTickCount,
   meetsProductiveTickGate,
   PRODUCTIVE_TICK_GATE,
   type FleetTickMetrics,
@@ -53,6 +54,7 @@ export interface DashboardExperimentRow {
 export interface FleetProductivitySummary {
   workerCount: number;
   totalTicks: number;
+  attemptedTicks: number;
   productiveTicks: number;
   productiveRatio: number;
   meetsGate: boolean;
@@ -238,6 +240,7 @@ export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]
   return {
     workerCount: workers.length,
     totalTicks,
+    attemptedTicks: attempted,
     productiveTicks,
     productiveRatio,
     meetsGate: meetsProductiveTickGate({
@@ -386,9 +389,14 @@ export function buildActiveSummary(input: {
   const productivity = summarizeFleetProductivity(input.experiments);
   if (productivity && productivity.totalTicks > 0) {
     const pct = (productivity.productiveRatio * 100).toFixed(0);
+    const level = productivity.meetsGate
+      ? "ok"
+      : productivity.attemptedTicks >= 3
+        ? "warn"
+        : "info";
     lines.push({
-      level: productivity.meetsGate ? "ok" : "warn",
-      text: `Productive ticks: ${productivity.productiveTicks}/${productivity.totalTicks} (${pct}%, gate ${productivity.gatePercent}%).`,
+      level,
+      text: `Productive ticks: ${productivity.productiveTicks}/${productivity.attemptedTicks} attempted (${pct}%, gate ${productivity.gatePercent}%).`,
     });
   }
 
@@ -419,26 +427,13 @@ export function buildActiveSummary(input: {
     const last = exp.checkpoint?.lastTick;
     const tail = last?.lastAssistantTail?.trim();
     const err = last?.error?.trim();
-    const ratio = exp.checkpoint?.productiveRatio;
-    const ticks = exp.checkpoint?.ticks ?? 0;
-    if (
-      ratio != null &&
-      ticks >= 3 &&
-      !meetsProductiveTickGate({
-        ticks,
-        productiveTicks: exp.checkpoint?.productiveTicks ?? 0,
-        productiveRatio: ratio,
-        commits: 0,
-        filesChanged: 0,
-        errors: 0,
-        softSkips: 0,
-        testFailures: 0,
-        lastCommitted: exp.checkpoint?.metrics?.lastCommitted === true,
-      })
-    ) {
+    const metrics = exp.checkpoint?.metrics;
+    const ticks = exp.checkpoint?.ticks ?? metrics?.ticks ?? 0;
+    if (metrics && attemptedTickCount(metrics) >= 3 && !meetsProductiveTickGate(metrics)) {
+      const attempted = attemptedTickCount(metrics);
       lines.push({
         level: "warn",
-        text: `${exp.name}: productive ${(ratio * 100).toFixed(0)}% below ${PRODUCTIVE_TICK_GATE * 100}% gate (${exp.checkpoint?.productiveTicks ?? 0}/${ticks}).`,
+        text: `${exp.name}: productive ${(metrics.productiveRatio * 100).toFixed(0)}% below ${PRODUCTIVE_TICK_GATE * 100}% gate (${metrics.productiveTicks}/${attempted} attempted).`,
       });
     }
     if (err) {

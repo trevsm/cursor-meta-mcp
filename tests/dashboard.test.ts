@@ -248,6 +248,91 @@ test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
   assert.ok(live.worldModel);
 });
 
+test("buildActiveSummary warns when productive gate fails on attempted ticks", () => {
+  const summary = buildActiveSummary({
+    fleetHealth: { total: 1, alive: 1, watcherAlive: true, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    manifest: null,
+    budget: { warnings: [] },
+    strategyStatus: null,
+    pulse: { at: new Date().toISOString(), scanned: 0, live: [], frustrationEvents: [], orchestrationMatrix: [], parallelWorkspaces: [] },
+    experiments: [
+      {
+        name: "sdk-worker-1",
+        pid: 1,
+        alive: true,
+        checkpoint: {
+          exists: true,
+          ticks: 8,
+          productiveTicks: 1,
+          productiveRatio: 0.2,
+          metrics: {
+            ticks: 8,
+            productiveTicks: 1,
+            productiveRatio: 0.2,
+            commits: 1,
+            filesChanged: 1,
+            errors: 2,
+            softSkips: 3,
+            testFailures: 0,
+            lastCommitted: false,
+          },
+        },
+      },
+    ],
+    spawnThoughts: [],
+  });
+  assert.ok(
+    summary.lines.some((line) => line.level === "warn" && /productive 20% below 30% gate \(1\/5 attempted\)/.test(line.text)),
+  );
+});
+
+test("buildActiveSummary skips productive warn when soft skips leave too few attempts", () => {
+  const summary = buildActiveSummary({
+    fleetHealth: { total: 1, alive: 1, watcherAlive: true, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    manifest: null,
+    budget: { warnings: [] },
+    strategyStatus: null,
+    pulse: { at: new Date().toISOString(), scanned: 0, live: [], frustrationEvents: [], orchestrationMatrix: [], parallelWorkspaces: [] },
+    experiments: [
+      {
+        name: "worker-busy",
+        pid: 2,
+        alive: true,
+        checkpoint: {
+          exists: true,
+          ticks: 6,
+          productiveTicks: 0,
+          productiveRatio: 0,
+          metrics: {
+            ticks: 6,
+            productiveTicks: 0,
+            productiveRatio: 0,
+            commits: 0,
+            filesChanged: 0,
+            errors: 0,
+            softSkips: 5,
+            testFailures: 0,
+            lastCommitted: false,
+          },
+          lastTick: {
+            tick: 6,
+            at: new Date().toISOString(),
+            watchedMs: 10,
+            wasAlreadyIdle: false,
+            skipped: "busy",
+          },
+        },
+      },
+    ],
+    spawnThoughts: [],
+  });
+  assert.equal(
+    summary.lines.some((line) => line.level === "warn" && /productive/.test(line.text)),
+    false,
+  );
+  assert.ok(summary.lines.some((line) => /waiting for chat/.test(line.text)));
+});
+
 test("summarizeFleetProductivity aggregates worker checkpoints", () => {
   const productivity = summarizeFleetProductivity([
     {
