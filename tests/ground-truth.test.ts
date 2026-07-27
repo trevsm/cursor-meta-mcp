@@ -46,6 +46,10 @@ test("detectCompletionClaims ignores conditional commit and push phrasing", () =
   assert.equal(detectCompletionClaims("already committed earlier").claimedCommitted, false);
   assert.equal(detectCompletionClaims("previously committed").claimedCommitted, false);
   assert.equal(detectCompletionClaims("pushed earlier today").claimedPushed, false);
+  assert.equal(detectCompletionClaims("to be committed").claimedCommitted, false);
+  assert.equal(detectCompletionClaims("HEAD committed this tick").claimedCommitted, false);
+  assert.equal(detectCompletionClaims("then committed and pushed").claimedCommitted, false);
+  assert.equal(detectCompletionClaims("then committed and pushed").claimedPushed, false);
 });
 
 test("detectCompletionClaims ignores negated tests-pass language", () => {
