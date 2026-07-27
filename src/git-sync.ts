@@ -134,5 +134,5 @@ export function formatGitSyncStatusForPrompt(status: GitSyncStatus): string {
 export const SELF_IMPROVE_GIT_RULES = [
   "Each tick: one high-value improvement → npm test → git commit → git push to keep origin current.",
   "Never stage secrets (.env, credentials). Skip temp files (.tmp-*).",
-  "If git is ahead of origin or has uncommitted work, sync before starting new features.",
+  "If git is ahead of, behind, or dirty vs origin, sync before starting new features.",
 ].join(" ");

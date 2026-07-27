@@ -317,3 +317,39 @@ test("heuristicStrategyReview flags unpushed commits", () => {
   assert.ok(verdict.issues.includes("unpushed_commits"));
   assert.match(verdict.pivot ?? "", /Push/i);
 });
+
+test("heuristicStrategyReview flags behind origin", () => {
+  const cwd = initRepo();
+  const bare = mkdtempSync(join(tmpdir(), "strategy-origin-behind-"));
+  execFileSync("git", ["init", "--bare", "-b", "main"], { cwd: bare });
+  execFileSync("git", ["remote", "add", "origin", bare], { cwd });
+  execFileSync("git", ["push", "-u", "origin", "HEAD"], { cwd });
+
+  const other = mkdtempSync(join(tmpdir(), "strategy-other-"));
+  execFileSync("git", ["clone", bare, other]);
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: other });
+  execFileSync("git", ["config", "user.name", "Test User"], { cwd: other });
+  writeFileSync(join(other, "remote-only.txt"), "ahead on remote\n");
+  execFileSync("git", ["add", "remote-only.txt"], { cwd: other });
+  execFileSync("git", ["commit", "-m", "remote ahead"], { cwd: other });
+  execFileSync("git", ["push"], { cwd: other });
+  execFileSync("git", ["fetch", "origin"], { cwd });
+
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      cwd,
+      gitDiffStat: "(no uncommitted changes)",
+      gitSyncSummary: "behind",
+    },
+    "Implemented fix and npm test passes. committed.",
+  );
+  assert.equal(verdict.onTrack, false);
+  assert.ok(verdict.issues.includes("behind_origin"));
+  assert.match(verdict.pivot ?? "", /Pull\/rebase/i);
+  assert.match(verdict.recommendation, /behind/i);
+});
+
+test("strategyRecommendation maps behind_origin", () => {
+  assert.match(strategyRecommendation(false, ["behind_origin"]), /Pull\/rebase.*behind/i);
+});

@@ -319,6 +319,14 @@ export function heuristicStrategyReview(
       "Tests passed but work is uncommitted. Stage only your changes (skip .env and .tmp-*), commit with a clear message, then push.";
   }
 
+  if (gitStatus.available && gitStatus.behind > 0) {
+    score -= 15;
+    issues.push("behind_origin");
+    pivot =
+      pivot ??
+      `Pull/rebase ${gitStatus.behind} commit(s) from origin/${gitStatus.branch} before starting new work.`;
+  }
+
   if (gitStatus.available && gitStatus.unpushed) {
     score -= 10;
     issues.push("unpushed_commits");
@@ -415,6 +423,9 @@ export function strategyRecommendation(onTrack: boolean, issues: string[]): stri
   }
   if (issues.includes("uncommitted_work")) {
     return "Commit verified changes before starting new work.";
+  }
+  if (issues.includes("behind_origin")) {
+    return "Pull/rebase from origin before starting new work — local branch is behind.";
   }
   if (issues.includes("unpushed_commits")) {
     return "Push local commits to origin before starting new work.";
