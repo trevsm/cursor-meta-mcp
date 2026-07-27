@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  friendlyEpisodeActor,
   friendlyExperimentName,
   friendlySdkAgentLabel,
   humanizeSlug,
@@ -33,6 +34,14 @@ test("friendlySdkAgentLabel prefers worker context over raw ids", () => {
 test("humanizeSlug and shortId format SDK identifiers", () => {
   assert.equal(humanizeSlug("self-improve-fleet"), "Self Improve Fleet");
   assert.equal(shortId("agent-aa63128c-95ef-443b-8b99-a8e80203316a"), "aa63128c");
+});
+
+test("friendlyEpisodeActor maps sdk agent ids to worker labels", () => {
+  const index = indexWorkerAgents([
+    { name: "sdk-worker-1", agentId: "agent-abc", checkpoint: { ticks: 2, lastTick: { tick: 2 } } },
+  ]);
+  assert.equal(friendlyEpisodeActor("agent-abc", index), "Self-improve worker #1 · tick 2");
+  assert.equal(friendlyEpisodeActor("sdk-worker"), "Self-improve worker");
 });
 
 test("indexWorkerAgents links agentId to worker experiment", () => {

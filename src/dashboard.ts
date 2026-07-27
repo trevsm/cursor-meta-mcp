@@ -12,6 +12,7 @@ import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
 import {
   friendlyExperimentName,
+  friendlyEpisodeActor,
   friendlySdkAgentLabel,
   indexWorkerAgents,
 } from "./fleet-labels.js";
@@ -472,8 +473,10 @@ export function buildActiveSummary(input: {
   }
 
   const episodes = input.recentEpisodes ?? [];
+  const agentIndex = indexWorkerAgents(input.experiments);
   for (const ep of episodes.slice(0, 2)) {
-    const text = [ep.actor, ep.action, ep.outcome].filter(Boolean).join(" · ");
+    const actor = friendlyEpisodeActor(ep.actor, agentIndex);
+    const text = [actor, ep.action, ep.outcome].filter(Boolean).join(" · ");
     if (text) {
       lines.push({
         level: ep.outcome === "failure" ? "bad" : ep.outcome === "partial" ? "warn" : "ok",

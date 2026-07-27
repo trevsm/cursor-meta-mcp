@@ -232,6 +232,36 @@ test("buildActiveSummary uses friendly labels for worker-session experiments", (
   assert.ok(summary.lines.some((line) => /IDE worker #2: auth expired/.test(line.text)));
 });
 
+test("buildActiveSummary friendly-labels recent episode actors", () => {
+  const agentId = "agent-episode-abc";
+  const summary = buildActiveSummary({
+    fleetHealth: { total: 1, alive: 1, watcherAlive: false, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    manifest: null,
+    budget: { warnings: [] },
+    strategyStatus: null,
+    pulse: { at: new Date().toISOString(), scanned: 0, live: [], frustrationEvents: [], orchestrationMatrix: [], parallelWorkspaces: [] },
+    experiments: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: {
+          exists: true,
+          ticks: 2,
+          lastTick: { tick: 2, at: new Date().toISOString(), agentId },
+        },
+      },
+    ],
+    recentEpisodes: [
+      { id: "ep-1", at: new Date().toISOString(), actor: agentId, action: "commit", outcome: "success" },
+    ],
+    spawnThoughts: [],
+  });
+  assert.ok(summary.lines.some((line) => /Self-improve worker #1 · tick 2 · commit · success/.test(line.text)));
+});
+
 test("collectSpawnThoughts includes worker tails and live chats", () => {
   const thoughts = collectSpawnThoughts({
     experiments: [

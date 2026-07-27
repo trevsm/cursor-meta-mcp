@@ -66,6 +66,26 @@ export function shortId(id: string): string {
   return trimmed.slice(0, 8);
 }
 
+export function friendlyEpisodeActor(
+  actor: string | undefined,
+  agentIndex?: Map<string, { workerName: string; tick?: number; agentName?: string }>,
+): string | undefined {
+  if (!actor) return undefined;
+  if (actor === "sdk-worker") return "Self-improve worker";
+  if (actor.startsWith("agent-")) {
+    const ctx = agentIndex?.get(actor);
+    if (ctx) {
+      return friendlySdkAgentLabel({
+        agentName: ctx.agentName,
+        workerExperiment: ctx.workerName,
+        tick: ctx.tick,
+      });
+    }
+    return friendlySdkAgentLabel({ agentName: "self-improve-fleet", agentId: actor });
+  }
+  return actor;
+}
+
 /** Map SDK agentId → owning worker experiment + latest tick (from checkpoints). */
 export function indexWorkerAgents(
   experiments: Array<{
