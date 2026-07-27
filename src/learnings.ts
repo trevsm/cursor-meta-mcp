@@ -56,6 +56,9 @@ export function compactLearnings(metaDir?: string): number {
   const bodies = lines.map(learningBody);
   const hasShellLesson = bodies.some((body) => /shell:true/i.test(body));
   const hasTransportLesson = bodies.some((body) => /transport dropped/i.test(body));
+  const hasAgentMissingLesson = bodies.some((body) =>
+    /ENOENT means the binary is missing|Install Cursor Agent CLI/i.test(body),
+  );
 
   const seen = new Set<string>();
   const kept: string[] = [];
@@ -75,6 +78,13 @@ export function compactLearnings(metaDir?: string): number {
       hasTransportLesson &&
       !/transport dropped/i.test(body) &&
       (/connection lost|reconnect(?:ing|ed)? to https?:\/\/agent|^Retry attem/i.test(body))
+    ) {
+      continue;
+    }
+    if (
+      hasAgentMissingLesson &&
+      !/ENOENT means the binary is missing|Install Cursor Agent CLI/i.test(body) &&
+      /spawn .+ ENOENT|Agent CLI not installed/i.test(body)
     ) {
       continue;
     }
@@ -121,6 +131,9 @@ export function lessonFromTickError(error: string | undefined): string | null {
   }
   if (/connection lost|reconnect(?:ing|ed)? to https?:\/\/agent/i.test(msg)) {
     return "Agent transport dropped mid-tick — retry once; if persistent, check network or fall back to IDE worker";
+  }
+  if (/spawn .+ ENOENT|Agent CLI not installed|ENOENT.*\.local\/bin\/agent/i.test(msg)) {
+    return "Install Cursor Agent CLI at ~/.local/bin/agent before CLI fleet workers — ENOENT means the binary is missing";
   }
   return `Tick infra failure: ${msg.slice(0, 200)}`;
 }

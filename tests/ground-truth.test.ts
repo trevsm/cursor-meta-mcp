@@ -133,6 +133,17 @@ test("recordTickLesson maps agent transport drops", () => {
   assert.match(lesson, /transport dropped/i);
 });
 
+test("recordTickLesson maps missing Agent CLI ENOENT", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-enoent-"));
+  const lesson = recordTickLesson({
+    metaDir,
+    error: "spawn /Users/trevorsmith/.local/bin/agent ENOENT",
+  });
+  assert.ok(lesson);
+  assert.match(lesson, /ENOENT means the binary is missing/i);
+  assert.match(formatLearningsForPrompt(metaDir), /Install Cursor Agent CLI/i);
+});
+
 test("compactLearnings drops raw infra dumps superseded by classified lessons", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "learnings-compact-"));
   appendLearning(
@@ -144,11 +155,19 @@ test("compactLearnings drops raw infra dumps superseded by classified lessons", 
     metaDir,
   );
   appendLearning(
+    "Tick infra failure: spawn /Users/trevorsmith/.local/bin/agent ENOENT",
+    metaDir,
+  );
+  appendLearning(
     "Never spawn Agent CLI with shell:true — prompts with ;/`()` are executed by sh; pass argv without a shell",
     metaDir,
   );
   appendLearning(
     "Agent transport dropped mid-tick — retry once; if persistent, check network or fall back to IDE worker",
+    metaDir,
+  );
+  appendLearning(
+    "Install Cursor Agent CLI at ~/.local/bin/agent before CLI fleet workers — ENOENT means the binary is missing",
     metaDir,
   );
   // Orphans left by a prior broken compact of multi-line dumps
@@ -164,4 +183,5 @@ test("compactLearnings drops raw infra dumps superseded by classified lessons", 
   assert.equal(/undated orphan/i.test(body), false);
   assert.match(body, /shell:true/i);
   assert.match(body, /transport dropped/i);
+  assert.match(body, /ENOENT means the binary is missing/i);
 });
