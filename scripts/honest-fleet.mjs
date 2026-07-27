@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 /**
- * Honest loop fleet — one locked SDK worker in an isolated worktree.
- *
- * Phase 1: prove ground-truth ticks (git + test:fast) before scaling parallelism.
+ * Honest loop fleet — one locked worker in an isolated worktree.
+ * Preflights auth before spawn; falls back to IDE worker when SDK creds missing.
  */
 import { launchSelfImproveFleet } from "../src/self-improve.js";
+import { probeWorkerAuth, resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
 
 const cwd = process.argv[2] ?? process.cwd();
+
+const auth = await probeWorkerAuth();
+const mode = await resolveHonestWorkerMode("sdk");
+console.error(`[honest-fleet] preflight auth=${JSON.stringify(auth)} resolvedMode=${mode}`);
+console.error(`[honest-fleet] ${workerAuthHint(auth)}`);
+if (!auth.sdk && mode === "ide") {
+  console.error("[honest-fleet] SDK unavailable — launching IDE long-session worker instead.");
+}
 
 const manifest = await launchSelfImproveFleet({
   cwd,

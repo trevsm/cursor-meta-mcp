@@ -1,3 +1,4 @@
+import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -412,6 +413,15 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
     // Thrown errors (e.g. continueOnTimeout=false) have no skipped marker and hard-stop.
     const softFailure = entry.skipped != null;
     if (entry.error && !softFailure) {
+      try {
+        entry.lessonRecorded =
+          recordTickLesson({ error: entry.error, metaDir }) ?? undefined;
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    if (entry.error && !softFailure) {
       state.ticks.push(entry);
       state.stoppedBecause = "error";
       writeCheckpoint({ ...state, stoppedBecause: "error" }, checkpointPath);
@@ -622,11 +632,12 @@ export function spawnLongSession(params: LongSessionParams): SpawnLongSessionRes
   const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const command = buildLongSessionArgs({ ...params, checkpointPath });
   const out = openAppendLog(logPath);
-  const child = spawn(process.execPath, command, {
+  const nodeBin = resolveWorkerNodeBin();
+  const child = spawn(nodeBin, command, {
     cwd: packageRoot,
     detached: true,
     stdio: ["ignore", out, out],
-    env: process.env,
+    env: envForWorkers(),
   });
   child.unref();
 
@@ -634,7 +645,7 @@ export function spawnLongSession(params: LongSessionParams): SpawnLongSessionRes
     pid: child.pid ?? -1,
     checkpointPath,
     logPath,
-    command: [process.execPath, ...command],
+    command: [nodeBin, ...command],
   };
 }
 

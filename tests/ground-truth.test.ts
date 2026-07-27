@@ -72,3 +72,16 @@ test("recordTickLesson writes from ground-truth audit", () => {
   assert.ok(lesson);
   assert.match(formatLearningsForPrompt(metaDir), /ground truth/i);
 });
+
+test("recordTickLesson writes from tick infra errors", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-err-"));
+  const lesson = recordTickLesson({
+    metaDir,
+    error: "No auth available. Set CURSOR_API_KEY or run ~/.local/bin/agent login.",
+  });
+  assert.ok(lesson);
+  assert.match(formatLearningsForPrompt(metaDir), /Preflight SDK auth/i);
+  const dup = recordTickLesson({ metaDir, error: "No auth available. Set CURSOR_API_KEY or run ~/.local/bin/agent login." });
+  assert.equal(dup, null);
+  assert.equal(readFileSync(join(metaDir, "world", "learnings.md"), "utf8").split("\n").filter(Boolean).length, 1);
+});

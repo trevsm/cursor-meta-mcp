@@ -25,13 +25,15 @@ export function formatLearningsForPrompt(metaDir?: string): string {
   return ["Prior lessons (follow on every tick):", body, ""].join("\n");
 }
 
-export function appendLearning(lesson: string, metaDir?: string): void {
+export function appendLearning(lesson: string, metaDir?: string): boolean {
   const trimmed = lesson.trim();
-  if (!trimmed) return;
+  if (!trimmed) return false;
   const path = learningsPath(metaDir);
+  if (existsSync(path) && readFileSync(path, "utf8").includes(trimmed)) return false;
   mkdirSync(dirname(path), { recursive: true });
   const stamp = new Date().toISOString().slice(0, 10);
   writeFileSync(path, `- [${stamp}] ${trimmed}\n`, { flag: "a" });
+  return true;
 }
 
 export function lessonFromGroundTruth(audit: GroundTruthAudit): string | null {
@@ -44,16 +46,33 @@ export function lessonFromTestFailure(outcome: TickOutcome): string | null {
   return `test:fast failed (${outcome.tests.failed ?? "?"} failing) — fix before claiming done`;
 }
 
+export function lessonFromTickError(error: string | undefined): string | null {
+  const msg = error?.trim();
+  if (!msg) return null;
+  if (/no auth available|CURSOR_API_KEY is not set/i.test(msg)) {
+    return "Preflight SDK auth before fleet launch — set CURSOR_API_KEY in ~/.cursor/.env or run ~/.local/bin/agent login";
+  }
+  if (/better-sqlite3|NODE_MODULE_VERSION/i.test(msg)) {
+    return "Run fleet and pulse on Node 22 — npm rebuild better-sqlite3 if ABI mismatches";
+  }
+  if (/timed out waiting for chat/i.test(msg)) {
+    return "Chat idle wait timed out — reduce tick scope or increase waitTimeoutMs";
+  }
+  return `Tick infra failure: ${msg.slice(0, 200)}`;
+}
+
 /** Record durable lessons from verified tick failures. */
 export function recordTickLesson(params: {
   audit?: GroundTruthAudit;
   outcome?: TickOutcome;
+  error?: string;
   metaDir?: string;
 }): string | null {
   const fromTruth = params.audit ? lessonFromGroundTruth(params.audit) : null;
   const fromTests = params.outcome ? lessonFromTestFailure(params.outcome) : null;
-  const lesson = fromTruth ?? fromTests;
+  const fromError = params.error ? lessonFromTickError(params.error) : null;
+  const lesson = fromTruth ?? fromTests ?? fromError;
   if (!lesson) return null;
-  appendLearning(lesson, params.metaDir);
+  if (!appendLearning(lesson, params.metaDir)) return null;
   return lesson;
 }

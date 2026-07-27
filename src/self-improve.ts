@@ -16,6 +16,7 @@ import {
   SELF_IMPROVE_GIT_RULES,
 } from "./git-sync.js";
 import { spawnLongSession, type LongSessionParams } from "./long-session.js";
+import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 import { formatLearningsForPrompt } from "./learnings.js";
 import { spawnSdkWorker, type SdkWorkerParams } from "./sdk-worker.js";
 import { experimentsDir, metaHome } from "./meta-home.js";
@@ -29,6 +30,12 @@ import { acquireLock, pruneStaleLocks, releaseLock } from "./process-lock.js";
 import {
   DEFAULT_SELF_IMPROVE_GOAL,
 } from "./strategy-review.js";
+import {
+  resolveHonestWorkerMode,
+  probeWorkerAuth,
+  workerAuthHint,
+  type WorkerAuthStatus,
+} from "./worker-auth.js";
 import { pushGoal, setNorthStar } from "./world-model.js";
 
 export interface SelfImproveParams {
@@ -77,6 +84,8 @@ export interface SelfImproveManifest {
   dedicatedWorker: { sessionId: string; sessionIndex: number | null };
   experiments: SelfImproveExperiment[];
   manifestPath: string;
+  workerMode?: string;
+  workerAuth?: WorkerAuthStatus & { note?: string };
   watcherPid?: number;
   strategyReviewerPid?: number;
 }
@@ -155,12 +164,13 @@ function spawnDetached(
 ): { name: string; pid: number; logPath: string; command: string } {
   writeFileSync(logPath, `[${new Date().toISOString()}] starting ${name}\n`, { flag: "a" });
   const out = openSync(logPath, "a");
-  const command = [process.execPath, ...args].join(" ");
-  const child = spawn(process.execPath, args, {
+  const nodeBin = resolveWorkerNodeBin();
+  const command = [nodeBin, ...args].join(" ");
+  const child = spawn(nodeBin, args, {
     cwd,
     detached: true,
     stdio: ["ignore", out, out],
-    env: process.env,
+    env: envForWorkers(),
   });
   child.unref();
   return { name, pid: child.pid ?? -1, logPath, command };
@@ -189,6 +199,16 @@ function longSessionParams(
     checkpointPath,
     prompt,
     metaDir: metaHome(),
+  };
+}
+
+export function fleetSpawnPlan(
+  workerMode: "ide" | "sdk" | "hybrid",
+  parallelWorkers: number,
+): { spawnIde: boolean; spawnSdk: boolean } {
+  return {
+    spawnIde: workerMode === "ide" || workerMode === "hybrid",
+    spawnSdk: (workerMode === "sdk" || workerMode === "hybrid") && parallelWorkers > 0,
   };
 }
 
@@ -238,13 +258,20 @@ async function launchFleetProcesses(
   assertBudgetAllowed("spawn_fleet_worker");
   recordBudgetEvent({ at: new Date().toISOString(), action: "fleet_start", source: "meta_self_improve" });
   const prompt = buildSelfImprovePrompt(cwd, params.prompt, metaDir);
-  const workerMode = params.workerMode ?? "sdk";
+  const auth = await probeWorkerAuth();
+  const workerMode = await resolveHonestWorkerMode(params.workerMode);
+  const authNote = workerAuthHint(auth);
+  writeFileSync(join(metaDir, "worker-auth.json"), JSON.stringify({ at: new Date().toISOString(), ...auth, note: authNote }, null, 2));
+  if (workerMode !== (params.workerMode ?? "sdk")) {
+    writeFileSync(join(metaDir, "fleet-launch.log"), `[${new Date().toISOString()}] ${authNote}\n`, { flag: "a" });
+  }
   const parallelWorkers = Math.min(
     params.parallelWorkers ?? 1,
     limits.maxConcurrentWorkers,
   );
-  const spawnIde = workerMode === "ide" || workerMode === "hybrid";
-  const spawnSdk = workerMode === "sdk" || workerMode === "hybrid" || parallelWorkers > 0;
+  const { spawnIde, spawnSdk } = fleetSpawnPlan(workerMode, parallelWorkers);
+
+  console.error(`[fleet] workerMode=${workerMode} auth=${JSON.stringify(auth)} — ${authNote}`);
 
   let sessionId = "";
   let dedicatedIndex: number | null = null;
@@ -285,6 +312,8 @@ async function launchFleetProcesses(
     dedicatedWorker: { sessionId: sessionId || "headless", sessionIndex: dedicatedIndex },
     experiments,
     manifestPath,
+    workerMode,
+    workerAuth: { ...auth, note: authNote },
   };
 
   // Persist after every spawn: a launch that dies midway must still leave a manifest
@@ -484,11 +513,12 @@ async function launchFleetProcesses(
     const watchLog = join(metaDir, "watch.log");
     writeFileSync(watchLog, `[${new Date().toISOString()}] spawning watch-experiments\n`, { flag: "a" });
     const watchOut = openSync(watchLog, "a");
-    const watcher = spawn(process.execPath, ["--import", "tsx", "scripts/watch-experiments.mjs", "--interval", "30s"], {
+    const nodeBin = resolveWorkerNodeBin();
+    const watcher = spawn(nodeBin, ["--import", "tsx", "scripts/watch-experiments.mjs", "--interval", "30s"], {
       cwd: packageRoot(),
       detached: true,
       stdio: ["ignore", watchOut, watchOut],
-      env: process.env,
+      env: envForWorkers(),
     });
     watcher.unref();
     manifest.watcherPid = watcher.pid ?? undefined;

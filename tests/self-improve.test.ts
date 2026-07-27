@@ -100,6 +100,13 @@ mock.module("../src/sdk-worker.js", {
 mock.module("../src/git-worktree.js", {
   namedExports: { createWorkerWorktree },
 });
+mock.module("../src/worker-auth.js", {
+  namedExports: {
+    probeWorkerAuth: async () => ({ apiKey: true, cli: true, sdk: true }),
+    resolveHonestWorkerMode: async (mode?: string) => (mode === "ide" ? "ide" : "sdk"),
+    workerAuthHint: () => "mock auth ok",
+  },
+});
 mock.module("../src/consciousness-pulse.js", {
   namedExports: {
     runConsciousnessPulse: mock.fn(() => ({
@@ -109,7 +116,7 @@ mock.module("../src/consciousness-pulse.js", {
   },
 });
 
-const { buildSelfImprovePrompt, launchSelfImproveFleet } = await import("../src/self-improve.js");
+const { buildSelfImprovePrompt, fleetSpawnPlan, launchSelfImproveFleet } = await import("../src/self-improve.js");
 
 after(() => mock.restoreAll());
 
@@ -144,6 +151,18 @@ test("launchSelfImproveFleet spawns one sdk worker by default", async () => {
 
   assert.equal(spawnSdkWorker.mock.callCount(), 1);
   assert.ok(manifest.experiments.some((exp) => exp.name.startsWith("sdk-worker")));
+});
+
+test("fleetSpawnPlan does not spawn sdk when mode is ide", () => {
+  const plan = fleetSpawnPlan("ide", 1);
+  assert.equal(plan.spawnIde, true);
+  assert.equal(plan.spawnSdk, false);
+});
+
+test("fleetSpawnPlan spawns sdk only for sdk/hybrid modes", () => {
+  assert.equal(fleetSpawnPlan("sdk", 1).spawnSdk, true);
+  assert.equal(fleetSpawnPlan("sdk", 0).spawnSdk, false);
+  assert.equal(fleetSpawnPlan("hybrid", 2).spawnSdk, true);
 });
 
 test("launchSelfImproveFleet waits for dedicated chat when workerMode ide", async () => {

@@ -135,9 +135,12 @@ export function setNorthStar(text: string, metaDir?: string): WorldModel {
 
 export function pushGoal(text: string, metaDir?: string, parentId?: string): WorldGoal {
   const model = loadWorldModel(metaDir);
+  const trimmed = text.trim();
+  const existing = model.goals.find((row) => row.status === "active" && row.text === trimmed);
+  if (existing) return existing;
   const goal: WorldGoal = {
     id: newId("goal"),
-    text: text.trim(),
+    text: trimmed,
     status: "active",
     createdAt: new Date().toISOString(),
     parentId,

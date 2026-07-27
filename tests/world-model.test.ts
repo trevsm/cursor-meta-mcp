@@ -25,6 +25,8 @@ test("world model persists north star, goals, beliefs, failures, episodes", () =
 
   setNorthStar("Build persistent autonomous intelligence", metaDir);
   const goal = pushGoal("Add world model store", metaDir);
+  const dup = pushGoal("Add world model store", metaDir);
+  assert.equal(dup.id, goal.id);
   addBelief("Dashboard polls /api/live every 2s", metaDir, "test");
   recordFailure("npm test on Node 24", "better-sqlite3 ABI mismatch", metaDir);
   appendEpisode(

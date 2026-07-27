@@ -255,7 +255,7 @@ test("runLongSession stops on hard errors", async () => {
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 60_000,
+    durationMs: 200,
     tickIntervalMs: 1,
     maxTicks: 5,
     checkpointPath: `/tmp/long-session-error-${Date.now()}.json`,
@@ -574,7 +574,7 @@ test("runLongSession continues through session-not-found soft skips", async () =
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    durationMs: 60_000,
+    durationMs: 200,
     tickIntervalMs: 1,
     maxTicks: 10,
     maxConsecutiveErrors: 5,
@@ -675,7 +675,7 @@ test("runLongSession stops after consecutive soft timeouts", async () => {
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 60_000,
+    durationMs: 200,
     tickIntervalMs: 1,
     maxTicks: 10,
     maxConsecutiveErrors: 3,
@@ -710,7 +710,7 @@ test("runLongSession stops at maxTicks", async () => {
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 60_000,
+    durationMs: 200,
     tickIntervalMs: 1,
     maxTicks: 2,
     checkpointPath: `/tmp/long-session-maxticks-${Date.now()}.json`,
@@ -746,7 +746,7 @@ test("runLongSession hard-stops when continueOnTimeout is false", async () => {
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 60_000,
+    durationMs: 200,
     tickIntervalMs: 1,
     maxTicks: 10_000,
     continueOnTimeout: false,

@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
+
 import { CursorLocalService, type LocalAgentService } from "./cursor-local.js";
 import { auditGroundTruth, type GroundTruthAudit } from "./ground-truth.js";
 import { metaHome, metaPath } from "./meta-home.js";
@@ -17,6 +19,7 @@ import {
   type TickOutcome,
 } from "./tick-outcome.js";
 import { appendEpisode } from "./world-model.js";
+import { probeWorkerAuth, workerAuthHint } from "./worker-auth.js";
 
 export interface SdkWorkerParams {
   cwd: string;
@@ -142,7 +145,12 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
   state.checkpointPath = checkpointPath;
   const tickIntervalMs = params.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const metaDir = params.metaDir ?? metaHome();
-  const service = params.service ?? new CursorLocalService({ apiKey: process.env.CURSOR_API_KEY });
+  const workerEnv = envForWorkers();
+  const auth = await probeWorkerAuth(workerEnv);
+  if (!auth.sdk) {
+    throw new Error(`SDK worker refused to start: ${workerAuthHint(auth)}`);
+  }
+  const service = params.service ?? new CursorLocalService({ apiKey: workerEnv.CURSOR_API_KEY });
   const verifyTests =
     params.verifyTests ??
     (process.env.CURSOR_META_SKIP_TICK_TESTS === "1" ? undefined : (cwd: string) => runTests({ cwd }));
@@ -174,6 +182,13 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
             outcome: entry.outcome,
             metaDir,
           }) ?? undefined;
+      } catch {
+        /* best-effort */
+      }
+    } else {
+      try {
+        entry.lessonRecorded =
+          recordTickLesson({ error: entry.error, metaDir }) ?? undefined;
       } catch {
         /* best-effort */
       }
@@ -300,11 +315,12 @@ export function spawnSdkWorker(params: SdkWorkerParams): SpawnSdkWorkerResult {
   const command = buildSdkWorkerArgs({ ...params, checkpointPath });
   writeFileSync(logPath, `[${new Date().toISOString()}] sdk worker starting\n`, { flag: "a" });
   const out = openSync(logPath, "a");
-  const child = spawn(process.execPath, command, {
+  const nodeBin = resolveWorkerNodeBin();
+  const child = spawn(nodeBin, command, {
     cwd: packageRoot,
     detached: true,
     stdio: ["ignore", out, out],
-    env: process.env,
+    env: envForWorkers(),
   });
   child.unref();
 
@@ -312,6 +328,6 @@ export function spawnSdkWorker(params: SdkWorkerParams): SpawnSdkWorkerResult {
     pid: child.pid ?? -1,
     checkpointPath,
     logPath,
-    command: [process.execPath, ...command],
+    command: [nodeBin, ...command],
   };
 }
