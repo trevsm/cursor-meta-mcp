@@ -36,3 +36,8 @@ test("resolveHonestWorkerMode defaults to ide without api key", async () => {
   const mode = await resolveHonestWorkerMode(undefined, {});
   assert.equal(mode, "ide");
 });
+
+test("resolveHonestWorkerMode honors explicit ide mode even with api key", async () => {
+  const mode = await resolveHonestWorkerMode("ide", { CURSOR_API_KEY: "test-key" });
+  assert.equal(mode, "ide");
+});
