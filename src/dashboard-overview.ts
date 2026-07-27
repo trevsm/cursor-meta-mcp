@@ -96,10 +96,14 @@ export function buildFleetOverview(input: {
   }
 
   if (fh.alive === 0) {
+    const sdk = workerActivity.find((row) => row.name.startsWith("sdk-worker"));
+    const lastSession = sdk?.statusText?.startsWith("Last session:") ? sdk.statusText : null;
     return {
-      status: "bad",
-      headline: "Fleet stopped",
-      paragraph: `All ${fh.total} worker processes have stopped. Check logs and relaunch the fleet.`,
+      status: "idle",
+      headline: lastSession ? "Fleet stopped — session archived" : "Fleet stopped",
+      paragraph: lastSession
+        ? `${sdk?.displayName ?? "Worker"}: ${lastSession} Run npm run fleet:preflight before the next launch.`
+        : `All ${fh.total} worker processes have stopped. Check logs and relaunch when ready.`,
     };
   }
 

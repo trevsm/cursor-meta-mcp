@@ -19,6 +19,7 @@ import {
   heuristicStrategyReview,
   parseStrategyVerdict,
   runStrategyReview,
+  sdkWorkersShowVerifiedProgress,
   strategyRecommendation,
   type StrategyContext,
 } from "../src/strategy-review.js";
@@ -152,6 +153,30 @@ test("heuristicStrategyReview flags fragmented parallel tabs", () => {
   assert.ok(verdict.issues.includes("fragmented_parallel_tabs"));
   assert.equal(verdict.spawn?.role, "verifier");
   assert.match(verdict.recommendation, /parallel tabs|verifier/i);
+});
+
+test("sdkWorkersShowVerifiedProgress detects productive sdk checkpoints", () => {
+  assert.equal(
+    sdkWorkersShowVerifiedProgress(
+      "sdk-worker-1 #?: ticks=27 attempted=27 productive=27 ratio=100% errors=0 soft=0 stopped=duration last=ok",
+    ),
+    true,
+  );
+  assert.equal(sdkWorkersShowVerifiedProgress("(no worker checkpoints)"), false);
+});
+
+test("heuristicStrategyReview skips no_code_progress when sdk worker shipped", () => {
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      gitDiffStat: "(no uncommitted changes)",
+      transcriptTail: "Discussing next steps.",
+      workerSummary:
+        "sdk-worker-1 #?: ticks=12 attempted=12 productive=12 ratio=100% errors=0 soft=0 stopped=duration last=ok",
+    },
+    "Discussing next steps.",
+  );
+  assert.ok(!verdict.issues.includes("no_code_progress"));
 });
 
 test("heuristicStrategyReview flags architecture theater without code progress", () => {

@@ -127,6 +127,26 @@ function summarizeWorkers(
   return lines.join("\n");
 }
 
+/** True when headless SDK checkpoints show verified shipping this session. */
+export function sdkWorkersShowVerifiedProgress(workerSummary: string): boolean {
+  for (const line of workerSummary.split("\n")) {
+    if (!/sdk-worker/.test(line)) continue;
+    const productive = /productive=(\d+)/.exec(line);
+    if (productive && Number(productive[1]) > 0) return true;
+    const attempted = /attempted=(\d+)/.exec(line);
+    const ratio = /ratio=(\d+)%/.exec(line);
+    if (
+      attempted &&
+      ratio &&
+      Number(attempted[1]) >= 1 &&
+      Number(ratio[1]) >= PRODUCTIVE_TICK_GATE * 100
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function loadTranscriptTail(
   sessionIndex?: number,
   sessionId?: string,
@@ -305,7 +325,11 @@ export function heuristicStrategyReview(
       "No more architecture. Ship one verified improvement: fix a test, tighten a heuristic, or close a coverage gap.";
   }
 
-  if (context.gitDiffStat === "(no uncommitted changes)" && !CONCRETE_PROGRESS.test(transcriptTail)) {
+  if (
+    context.gitDiffStat === "(no uncommitted changes)" &&
+    !CONCRETE_PROGRESS.test(transcriptTail) &&
+    !sdkWorkersShowVerifiedProgress(context.workerSummary)
+  ) {
     score -= 20;
     issues.push("no_code_progress");
   }

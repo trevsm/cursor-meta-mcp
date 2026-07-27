@@ -112,7 +112,7 @@ function renderWorkerActivity(rows) {
                 <div class="worker-role">${escapeHtml(worker.role)}</div>
               </div>
             </div>
-            ${pill(worker.status === "active" ? "alive" : worker.status === "error" ? "bad" : worker.alive ? "ok" : "dead")}
+            ${pill(!worker.alive ? "dead" : worker.status === "active" ? "alive" : worker.status === "error" ? "bad" : "ok")}
           </div>
           <div class="worker-status">${escapeHtml(worker.statusText)}</div>
           ${stats ? `<div class="worker-stats">${stats}</div>` : ""}

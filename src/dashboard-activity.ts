@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 
+import { formatArchivedSessionSummary, listArchivedWorkerSessions } from "./checkpoint-archive.js";
 import { friendlyExperimentName } from "./fleet-labels.js";
 import type { DashboardExperimentRow } from "./dashboard.js";
 import { tailRunEvents } from "./run-events.js";
@@ -150,22 +151,32 @@ export function buildWorkerActivity(
     if (exp.name.startsWith("sdk-worker")) {
       const ticks = readCheckpointTicks(exp.checkpointPath).slice(-5).reverse().map(tickBreakdown);
       const liveEvents = liveEventsForAgent(exp.agentId, metaDir);
-      const activeRun = liveEvents.some(
-        (event) => event.at && Date.now() - Date.parse(event.at) < 120_000,
-      );
+      const activeRun =
+        alive &&
+        liveEvents.some((event) => event.at && Date.now() - Date.parse(event.at) < 120_000);
       rows.push({
         name: exp.name,
         displayName,
         alive,
         role: WORKER_ROLES[exp.name] ?? "Ships verified diffs: test → commit → push",
-        status: err ? "error" : activeRun ? "active" : status,
+        status: !alive ? "dead" : err ? "error" : activeRun ? "active" : status,
         statusText: err
           ? err.slice(0, 160)
           : activeRun
             ? (liveEvents[0]?.text ?? "Running SDK tick…")
-            : (ticks[0]?.workSummary ??
-              ticks[0]?.outcomeSummary ??
-              (cp?.ticks ? `Tick ${cp.ticks} complete, awaiting next interval` : "Starting…")),
+            : (() => {
+                const archives = exp.checkpointPath
+                  ? listArchivedWorkerSessions(exp.checkpointPath, 1)
+                  : [];
+                if (archives[0] && (cp?.ticks ?? 0) === 0) {
+                  return `Last session: ${formatArchivedSessionSummary(archives[0])}`;
+                }
+                return (
+                  ticks[0]?.workSummary ??
+                  ticks[0]?.outcomeSummary ??
+                  (cp?.ticks ? `Tick ${cp.ticks} complete, awaiting next interval` : "Starting…")
+                );
+              })(),
         ticksCompleted: cp?.ticks ?? 0,
         productiveRatio: cp?.productiveRatio,
         recentTicks: ticks,

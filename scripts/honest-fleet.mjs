@@ -4,11 +4,19 @@
  * Requires CURSOR_API_KEY; exits before spawn when the key is missing.
  */
 import { launchSelfImproveFleet } from "../src/self-improve.js";
-import { probeWorkerAuth, resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
+import { runFleetPreflight } from "../src/fleet-preflight.js";
+import { resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
 
 const cwd = process.argv[2] ?? process.cwd();
 
-const auth = await probeWorkerAuth();
+const preflight = await runFleetPreflight({ cwd, skipSmokeTest: true });
+for (const warning of preflight.warnings) console.error(`[honest-fleet] warn: ${warning}`);
+if (!preflight.ok) {
+  for (const failure of preflight.failures) console.error(`[honest-fleet] ${failure}`);
+  process.exit(1);
+}
+
+const auth = preflight.auth;
 const mode = await resolveHonestWorkerMode("sdk");
 console.error(`[honest-fleet] preflight auth=${JSON.stringify(auth)} resolvedMode=${mode}`);
 console.error(`[honest-fleet] ${workerAuthHint(auth)}`);

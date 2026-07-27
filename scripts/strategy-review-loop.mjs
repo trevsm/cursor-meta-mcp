@@ -13,6 +13,7 @@ import { CursorLocalService } from "../src/cursor-local.js";
 import { interceptIdeChat } from "../src/ide-chat-control.js";
 import { killExperimentBySessionIndex, killExperimentsByName } from "../src/fleet-control.js";
 import { experimentsDir } from "../src/meta-home.js";
+import { appendExperimentLog, formatStrategyLogLine } from "../src/experiment-log.js";
 import { acquireLockWithCleanup } from "../src/process-lock.js";
 import {
   DEFAULT_SELF_IMPROVE_CRITERIA,
@@ -48,7 +49,7 @@ function sleep(ms) {
 }
 
 function appendLog(line) {
-  writeFileSync(LOG_PATH, `${line}\n`, { flag: "a" });
+  appendExperimentLog(LOG_PATH, line);
 }
 
 function readJson(path) {
@@ -172,7 +173,7 @@ async function reviewOnce(params) {
   };
 
   writeFileSync(STATUS_PATH, JSON.stringify(snapshot, null, 2));
-  appendLog(JSON.stringify(snapshot));
+  appendLog(formatStrategyLogLine(snapshot));
   console.error(JSON.stringify(snapshot));
   return snapshot;
 }

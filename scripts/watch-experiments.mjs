@@ -25,6 +25,7 @@ import {
   isWorkerStalled,
   relaunchBlockedReason,
 } from "../src/fleet-metrics.js";
+import { appendExperimentLog, formatWatchLogLine } from "../src/experiment-log.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
 import { envForWorkers, resolveWorkerNodeBin } from "../src/load-env.js";
 import { experimentsDir, metaHome } from "../src/meta-home.js";
@@ -61,7 +62,7 @@ function sleep(ms) {
 }
 
 function appendLog(line) {
-  writeFileSync(WATCH_LOG, `${line}\n`, { flag: "a" });
+  appendExperimentLog(WATCH_LOG, line);
 }
 
 function pidAlive(pid) {
@@ -310,7 +311,7 @@ async function watchOnce(manifest, relaunch) {
   }
 
   writeFileSync(STATUS_PATH, JSON.stringify(snapshot, null, 2));
-  appendLog(JSON.stringify(snapshot));
+  appendLog(formatWatchLogLine(snapshot));
   console.error(JSON.stringify(snapshot));
   return snapshot;
 }

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 
+import { archiveWorkerCheckpointIfNeeded } from "./checkpoint-archive.js";
 import { CursorLocalService, type LocalAgentService } from "./cursor-local.js";
 import { auditGroundTruth, type GroundTruthAudit } from "./ground-truth.js";
 import { metaHome, metaPath } from "./meta-home.js";
@@ -155,6 +156,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
 
   const checkpointPath = params.checkpointPath ?? defaultSdkCheckpointPath();
   state.checkpointPath = checkpointPath;
+  archiveWorkerCheckpointIfNeeded(checkpointPath);
   writeSdkCheckpoint(state, checkpointPath);
   const tickIntervalMs = params.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const metaDir = params.metaDir ?? metaHome();

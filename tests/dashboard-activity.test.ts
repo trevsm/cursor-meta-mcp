@@ -99,6 +99,39 @@ test("buildWorkerActivity ignores stale sdk run events for active status", () =>
   assert.equal(rows[0]?.liveEvents.length, 1);
 });
 
+test("buildWorkerActivity does not mark dead sdk worker active from recent run events", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-dead-live-"));
+  const runsDir = join(metaDir, "runs");
+  mkdirSync(runsDir, { recursive: true });
+  const agentId = "agent-dead-live";
+  writeFileSync(
+    join(runsDir, "run-recent.jsonl"),
+    `${JSON.stringify({
+      type: "status",
+      message: "status FINISHED",
+      at: new Date().toISOString(),
+      runId: "run-recent",
+      agentId,
+    })}\n`,
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: false,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.status, "dead");
+});
+
 test("buildWorkerActivity marks busy-skipped sdk worker as active", () => {
   const rows = buildWorkerActivity([
     {
