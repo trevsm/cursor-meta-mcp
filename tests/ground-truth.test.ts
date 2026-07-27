@@ -89,6 +89,9 @@ test("detectCompletionClaims ignores conditional done phrasing", () => {
   assert.equal(detectCompletionClaims("Task complete once tests pass").claimedDone, false);
   assert.equal(detectCompletionClaims("Task complete when verified").claimedDone, false);
   assert.equal(detectCompletionClaims("ready to merge after review").claimedDone, false);
+  assert.equal(detectCompletionClaims("all done for now").claimedDone, false);
+  assert.equal(detectCompletionClaims("task complete for this PR").claimedDone, false);
+  assert.equal(detectCompletionClaims("this is done for today").claimedDone, false);
   assert.equal(detectCompletionClaims("The task is complete.").claimedDone, true);
 });
 
