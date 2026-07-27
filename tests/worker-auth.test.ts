@@ -5,7 +5,17 @@ mock.module("../src/agent-cli.js", {
   namedExports: { isAgentCliLoggedIn: async () => true },
 });
 
-const { resolveHonestWorkerMode } = await import("../src/worker-auth.js");
+const { probeWorkerAuth, resolveHonestWorkerMode } = await import("../src/worker-auth.js");
+
+test("probeWorkerAuth treats api key as sufficient for sdk", async () => {
+  const auth = await probeWorkerAuth({ CURSOR_API_KEY: "test-key" });
+  assert.deepEqual(auth, { apiKey: true, cli: true, sdk: true });
+});
+
+test("probeWorkerAuth falls back to cli login without api key", async () => {
+  const auth = await probeWorkerAuth({});
+  assert.deepEqual(auth, { apiKey: false, cli: true, sdk: true });
+});
 
 test("resolveHonestWorkerMode ignores CLI-only auth for detached SDK fleet", async () => {
   const mode = await resolveHonestWorkerMode("sdk", {});
