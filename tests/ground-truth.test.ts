@@ -98,7 +98,10 @@ test("detectCompletionClaims ignores haven't/didn't commit and imperative comple
 
 test("detectCompletionClaims ignores in-progress finished phrasing", () => {
   assert.equal(detectCompletionClaims("Finished refactoring the helper.").claimedDone, false);
+  assert.equal(detectCompletionClaims("almost finished").claimedDone, false);
+  assert.equal(detectCompletionClaims("nearly finished").claimedDone, false);
   assert.equal(detectCompletionClaims("finished").claimedDone, true);
+  assert.equal(detectCompletionClaims("just finished.").claimedDone, true);
 });
 
 test("auditGroundTruth blocks should-work-now claims without recorded outcome", () => {
