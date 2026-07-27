@@ -462,3 +462,19 @@ test("buildWorkerActivity maps orchestrator role and stopped strategy reviewer",
   assert.equal(strategy?.status, "dead");
   assert.equal(strategy?.statusText, "Stopped");
 });
+
+test("buildWorkerActivity marks stopped fleet watcher as dead", () => {
+  const rows = buildWorkerActivity([
+    {
+      name: "watch-experiments",
+      displayName: "Fleet watcher",
+      pid: 12,
+      alive: false,
+      checkpoint: { exists: true, ticks: 40 },
+    },
+  ]);
+
+  assert.equal(rows[0]?.status, "dead");
+  assert.equal(rows[0]?.statusText, "Stopped");
+  assert.match(rows[0]?.role ?? "", /Patrols workers/);
+});
