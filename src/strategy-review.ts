@@ -386,11 +386,15 @@ export function heuristicStrategyReview(
         ? "Pivot from architecture to one small verified diff."
         : issues.includes("no_code_progress")
           ? "Force a code change with npm test verification this tick."
-          : issues.includes("uncommitted_work")
-            ? "Commit verified changes before starting new work."
-            : issues.includes("unpushed_commits")
-              ? "Push local commits to origin before starting new work."
-              : "Adjust fleet topology or worker prompts.";
+          : issues.includes("low_productive_ratio")
+            ? "Raise productive-tick ratio: one verified git change + test:fast per tick; do not scale."
+            : issues.includes("uncommitted_work")
+              ? "Commit verified changes before starting new work."
+              : issues.includes("unpushed_commits")
+                ? "Push local commits to origin before starting new work."
+                : issues.includes("stale_workers")
+                  ? "Kill or relaunch dead workers, then resume verified shipping."
+                  : "Adjust fleet topology or worker prompts.";
 
   return {
     onTrack,

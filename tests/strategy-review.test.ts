@@ -198,6 +198,7 @@ test("heuristicStrategyReview flags low productive ratio without hard errors", (
   assert.ok(verdict.issues.includes("low_productive_ratio"));
   assert.equal(verdict.issues.includes("stale_workers"), false);
   assert.match(verdict.pivot ?? "", /30% gate/i);
+  assert.match(verdict.recommendation, /productive-tick ratio/i);
 });
 
 test("gatherStrategyContext uses default success criteria", () => {
