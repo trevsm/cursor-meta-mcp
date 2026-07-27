@@ -82,6 +82,20 @@ test("buildExperimentRows reads productive metrics from checkpoint files", () =>
   assert.equal(rows[0]?.checkpoint?.productiveRatio, 0.5);
 });
 
+test("buildExperimentRows reads agentId from checkpoint file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dashboard-agent-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      agentId: "agent-checkpoint-id",
+      ticks: [{ tick: 1, at: "2026-07-27T00:00:00.000Z", watchedMs: 1 }],
+    }),
+  );
+  const rows = buildExperimentRows([{ name: "sdk-worker-1", pid: 1, checkpointPath: path }], null);
+  assert.equal(rows[0]?.agentId, "agent-checkpoint-id");
+});
+
 test("buildExperimentRows marks corrupt checkpoints as existing", () => {
   const dir = mkdtempSync(join(tmpdir(), "dashboard-bad-cp-"));
   const path = join(dir, "worker.json");
