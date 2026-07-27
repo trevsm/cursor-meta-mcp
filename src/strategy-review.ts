@@ -394,7 +394,9 @@ export function heuristicStrategyReview(
                 ? "Push local commits to origin before starting new work."
                 : issues.includes("stale_workers")
                   ? "Kill or relaunch dead workers, then resume verified shipping."
-                  : "Adjust fleet topology or worker prompts.";
+                  : issues.includes("repeated_failure")
+                    ? "Same failure repeating — change approach or consult world-model skills before retrying."
+                    : "Adjust fleet topology or worker prompts.";
 
   return {
     onTrack,

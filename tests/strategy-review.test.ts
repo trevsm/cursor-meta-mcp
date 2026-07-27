@@ -128,6 +128,7 @@ test("heuristicStrategyReview flags repeated failures from world model", () => {
   );
   assert.ok(verdict.issues.includes("repeated_failure"));
   assert.ok(verdict.pivot?.includes("npm test"));
+  assert.match(verdict.recommendation, /change approach|world-model skills/i);
 });
 
 test("heuristicStrategyReview flags architecture theater without code progress", () => {
