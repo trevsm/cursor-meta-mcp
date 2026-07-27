@@ -396,7 +396,9 @@ export function heuristicStrategyReview(
                   ? "Kill or relaunch dead workers, then resume verified shipping."
                   : issues.includes("repeated_failure")
                     ? "Same failure repeating — change approach or consult world-model skills before retrying."
-                    : "Adjust fleet topology or worker prompts.";
+                    : issues.includes("fragmented_parallel_tabs")
+                      ? "Too many parallel tabs — spawn a verifier or cut parallelism; keep one shipping thread."
+                      : "Adjust fleet topology or worker prompts.";
 
   return {
     onTrack,

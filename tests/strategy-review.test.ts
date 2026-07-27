@@ -131,6 +131,21 @@ test("heuristicStrategyReview flags repeated failures from world model", () => {
   assert.match(verdict.recommendation, /change approach|world-model skills/i);
 });
 
+test("heuristicStrategyReview flags fragmented parallel tabs", () => {
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      gitDiffStat: " src/foo.ts | 4 ++",
+      transcriptTail: "Implemented fix and npm test passes.",
+      pulseSummary: "parallel cursor-meta-mcp: 4 tabs live=4 frustration=0",
+    },
+    "Implemented fix and npm test passes.",
+  );
+  assert.ok(verdict.issues.includes("fragmented_parallel_tabs"));
+  assert.equal(verdict.spawn?.role, "verifier");
+  assert.match(verdict.recommendation, /parallel tabs|verifier/i);
+});
+
 test("heuristicStrategyReview flags architecture theater without code progress", () => {
   const verdict = heuristicStrategyReview(baseContext, baseContext.transcriptTail);
   assert.equal(verdict.onTrack, false);
