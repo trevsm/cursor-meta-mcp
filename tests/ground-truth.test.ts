@@ -54,6 +54,13 @@ test("detectCompletionClaims ignores haven't/didn't commit and imperative comple
   assert.equal(detectCompletionClaims("All done. Task is complete.").claimedDone, true);
 });
 
+test("auditGroundTruth blocks ready-to-merge claims without recorded outcome", () => {
+  const audit = auditGroundTruth("Ready to merge after review.", undefined);
+  assert.equal(audit.blocked, true);
+  assert.equal(audit.claimedDone, true);
+  assert.ok(audit.violations.some((v) => /no tick outcome recorded/i.test(v)));
+});
+
 test("auditGroundTruth blocks done claims without recorded outcome", () => {
   const audit = auditGroundTruth("All done. Task is complete.", undefined);
   assert.equal(audit.blocked, true);
