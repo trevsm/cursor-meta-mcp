@@ -19,9 +19,10 @@ import { spawnLongSession, type LongSessionParams } from "./long-session.js";
 import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 import { formatGenomeForPrompt, ensureGenome } from "./genome.js";
 import { fleetTargetWarning, formatVerifyCommandLabel, resolveVerifyCommands } from "./fleet-target.js";
+import { formatCiRulesForPrompt, resolveFleetCiPolicy } from "./fleet-ci-policy.js";
 import { TICK_REPORT_INSTRUCTION } from "./ground-truth.js";
 import { formatLearningsForPrompt } from "./learnings.js";
-import { spawnSdkWorker, type SdkWorkerParams } from "./sdk-worker.js";
+import { spawnSdkWorker, resolveTickIntervalMs, type SdkWorkerParams } from "./sdk-worker.js";
 import { experimentsDir, metaHome } from "./meta-home.js";
 import {
   assertBudgetAllowed,
@@ -159,9 +160,11 @@ export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: str
   }
 
   const verify = formatVerifyCommandLabel(resolveVerifyCommands(cwd));
+  const ciPolicy = resolveFleetCiPolicy(cwd);
   lines.push(
     "Rules: no user questions, no architecture theater.",
     `Verify before tick report: ${verify}`,
+    formatCiRulesForPrompt(ciPolicy, verify),
     TICK_REPORT_INSTRUCTION,
     selfImproveGitRules(cwd),
   );
@@ -359,7 +362,7 @@ async function launchFleetProcesses(
   );
   assertBudgetAllowed("spawn_fleet_worker");
   recordBudgetEvent({ at: new Date().toISOString(), action: "fleet_start", source: "meta_self_improve" });
-  const prompt = buildSelfImprovePrompt(cwd, params.prompt, metaDir);
+  const prompt = buildSelfImprovePrompt(cwd, params.prompt ?? params.goal, metaDir);
   const auth = await probeWorkerAuth();
   const workerMode = await resolveHonestWorkerMode(params.workerMode);
   const authNote = workerAuthHint(auth);
@@ -453,7 +456,7 @@ async function launchFleetProcesses(
       const sdkCfg: SdkWorkerParams = {
         cwd: workerCwd,
         durationMs,
-        tickIntervalMs: 60_000,
+        tickIntervalMs: resolveTickIntervalMs(),
         maxTicks: 500,
         checkpointPath,
         prompt,
@@ -477,7 +480,7 @@ async function launchFleetProcesses(
     const spawned = spawnSdkWorker({
       cwd,
       durationMs,
-      tickIntervalMs: 60_000,
+      tickIntervalMs: resolveTickIntervalMs(),
       maxTicks: 500,
       checkpointPath,
       prompt,

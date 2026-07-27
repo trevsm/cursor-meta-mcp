@@ -492,6 +492,37 @@ main {
   max-width: 72ch;
 }
 
+.why-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.why-row {
+  display: grid;
+  gap: 2px;
+}
+
+.why-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.why-text {
+  color: #dce3ee;
+  line-height: 1.55;
+}
+
+.why-row-plain .why-text {
+  color: var(--muted);
+}
+
+.why-plain {
+  margin: 0;
+}
+
 .summary-details summary {
   cursor: pointer;
   color: var(--muted);

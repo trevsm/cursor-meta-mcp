@@ -5,6 +5,8 @@
  *
  * Env: CURSOR_META_FLEET_CWD, CURSOR_META_FLEET_FILTER (@faciliq/web),
  *      CURSOR_META_FLEET_VERIFY (test,lint), CURSOR_META_FLEET_GOAL
+ *      CURSOR_META_CI_VALIDATOR (local|github, default local on external repos)
+ *      CURSOR_META_CI_WATCH (1|0, default 1 on external — watch-only, never gates ticks)
  */
 import {
   FLEET_FILTER_ENV,

@@ -4,6 +4,7 @@ import {
   formatCommitBatchRulesForPrompt,
   resolveCommitBatchPolicy,
 } from "./fleet-commit-policy.js";
+import { resolveFleetCiPolicy } from "./fleet-ci-policy.js";
 
 export interface GitSyncStatus {
   available: boolean;
@@ -153,6 +154,11 @@ export function formatGitSyncStatusForPrompt(status: GitSyncStatus, cwd?: string
 
 export function selfImproveGitRules(cwd?: string): string {
   const policy = resolveCommitBatchPolicy(cwd);
+  const ciPolicy = resolveFleetCiPolicy(cwd);
+  const verifyHint =
+    ciPolicy.validator === "local"
+      ? "Local verify (test+lint) is the CI gate — never push just to validate on GitHub."
+      : "Verify locally before push.";
   if (!policy.enabled) {
     return [
       "Each tick: one high-value improvement → verify → git commit → push when ahead of origin.",
@@ -162,6 +168,7 @@ export function selfImproveGitRules(cwd?: string): string {
   }
   return [
     formatCommitBatchRulesForPrompt(policy),
+    verifyHint,
     "Never stage secrets (.env, credentials). Skip temp files (.tmp-*).",
     "If behind origin, pull/rebase before new feature work.",
   ].join(" ");

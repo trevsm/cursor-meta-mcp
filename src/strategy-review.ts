@@ -559,8 +559,8 @@ export const DEFAULT_SELF_IMPROVE_GOAL =
   "Autonomously improve this codebase: fix bugs, add tests, tighten heuristics, reduce false-positive orchestration.";
 
 export const DEFAULT_SELF_IMPROVE_CRITERIA = [
-  "Each worker ships small verified diffs — npm test passes before claiming done.",
-  "Verified diffs are committed and pushed — origin stays current.",
+  "Each worker ships small verified diffs — local test+lint pass before claiming done.",
+  "Local verify is the CI gate — do not push to GitHub just to validate (limited Actions minutes).",
   "No architecture theater or meta-discussion loops.",
   "Workers avoid duplicating the same stuck task across parallel tabs.",
   "Orchestrator keeps fleet moving without touching the conductor session.",

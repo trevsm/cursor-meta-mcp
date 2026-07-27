@@ -27,6 +27,8 @@ import {
 } from "../src/fleet-metrics.js";
 import { appendExperimentLog, formatWatchLogLine } from "../src/experiment-log.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
+import { resolveFleetCiPolicy } from "../src/fleet-ci-policy.js";
+import { watchGithubCi } from "../src/github-ci-watch.js";
 import { envForWorkers, resolveWorkerNodeBin } from "../src/load-env.js";
 import { experimentsDir } from "../src/meta-home.js";
 import { recordSpawn } from "../src/plan-budget.js";
@@ -231,9 +233,17 @@ async function watchOnce(manifest, relaunch) {
   }
 
   const experiments = manifest?.experiments ?? [];
+  const ciPolicy = resolveFleetCiPolicy(manifest?.root ?? ROOT);
+  const githubCi =
+    ciPolicy.watchGithub && (manifest?.root ?? ROOT)
+      ? watchGithubCi(manifest?.root ?? ROOT)
+      : null;
+
   const snapshot = {
     at: new Date().toISOString(),
     budget: decision.snapshot,
+    ciPolicy,
+    githubCi,
     experiments: [],
     liveWorkers: pulseWorkers([1]),
     strategyReview: readJson(join(META_DIR, "strategy-status.json")),

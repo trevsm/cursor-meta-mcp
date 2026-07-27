@@ -96,7 +96,10 @@ const createWorkerWorktree = mock.fn(() => ({
 }));
 
 mock.module("../src/sdk-worker.js", {
-  namedExports: { spawnSdkWorker },
+  namedExports: {
+    spawnSdkWorker,
+    resolveTickIntervalMs: () => 60_000,
+  },
 });
 mock.module("../src/git-worktree.js", {
   namedExports: { createWorkerWorktree },

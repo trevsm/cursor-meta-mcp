@@ -402,20 +402,21 @@ export function buildActiveSummary(input: {
   spawnThoughts: SpawnThought[];
   worldModel?: WorldModel;
   recentEpisodes?: ReturnType<typeof recentEpisodes>;
+  watchStatus?: Record<string, unknown> | null;
 }): ActiveSummary {
   const lines: ActiveSummaryLine[] = [];
   const fh = input.fleetHealth;
   const goal = input.manifest?.goal?.trim();
 
+  if (goal) lines.push({ level: "info", text: `Mission: ${goal.slice(0, 160)}${goal.length > 160 ? "…" : ""}` });
+
   if (input.worldModel?.northStar) {
     const star = input.worldModel.northStar;
     lines.push({
       level: "info",
-      text: `North star: ${star.slice(0, 120)}${star.length > 120 ? "…" : ""}`,
+      text: `Meta north star (orchestrator): ${star.slice(0, 100)}${star.length > 100 ? "…" : ""}`,
     });
   }
-
-  if (goal) lines.push({ level: "info", text: `Goal: ${goal.slice(0, 140)}${goal.length > 140 ? "…" : ""}` });
 
   if (!fh.total) {
     lines.push({ level: "warn", text: "No fleet running — launch experiments to start workers." });
@@ -430,6 +431,20 @@ export function buildActiveSummary(input: {
   const watcher = fh.watcherAlive ? "watcher on" : "watcher off";
   const strategy = fh.strategyReviewerAlive ? "strategy on" : "strategy off";
   lines.push({ level: fh.watcherAlive && fh.strategyReviewerAlive ? "ok" : "warn", text: `${watcher}, ${strategy}.` });
+
+  const githubCi = input.watchStatus?.githubCi as { summary?: string; runs?: Array<{ conclusion?: string | null; status?: string }> } | undefined;
+  if (githubCi?.summary) {
+    const latest = githubCi.runs?.[0];
+    const failed =
+      latest?.conclusion === "failure" ||
+      latest?.conclusion === "cancelled" ||
+      latest?.conclusion === "timed_out";
+    const pending = latest?.status != null && latest.status !== "completed";
+    lines.push({
+      level: failed ? "warn" : pending ? "info" : "ok",
+      text: `${githubCi.summary} (informational — local verify gates ticks).`,
+    });
+  }
 
   const blocked = input.manifest?.budgetBlocked;
   if (blocked) {
@@ -694,6 +709,7 @@ export function collectDashboardLiveSnapshot(options?: {
     spawnThoughts,
     worldModel,
     recentEpisodes: episodes,
+    watchStatus,
   });
   const overview = buildFleetOverview({
     fleetHealth,

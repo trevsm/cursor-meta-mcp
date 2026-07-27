@@ -108,7 +108,14 @@ test("resolveVerifyCommand prefers test:fast when present", () => {
     join(dir, "package.json"),
     JSON.stringify({ scripts: { "test:fast": "vitest run", lint: "eslint ." } }),
   );
-  assert.equal(resolveVerifyCommand(dir).label, "npm run test:fast");
+  const prevVerify = process.env.CURSOR_META_FLEET_VERIFY;
+  delete process.env.CURSOR_META_FLEET_VERIFY;
+  try {
+    assert.equal(resolveVerifyCommand(dir).label, "npm run test:fast");
+  } finally {
+    if (prevVerify === undefined) delete process.env.CURSOR_META_FLEET_VERIFY;
+    else process.env.CURSOR_META_FLEET_VERIFY = prevVerify;
+  }
 });
 
 test("fleetTargetWarning warns on self-target", () => {

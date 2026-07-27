@@ -332,12 +332,33 @@ function renderWorkerActivity(rows) {
     .join("");
 }
 
+function renderWhyOverview(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return '<span class="why-empty">Why the fleet is doing what it\'s doing will appear here…</span>';
+
+  const segments = raw.split(/(?=Why [^:]+:)/).map((part) => part.trim()).filter(Boolean);
+  if (segments.length <= 1 && !/^Why /i.test(raw)) {
+    return `<p class="why-plain">${escapeHtml(raw)}</p>`;
+  }
+
+  const rows = segments.map((segment) => {
+    const labeled = segment.match(/^(Why [^:]+:)\s*(.*)$/s);
+    if (labeled) {
+      return `<div class="why-row"><span class="why-label">${escapeHtml(labeled[1])}</span><span class="why-text">${escapeHtml(labeled[2])}</span></div>`;
+    }
+    return `<div class="why-row why-row-plain"><span class="why-text">${escapeHtml(segment)}</span></div>`;
+  });
+
+  return `<div class="why-rows">${rows.join("")}</div>`;
+}
+
 function renderLive(data) {
   lastLiveAt = data.at;
   const summary = data.activeSummary ?? {};
   document.getElementById("summary-headline").textContent = summary.headline ?? "Standing by";
-  document.getElementById("fleet-overview").textContent =
-    summary.overview ?? "Waiting for fleet status…";
+  document.getElementById("fleet-overview").innerHTML = renderWhyOverview(
+    summary.overview ?? "",
+  );
   document.getElementById("summary-meta").textContent =
     `Updated ${fmtTime(summary.at ?? data.at)} · ${data.liveChatCount ?? 0} live chats`;
 

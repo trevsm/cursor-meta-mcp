@@ -77,6 +77,15 @@ export interface SdkWorkerResult extends SdkWorkerState {
 
 const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_TICK_INTERVAL_MS = 60_000;
+
+export function resolveTickIntervalMs(): number {
+  const raw = process.env.CURSOR_META_TICK_INTERVAL_MS?.trim();
+  if (raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return DEFAULT_TICK_INTERVAL_MS;
+}
 const DEFAULT_MAX_TICKS = 500;
 
 function sleep(ms: number): Promise<void> {
@@ -96,15 +105,31 @@ export function writeSdkCheckpoint(state: SdkWorkerState, path?: string): string
 
 export const DEFAULT_SDK_WORKER_PROMPT = [
   "Autonomous headless worker. Do not ask the user questions.",
-  "Each tick: one small verified improvement → verify → keep local until slice is green, then commit.",
-  "Minimize scope. No architecture theater. Prefer src/ over tests-only diffs.",
+  "Work in slices — a slice may take 20+ minutes and span many files. Stay on one slice until local verify (test+lint) is green, then commit.",
+  "Minimize scope per slice; no architecture theater.",
   TICK_REPORT_INSTRUCTION,
 ].join("\n");
 
-function buildTickPrompt(state: SdkWorkerState): string {
+const CONTINUATION_PROMPT = [
+  "Continue the current slice — work as long as needed (20+ minutes is fine).",
+  "Same mission and rules as before. Run local verify when the slice is ready.",
+  "Keep changes local until verify is green. Honest tick report required.",
+  TICK_REPORT_INSTRUCTION,
+].join("\n");
+
+function buildTickPrompt(state: SdkWorkerState, tick: number): string {
+  const prior = state.ticks.at(-1);
+  if (prior?.groundTruth?.blocked && prior.groundTruth.correctionPrompt) {
+    return prior.groundTruth.correctionPrompt;
+  }
+  if (tick <= 1) {
+    const batchReminder = formatBatchGitReminder(state.ticks, resolveCommitBatchPolicy(state.cwd));
+    return batchReminder ? `${state.prompt}\n\n${batchReminder}` : state.prompt;
+  }
   const batchReminder = formatBatchGitReminder(state.ticks, resolveCommitBatchPolicy(state.cwd));
-  if (!batchReminder) return state.prompt;
-  return `${state.prompt}\n\n${batchReminder}`;
+  const lines = [CONTINUATION_PROMPT];
+  if (batchReminder) lines.push(batchReminder);
+  return lines.join("\n\n");
 }
 
 function mergeGroundTruthAudits(
@@ -220,7 +245,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
 
   state.checkpointPath = checkpointPath;
   writeSdkCheckpoint(state, checkpointPath);
-  const tickIntervalMs = params.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
+  const tickIntervalMs = params.tickIntervalMs ?? resolveTickIntervalMs();
   const metaDir = params.metaDir ?? metaHome();
   const workerEnv = envForWorkers();
   const auth = await probeWorkerAuth(workerEnv);
@@ -245,7 +270,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     }
 
     const repoBefore = captureRepoSnapshot(state.cwd);
-    const entry = await runSdkWorkerTick(service, { ...params, agentId }, tick, buildTickPrompt(state));
+    const entry = await runSdkWorkerTick(service, { ...params, agentId }, tick, buildTickPrompt(state, tick));
     if (entry.agentId) {
       agentId = entry.agentId;
       state.agentId = agentId;

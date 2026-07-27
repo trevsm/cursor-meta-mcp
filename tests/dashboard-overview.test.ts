@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { buildFleetOverview } = await import("../src/dashboard-overview.js");
+const { buildFleetOverview, humanShippedTick } = await import("../src/dashboard-overview.js");
 import type { WorkerActivityBreakdown } from "../src/dashboard-activity.js";
 
 const healthyFleet = {
@@ -13,67 +13,77 @@ const healthyFleet = {
   staleManifest: false,
 };
 
-test("buildFleetOverview writes prose for active sdk worker", () => {
+const lintMission = {
+  goal: "Drive workflow-builder lint to zero before UX work. Local verify only — no GitHub CI pushes.",
+};
+
+test("buildFleetOverview leads with mission and strategy whys", () => {
   const workerActivity: WorkerActivityBreakdown[] = [
     {
       name: "sdk-worker-1",
       displayName: "Self-improve worker #1",
       alive: true,
       role: "Ships verified diffs",
-      status: "active",
-      statusText: "Running tests and committing",
-      ticksCompleted: 12,
-      productiveRatio: 1,
-      recentTicks: [
-        {
-          tick: 12,
-          producedWork: true,
-          commits: 3,
-          filesChanged: 10,
-          insertions: 537,
-          deletions: 7,
-          testsPassed: true,
-          testTotal: 364,
-          workSummary: "Pulse orchestrator naming cleanup",
-        },
-      ],
-      liveEvents: [],
-    },
-    {
-      name: "strategy-review-loop",
-      displayName: "Strategy critic",
-      alive: true,
-      role: "Reviews fleet health",
       status: "idle",
-      statusText: "Continue current direction — verified progress detected.",
-      ticksCompleted: 0,
-      recentTicks: [],
+      statusText: "Tick 3 complete",
+      ticksCompleted: 3,
+      recentTicks: [{ tick: 3, producedWork: true, commits: 1, testsPassed: true }],
       liveEvents: [],
     },
   ];
 
   const overview = buildFleetOverview({
     fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: { recommendation: "Continue current direction — verified progress detected." },
+    manifest: lintMission,
+    strategyStatus: {
+      onTrack: true,
+      score: 74,
+      recommendation: "Pivot to approval-overview UX now that lint is clean.",
+      issues: ["World model still lists stale lint directives"],
+    },
     workerActivity,
     productivity: {
       workerCount: 1,
-      totalTicks: 12,
-      attemptedTicks: 12,
-      productiveTicks: 12,
-      productiveRatio: 1,
+      totalTicks: 3,
+      attemptedTicks: 3,
+      productiveTicks: 2,
+      productiveRatio: 0.67,
       meetsGate: true,
       gatePercent: 30,
     },
   });
 
-  assert.match(overview.headline, /tick 13 in progress|Running tests/i);
-  assert.match(overview.paragraph, /running tick 13|Running tests/i);
-  assert.match(overview.paragraph, /Tick 12 shipped 3 commits/i);
-  assert.match(overview.paragraph, /12 of 12 attempted ticks/i);
-  assert.match(overview.paragraph, /Strategy critic/i);
-  assert.equal(overview.status, "ok");
+  assert.match(overview.paragraph, /Why we're here:.*workflow-builder lint/i);
+  assert.match(overview.paragraph, /Why to watch:|Why we're off track:/);
+  assert.match(overview.paragraph, /Why next:.*approval-overview/i);
+  assert.doesNotMatch(overview.paragraph, /Tick 3 shipped/i);
+  assert.match(overview.headline, /Pivot to approval-overview|Working on:/i);
+});
+
+test("buildFleetOverview explains SDK rate limit as why blocked", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "error",
+        statusText: "SDK run rate 20/20 per hour",
+        ticksCompleted: 1,
+        recentTicks: [{ tick: 2, error: "SDK run rate 20/20 per hour" }],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.match(overview.headline, /Blocked — hourly SDK run cap/i);
+  assert.match(overview.paragraph, /hourly SDK run cap/i);
+  assert.match(overview.paragraph, /API budget limit/i);
 });
 
 test("buildFleetOverview handles budget block and idle fleet", () => {
@@ -85,60 +95,24 @@ test("buildFleetOverview handles budget block and idle fleet", () => {
     productivity: null,
   });
   assert.equal(blocked.status, "bad");
-  assert.match(blocked.headline, /budget/i);
+  assert.match(blocked.paragraph, /Why work stopped/i);
 
   const idle = buildFleetOverview({
     fleetHealth: { ...healthyFleet, total: 0, alive: 0 },
-    manifest: null,
+    manifest: lintMission,
     strategyStatus: null,
     workerActivity: [],
     productivity: null,
   });
   assert.equal(idle.status, "idle");
-  assert.match(idle.paragraph, /No workers are running/i);
+  assert.match(idle.paragraph, /Why nothing is running/i);
 });
 
-test("buildFleetOverview reports sdk worker errors and dead fleet", () => {
-  const errorOverview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "error",
-        statusText: "Agent transport dropped",
-        ticksCompleted: 5,
-        recentTicks: [{ tick: 5, error: "Agent transport dropped" }],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-  assert.equal(errorOverview.status, "bad");
-  assert.match(errorOverview.headline, /hit an error/i);
-  assert.match(errorOverview.paragraph, /Agent transport dropped/i);
-  assert.match(errorOverview.paragraph, /Latest tick failed:/i);
-
-  const deadOverview = buildFleetOverview({
-    fleetHealth: { ...healthyFleet, alive: 0 },
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [],
-    productivity: null,
-  });
-  assert.equal(deadOverview.status, "bad");
-  assert.match(deadOverview.headline, /Fleet stopped/i);
-});
-
-test("buildFleetOverview warns when fleet is degraded", () => {
+test("buildFleetOverview explains low productivity when gate missed", () => {
   const overview = buildFleetOverview({
-    fleetHealth: { ...healthyFleet, total: 3, alive: 2 },
-    manifest: null,
-    strategyStatus: null,
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: { onTrack: false, issues: ["Repeated test-only churn"] },
     workerActivity: [
       {
         name: "sdk-worker-1",
@@ -146,152 +120,7 @@ test("buildFleetOverview warns when fleet is degraded", () => {
         alive: true,
         role: "Ships verified diffs",
         status: "idle",
-        statusText: "Tick 4 complete, awaiting next interval",
-        ticksCompleted: 4,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.equal(overview.status, "warn");
-  assert.match(overview.paragraph, /degraded — 2 of 3 workers are alive/i);
-  assert.match(overview.headline, /idle after tick 4/i);
-});
-
-test("buildFleetOverview normalizes raw sdk stream status text", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "active",
-        statusText: "tool grep: completed",
-        ticksCompleted: 2,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.match(overview.headline, /tick 3 in progress/i);
-  assert.match(overview.paragraph, /running tick 3/i);
-});
-
-test("buildFleetOverview normalizes thinking stream status text", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "active",
-        statusText: "thinking…",
-        ticksCompleted: 5,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.match(overview.headline, /tick 6 in progress/i);
-  assert.match(overview.paragraph, /running tick 6/i);
-});
-
-test("buildFleetOverview normalizes status stream text", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "active",
-        statusText: "status running: executing npm test",
-        ticksCompleted: 8,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.match(overview.headline, /tick 9 in progress/i);
-  assert.match(overview.paragraph, /running tick 9/i);
-});
-
-test("buildFleetOverview normalizes assistant and error stream text", () => {
-  const assistantOverview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "active",
-        statusText: "assistant: summarizing tick",
-        ticksCompleted: 3,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-  assert.match(assistantOverview.headline, /tick 4 in progress/i);
-
-  const errorOverview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "active",
-        statusText: "error: transport dropped",
-        ticksCompleted: 3,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-  assert.match(errorOverview.headline, /tick 4 in progress/i);
-});
-
-test("buildFleetOverview reports productivity gate misses", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "idle",
-        statusText: "Tick 8 complete, awaiting next interval",
+        statusText: "Tick 8 complete",
         ticksCompleted: 8,
         recentTicks: [],
         liveEvents: [],
@@ -308,48 +137,31 @@ test("buildFleetOverview reports productivity gate misses", () => {
     },
   });
 
-  assert.match(overview.paragraph, /Only 1 of 8 attempted ticks were productive \(13%, below the 30% gate\)/);
+  assert.match(overview.paragraph, /Why productivity matters/i);
+  assert.match(overview.paragraph, /won't scale until/i);
 });
 
-test("buildFleetOverview headlines idle worker with latest shipped tick", () => {
+test("buildFleetOverview warns when fleet is degraded", () => {
   const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
+    fleetHealth: { ...healthyFleet, total: 3, alive: 2 },
+    manifest: lintMission,
     strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "idle",
-        statusText: "Tick 7 complete, awaiting next interval",
-        ticksCompleted: 7,
-        recentTicks: [
-          {
-            tick: 7,
-            producedWork: true,
-            commits: 2,
-            testsPassed: true,
-            testTotal: 380,
-            workSummary: "Ground-truth finished phrasing fix",
-          },
-        ],
-        liveEvents: [],
-      },
-    ],
+    workerActivity: [],
     productivity: null,
   });
 
-  assert.match(overview.headline, /Tick 7 shipped · 2 commits · 380 tests passed/);
-  assert.match(overview.paragraph, /idle between ticks \(7 completed\)/i);
+  assert.equal(overview.status, "warn");
+  assert.match(overview.headline, /Fleet needs attention/i);
 });
 
-test("buildFleetOverview uses tick summary lines as active headlines", () => {
+test("buildFleetOverview uses pivot as headline when present", () => {
   const overview = buildFleetOverview({
-    fleetHealth: { ...healthyFleet, total: 1, alive: 1 },
-    manifest: null,
-    strategyStatus: null,
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: {
+      pivot: "Next tick ONLY: fix chain-graph-preview.tsx react-hooks violations",
+      recommendation: "Raise productive ratio",
+    },
     workerActivity: [
       {
         name: "sdk-worker-1",
@@ -357,103 +169,27 @@ test("buildFleetOverview uses tick summary lines as active headlines", () => {
         alive: true,
         role: "Ships verified diffs",
         status: "active",
-        statusText: "Tick 11 — hardened sdk-worker auth preflight",
-        ticksCompleted: 11,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.equal(overview.headline, "Tick 11 — hardened sdk-worker auth preflight");
-  assert.match(overview.paragraph, /The fleet worker is up and healthy/i);
-});
-
-test("buildFleetOverview humanShippedTick omits test count when only pass flag set", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "idle",
-        statusText: "Tick 3 complete",
-        ticksCompleted: 3,
-        recentTicks: [
-          {
-            tick: 3,
-            producedWork: true,
-            commits: 1,
-            filesChanged: 2,
-            testsPassed: true,
-            workSummary: "Ground-truth heuristic tightening",
-          },
-        ],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.match(overview.paragraph, /Latest work: Tick 3 shipped 1 commit, 2 files changed, tests passed/);
-});
-
-test("buildFleetOverview uses fleet needs attention when degraded without sdk worker", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: { ...healthyFleet, total: 3, alive: 2 },
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "watch-experiments",
-        displayName: "Fleet watcher",
-        alive: true,
-        role: "Patrols workers",
-        status: "idle",
-        statusText: "Supervisor running",
-        ticksCompleted: 0,
-        recentTicks: [],
-        liveEvents: [],
-      },
-    ],
-    productivity: null,
-  });
-
-  assert.equal(overview.status, "warn");
-  assert.equal(overview.headline, "Fleet needs attention");
-});
-
-test("buildFleetOverview uses verified changes when shipped tick lacks metrics", () => {
-  const overview = buildFleetOverview({
-    fleetHealth: healthyFleet,
-    manifest: null,
-    strategyStatus: null,
-    workerActivity: [
-      {
-        name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
-        alive: true,
-        role: "Ships verified diffs",
-        status: "idle",
-        statusText: "Tick 2 complete",
+        statusText: "thinking…",
         ticksCompleted: 2,
-        recentTicks: [
-          {
-            tick: 2,
-            producedWork: true,
-            workSummary: "Dashboard overview fallback headline",
-          },
-        ],
+        recentTicks: [],
         liveEvents: [],
       },
     ],
     productivity: null,
   });
 
-  assert.match(overview.paragraph, /Latest work: Tick 2 shipped verified changes — Dashboard overview fallback headline/);
+  assert.match(overview.headline, /chain-graph-preview/i);
+  assert.match(overview.paragraph, /Why next:.*chain-graph-preview/i);
+});
+
+test("humanShippedTick still formats shipped metrics for activity cards", () => {
+  const text = humanShippedTick({
+    tick: 3,
+    producedWork: true,
+    commits: 1,
+    filesChanged: 2,
+    testsPassed: true,
+    workSummary: "Ground-truth heuristic tightening",
+  });
+  assert.match(text, /Tick 3 shipped 1 commit, 2 files changed, tests passed/);
 });

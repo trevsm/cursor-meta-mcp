@@ -507,7 +507,7 @@ test("collectDashboardLiveSnapshot reports sdk worker error despite recent live 
 
   const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 2 });
   assert.equal(live.activeSummary.status, "bad");
-  assert.match(live.activeSummary.headline, /hit an error/i);
+  assert.match(live.activeSummary.headline, /Blocked — worker error/i);
   assert.match(live.activeSummary.overview, /Agent transport dropped/i);
   assert.equal(live.workerActivity[0]?.status, "error");
 });
