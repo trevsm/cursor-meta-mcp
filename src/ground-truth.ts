@@ -21,7 +21,7 @@ const TESTS_PASS_CLAIM =
 const COMMIT_CLAIM =
   /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bhave )(?<!\bthen )(?<!\bbe )(?<!\bHEAD )\bcommitted(?!\s+(?:earlier|locally|already|yesterday)\b)\b/i;
 const PUSH_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )\b(?:pushed to origin|(?<!\bthen committed and )pushed(?!\s+earlier\b))\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bgot )\b(?:pushed to origin|(?<!\bthen committed and )pushed(?!\s+earlier\b))\b/i;
 
 /** Strip procedural ground-truth footer lines before scanning assistant claims. */
 function assistantClaimText(text: string | undefined): string {
