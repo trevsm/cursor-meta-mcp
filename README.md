@@ -231,6 +231,10 @@ Heuristics always run (no API key needed). When `CURSOR_API_KEY` is set, an LLM 
 
 CLI: `npm run strategy-review -- --cwd . --once`
 
+### Fleet operations research
+
+Prior art, pitfalls, and dead ends for autonomous self-improve fleets (local artifacts + industry postmortems): [`docs/autonomous-fleet-research.md`](docs/autonomous-fleet-research.md).
+
 ### Fleet dashboard
 
 Local web UI for fleet visibility — budget, processes, live pulse, strategy review, and log tails:
