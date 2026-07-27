@@ -139,6 +139,39 @@ test("buildWorkerActivity merges live events from multiple sdk runs", () => {
   assert.ok(kinds.includes("tool"));
 });
 
+test("buildWorkerActivity maps assistant and status live event kinds", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-kinds-"));
+  const agentId = "agent-kinds";
+  appendRunEvent(
+    "run-assistant",
+    { type: "assistant", message: "Tick summary ready" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+  appendRunEvent(
+    "run-status",
+    { type: "status", message: "status running: executing" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  const kinds = rows[0]?.liveEvents.map((event) => event.kind) ?? [];
+  assert.ok(kinds.includes("assistant"));
+  assert.ok(kinds.includes("status"));
+});
+
 test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const errorRows = buildWorkerActivity([
     {
