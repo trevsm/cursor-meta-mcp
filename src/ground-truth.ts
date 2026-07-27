@@ -23,9 +23,20 @@ const COMMIT_CLAIM =
 const PUSH_CLAIM =
   /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )\b(?:pushed to origin|(?<!\bthen committed and )pushed(?!\s+earlier\b))\b/i;
 
+/** Strip procedural ground-truth footer lines before scanning assistant claims. */
+function assistantClaimText(text: string | undefined): string {
+  const tail = text?.trim() ?? "";
+  const lines: string[] = [];
+  for (const line of tail.split(/\r?\n/)) {
+    if (/^ground[- ]truth:/i.test(line.trim())) break;
+    lines.push(line);
+  }
+  return lines.join("\n").trim();
+}
+
 /** Extract completion claims from the assistant tail of a tick. */
 export function detectCompletionClaims(text: string | undefined): CompletionClaims {
-  const tail = text?.trim() ?? "";
+  const tail = assistantClaimText(text);
   return {
     claimedDone: DONE_CLAIM.test(tail),
     claimedTestsPass: TESTS_PASS_CLAIM.test(tail),

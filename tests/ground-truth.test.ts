@@ -84,6 +84,9 @@ test("detectCompletionClaims ignores procedural git language in prompts", () => 
   assert.equal(detectCompletionClaims("Each tick: git commit → git push.").claimedPushed, false);
   assert.equal(detectCompletionClaims("without claiming tests pass").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("Do not say tests pass yet").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("Ground-truth: npm test passed").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("Shipped fix.\nGround-truth: npm test passed").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("All tests pass.\nGround truth: npm test passed").claimedTestsPass, true);
 });
 
 test("detectCompletionClaims ignores speculative should-work-now phrasing", () => {
