@@ -21,7 +21,7 @@ import {
   runStrategyReview,
 } from "../src/strategy-review.js";
 
-const META_DIR = experimentsDir();
+const META_DIR = argValue("--meta-dir") ?? experimentsDir();
 const STATUS_PATH = join(META_DIR, "strategy-status.json");
 const LOG_PATH = join(META_DIR, "strategy-review.log");
 
@@ -178,7 +178,7 @@ async function reviewOnce(params) {
   return snapshot;
 }
 
-const cwd = argValue("--cwd") ?? "/Users/trevorsmith/Projects/cursor-meta-mcp";
+const cwd = argValue("--cwd") ?? process.cwd();
 const excludeSession = argValue("--exclude-session") ? Number(argValue("--exclude-session")) : 1;
 const intervalMs = parseDuration(argValue("--interval"), 5 * 60_000);
 const useLlm = flag("--use-llm");

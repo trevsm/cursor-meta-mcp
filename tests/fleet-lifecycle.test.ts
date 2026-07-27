@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
 
+// plan-budget and process-lock run for real against temp paths; mocking them
+// zeroes their coverage attribution for the whole suite.
+const budgetDir = mkdtempSync(join(tmpdir(), "fleet-life-budget-"));
+process.env.CURSOR_META_BUDGET_PATH = join(budgetDir, "budget.json");
+
 const stopFleetProcesses = mock.fn(() => ({ killed: [123], manifest: null }));
-const resetFleetBudgetClock = mock.fn();
-const recordBudgetEvent = mock.fn();
 const launchSelfImproveFleet = mock.fn(async (params: { freshStart?: boolean; resumeWorkers?: boolean }) => ({
   at: new Date().toISOString(),
   freshStart: params.freshStart,
@@ -17,37 +20,20 @@ const launchSelfImproveFleet = mock.fn(async (params: { freshStart?: boolean; re
 mock.module("../src/fleet-control.js", {
   namedExports: { stopFleetProcesses },
 });
-mock.module("../src/plan-budget.js", {
-  namedExports: {
-    recordBudgetEvent,
-    resetFleetBudgetClock,
-    budgetStatePath: () => "/tmp/budget.json",
-    loadBudgetState: () => ({ limits: {}, events: [] }),
-    getBudgetSnapshot: () => ({ blockedActions: [], warnings: [] }),
-  },
-});
-mock.module("../src/process-lock.js", {
-  namedExports: { pruneStaleLocks: mock.fn() },
-});
 mock.module("../src/fleet-preflight.js", {
   namedExports: {
     runFleetPreflight: async () => ({ ok: true, failures: [], warnings: [], auth: { apiKey: true, sdk: true, cli: true } }),
   },
 });
-mock.module("../src/self-improve.js", {
-  namedExports: {
-    launchSelfImproveFleet,
-    FLEET_LOCK_NAMES: ["fleet-launch"],
-    defaultDashboardFleetParams: undefined,
-  },
-});
-
 const {
   inspectFleetResumeState,
   resumeFleet,
   startFleet,
   stopFleet,
 } = await import("../src/fleet-lifecycle.js");
+const { loadBudgetState, resolveBudgetStatePath, saveBudgetState } = await import(
+  "../src/plan-budget.js"
+);
 
 test("inspectFleetResumeState finds sdk worker checkpoint with ticks", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "fleet-life-"));
@@ -66,17 +52,22 @@ test("inspectFleetResumeState finds sdk worker checkpoint with ticks", () => {
 
 test("stopFleet stops processes without resetting budget clock", () => {
   stopFleetProcesses.mock.resetCalls();
-  resetFleetBudgetClock.mock.resetCalls();
+
+  const budgetPath = resolveBudgetStatePath();
+  const startedAt = new Date(Date.now() - 90_000).toISOString();
+  const before = loadBudgetState(budgetPath);
+  before.fleetStartedAt = startedAt;
+  saveBudgetState(before, budgetPath);
 
   const result = stopFleet({ metaDir: mkdtempSync(join(tmpdir(), "fleet-stop-")) });
   assert.deepEqual(result.stoppedPids, [123]);
   assert.equal(stopFleetProcesses.mock.callCount(), 1);
-  assert.equal(resetFleetBudgetClock.mock.callCount(), 0);
+  assert.equal(loadBudgetState(budgetPath).fleetStartedAt, startedAt);
 });
 
 test("startFleet launches with freshStart", async () => {
   launchSelfImproveFleet.mock.resetCalls();
-  await startFleet({ cwd: "/repo", metaDir: "/tmp/exp" });
+  await startFleet({ cwd: "/repo", metaDir: "/tmp/exp" }, launchSelfImproveFleet);
   assert.equal(launchSelfImproveFleet.mock.callCount(), 1);
   const params = launchSelfImproveFleet.mock.calls[0]?.arguments[0] as {
     freshStart?: boolean;
@@ -93,7 +84,7 @@ test("resumeFleet requires checkpoint and passes resumeWorkers", async () => {
   writeFileSync(join(experimentsDir, "sdk-worker-1.json"), JSON.stringify({ ticks: [{ tick: 3 }] }));
 
   launchSelfImproveFleet.mock.resetCalls();
-  await resumeFleet({ cwd: "/repo", metaDir: experimentsDir });
+  await resumeFleet({ cwd: "/repo", metaDir: experimentsDir }, launchSelfImproveFleet);
   const params = launchSelfImproveFleet.mock.calls[0]?.arguments[0] as {
     freshStart?: boolean;
     resumeWorkers?: boolean;
@@ -101,5 +92,12 @@ test("resumeFleet requires checkpoint and passes resumeWorkers", async () => {
   assert.equal(params.freshStart, false);
   assert.equal(params.resumeWorkers, true);
 
-  await assert.rejects(() => resumeFleet({ cwd: "/repo", metaDir: mkdtempSync(join(tmpdir(), "empty-")) }), /No SDK checkpoint/);
+  await assert.rejects(
+    () =>
+      resumeFleet(
+        { cwd: "/repo", metaDir: mkdtempSync(join(tmpdir(), "empty-")) },
+        launchSelfImproveFleet,
+      ),
+    /No SDK checkpoint/,
+  );
 });

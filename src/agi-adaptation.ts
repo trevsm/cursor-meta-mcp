@@ -22,7 +22,7 @@ import {
   resolveHumanApproval,
   type HumanApprovalRequest,
 } from "./human-gate.js";
-import type { SelfImproveManifest } from "./self-improve.js";
+import type { FleetLauncher, SelfImproveManifest } from "./self-improve.js";
 
 export interface StrategyStatusSnapshot {
   at?: string;
@@ -303,7 +303,10 @@ function pickProposals(
   return all.slice(0, 2);
 }
 
-export async function adaptAgiMission(params: AgiAdaptParams = {}): Promise<AgiAdaptResult> {
+export async function adaptAgiMission(
+  params: AgiAdaptParams = {},
+  launch?: FleetLauncher,
+): Promise<AgiAdaptResult> {
   const session = readActiveAgiSession();
   if (!session) {
     throw new Error("No active AGI session. Start with meta_agi first.");
@@ -400,16 +403,19 @@ export async function adaptAgiMission(params: AgiAdaptParams = {}): Promise<AgiA
     }
 
     const prompt = buildMissionPrompt(updatedSession, missionPivot);
-    const result = await launchAgiMission({
-      cwd: resolveProjectRoot(session.cwd),
-      task: session.task,
-      excludeSessionIndex: 1,
-      architecture: nextArchitecture,
-      prompt,
-      stopExisting: true,
-      freshStart: false,
-      resumeWorkers: false,
-    });
+    const result = await launchAgiMission(
+      {
+        cwd: resolveProjectRoot(session.cwd),
+        task: session.task,
+        excludeSessionIndex: 1,
+        architecture: nextArchitecture,
+        prompt,
+        stopExisting: true,
+        freshStart: false,
+        resumeWorkers: false,
+      },
+      launch,
+    );
     manifest = result.manifest;
     writeActiveAgiSession({ ...updatedSession, ...result.session, architecture: nextArchitecture });
   }

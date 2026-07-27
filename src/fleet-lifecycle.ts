@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { experimentsDir } from "./meta-home.js";
 import { runFleetPreflight } from "./fleet-preflight.js";
 import { stopFleetProcesses } from "./fleet-control.js";
-import { FLEET_LOCK_NAMES, launchSelfImproveFleet, type SelfImproveParams } from "./self-improve.js";
+import {
+  FLEET_LOCK_NAMES,
+  launchSelfImproveFleet,
+  type FleetLauncher,
+  type SelfImproveParams,
+} from "./self-improve.js";
 import { recordBudgetEvent, resetFleetRuntimeClock, resolveBudgetStatePath } from "./plan-budget.js";
 import { pruneStaleLocks } from "./process-lock.js";
 import type { SdkWorkerState } from "./sdk-worker.js";
@@ -118,9 +123,9 @@ async function assertPreflight(cwd: string): Promise<void> {
 }
 
 /** Fresh fleet launch — stops prior processes, resets budget clock, new checkpoints. */
-export async function startFleet(params: SelfImproveParams) {
+export async function startFleet(params: SelfImproveParams, launch: FleetLauncher = launchSelfImproveFleet) {
   await assertPreflight(params.cwd);
-  return launchSelfImproveFleet({
+  return launch({
     ...params,
     stopExisting: true,
     freshStart: true,
@@ -129,13 +134,13 @@ export async function startFleet(params: SelfImproveParams) {
 }
 
 /** Relaunch watcher/strategy/worker from existing SDK checkpoint(s). */
-export async function resumeFleet(params: SelfImproveParams) {
+export async function resumeFleet(params: SelfImproveParams, launch: FleetLauncher = launchSelfImproveFleet) {
   const resume = inspectFleetResumeState(params.metaDir);
   if (!resume.ok) {
     throw new Error("No SDK checkpoint to resume — use Start for a fresh fleet.");
   }
   await assertPreflight(params.cwd);
-  return launchSelfImproveFleet({
+  return launch({
     ...params,
     stopExisting: true,
     freshStart: false,

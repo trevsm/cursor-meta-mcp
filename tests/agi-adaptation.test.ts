@@ -23,13 +23,6 @@ mock.module("../src/fleet-preflight.js", {
     }),
   },
 });
-mock.module("../src/self-improve.js", {
-  namedExports: { launchSelfImproveFleet },
-});
-mock.module("../src/world-model.js", {
-  namedExports: { setNorthStar: mock.fn(), pushGoal: mock.fn() },
-});
-
 const { writeActiveAgiSession } = await import("../src/agi-mission.js");
 const {
   adaptAgiMission,
@@ -124,7 +117,7 @@ test("adaptAgiMission applies auto proposals and relaunches", async () => {
   });
 
   launchSelfImproveFleet.mock.resetCalls();
-  const result = await adaptAgiMission({ auto: true });
+  const result = await adaptAgiMission({ auto: true }, launchSelfImproveFleet);
   assert.equal(result.ok, true);
   assert.ok(result.applied.length > 0);
   assert.equal(result.relaunched, true);

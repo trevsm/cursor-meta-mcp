@@ -9,7 +9,7 @@
  *   node scripts/watch-experiments.mjs --interval 30s --no-relaunch
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
 
 import { runConsciousnessPulse } from "../src/consciousness-pulse.js";
@@ -28,13 +28,14 @@ import {
 import { appendExperimentLog, formatWatchLogLine } from "../src/experiment-log.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
 import { envForWorkers, resolveWorkerNodeBin } from "../src/load-env.js";
-import { experimentsDir, metaHome } from "../src/meta-home.js";
+import { experimentsDir } from "../src/meta-home.js";
 import { recordSpawn } from "../src/plan-budget.js";
 import { acquireLockWithCleanup } from "../src/process-lock.js";
 import { spawnSdkWorker } from "../src/sdk-worker.js";
 
-const META_DIR = experimentsDir();
-const ROOT = process.cwd();
+const META_DIR = argValue("--meta-dir") ?? experimentsDir();
+const ROOT = argValue("--root") ?? process.cwd();
+const WORKSPACE = argValue("--workspace") ?? basename(ROOT);
 const STATUS_PATH = join(META_DIR, "watch-status.json");
 const WATCH_LOG = join(META_DIR, "watch.log");
 
@@ -90,7 +91,7 @@ function loadManifest() {
 
 function pulseWorkers(excludeIndexes = [1]) {
   try {
-    const report = runConsciousnessPulse({ limit: 30, workspace: "cursor-meta-mcp" });
+    const report = runConsciousnessPulse({ limit: 30, workspace: WORKSPACE });
     return report.live
       .filter((entry) => !excludeIndexes.includes(entry.sessionIndex ?? -1))
       .map((entry) => ({
@@ -132,7 +133,7 @@ function relaunchSdkWorker(exp, manifest) {
   const spawned = spawnSdkWorker({
     cwd: worktree?.path ?? manifest?.root ?? ROOT,
     checkpointPath: exp.checkpointPath,
-    metaDir: metaHome(),
+    metaDir: META_DIR,
     prompt: checkpoint?.prompt,
     durationMs: checkpoint?.durationMs,
     maxTicks: checkpoint?.maxTicks,
@@ -155,7 +156,9 @@ function relaunchExperiment(exp, manifest) {
       [
         "scripts/orchestrate-loop.mjs",
         "--workspace",
-        "cursor-meta-mcp",
+        WORKSPACE,
+        "--meta-dir",
+        META_DIR,
         "--exclude-session",
         "1",
         "--max-cycles",
@@ -179,7 +182,7 @@ function relaunchExperiment(exp, manifest) {
     "tsx",
     "scripts/long-session.mjs",
     "--cwd",
-    ROOT,
+    manifest?.root ?? ROOT,
     "--duration",
     "2h",
     "--tick-interval",
@@ -201,7 +204,9 @@ function relaunchExperiment(exp, manifest) {
   }
   args.push(
     "--prompt",
-    "Autonomous worker: improve cursor-meta-mcp, run npm test, no user questions. Keep going.",
+    manifest?.goal
+      ? `Autonomous worker: ${manifest.goal} Run npm test, no user questions. Keep going.`
+      : "Autonomous worker: ship one verified improvement per tick, run npm test, no user questions. Keep going.",
   );
 
   const nodeBin = resolveWorkerNodeBin();

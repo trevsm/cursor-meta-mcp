@@ -165,6 +165,86 @@ export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: str
   return lines.join("\n");
 }
 
+export interface FleetSupervisorArgsParams {
+  cwd: string;
+  /** Per-project experiments dir. */
+  metaDir: string;
+  excludeSessionIndex: number;
+  strategyIntervalMs: number;
+  goal: string;
+  useLlm: boolean;
+  watchInterval?: string;
+}
+
+/**
+ * CLI args for the three supervisor loops.
+ *
+ * Every loop must receive `--meta-dir`; without it each one falls back to the
+ * global `~/.cursor-meta/experiments` and reads a different fleet than the one
+ * that spawned it.
+ */
+export function fleetSupervisorArgs(params: FleetSupervisorArgsParams): {
+  strategyReview: string[];
+  orchestrator: string[];
+  watcher: string[];
+} {
+  const { cwd, metaDir } = params;
+  const workspace = basename(cwd);
+  const exclude = String(params.excludeSessionIndex);
+
+  return {
+    strategyReview: [
+      "--import",
+      "tsx",
+      "scripts/strategy-review-loop.mjs",
+      "--cwd",
+      cwd,
+      "--meta-dir",
+      metaDir,
+      "--exclude-session",
+      exclude,
+      "--interval",
+      `${params.strategyIntervalMs}ms`,
+      "--goal",
+      params.goal,
+      ...(params.useLlm ? ["--use-llm"] : []),
+    ],
+    orchestrator: [
+      "--import",
+      "tsx",
+      "scripts/orchestrate-loop.mjs",
+      "--workspace",
+      workspace,
+      "--meta-dir",
+      metaDir,
+      "--exclude-session",
+      exclude,
+      "--max-cycles",
+      "120",
+      "--interval-ms",
+      "60000",
+      "--max-actions",
+      "2",
+      "--keep-running",
+      "--allow-continue",
+      "--allow-watch",
+    ],
+    watcher: [
+      "--import",
+      "tsx",
+      "scripts/watch-experiments.mjs",
+      "--interval",
+      params.watchInterval ?? "30s",
+      "--meta-dir",
+      metaDir,
+      "--root",
+      cwd,
+      "--workspace",
+      workspace,
+    ],
+  };
+}
+
 function spawnDetached(
   name: string,
   args: string[],
@@ -220,6 +300,9 @@ export function fleetSpawnPlan(
     spawnSdk: (workerMode === "sdk" || workerMode === "hybrid") && parallelWorkers > 0,
   };
 }
+
+/** Injectable launcher so callers (and tests) can substitute a stub. */
+export type FleetLauncher = (params: SelfImproveParams) => Promise<SelfImproveManifest>;
 
 export async function launchSelfImproveFleet(params: SelfImproveParams): Promise<SelfImproveManifest> {
   const cwd = params.cwd.trim();
@@ -461,25 +544,20 @@ async function launchFleetProcesses(
   }
   let strategyReviewerPid: number | undefined;
 
+  const supervisorArgs = fleetSupervisorArgs({
+    cwd,
+    metaDir,
+    excludeSessionIndex: exclude,
+    strategyIntervalMs: params.strategyReviewIntervalMs ?? 5 * 60_000,
+    goal,
+    useLlm: Boolean(process.env.CURSOR_API_KEY),
+  });
+
   if (params.withStrategyReviewer ?? true) {
     const logPath = join(metaDir, "strategy-review.log");
-    const intervalMs = params.strategyReviewIntervalMs ?? 5 * 60_000;
     const strategyReviewer = spawnDetached(
       "strategy-review-loop",
-      [
-        "--import",
-        "tsx",
-        "scripts/strategy-review-loop.mjs",
-        "--cwd",
-        cwd,
-        "--exclude-session",
-        String(exclude),
-        "--interval",
-        `${intervalMs}ms`,
-        "--goal",
-        goal,
-        ...(process.env.CURSOR_API_KEY ? ["--use-llm"] : []),
-      ],
+      supervisorArgs.strategyReview,
       logPath,
       packageRoot(),
     );
@@ -499,24 +577,7 @@ async function launchFleetProcesses(
     const logPath = join(metaDir, "orchestrator.log");
     const orchestrator = spawnDetached(
       "orchestrator-loop",
-      [
-        "--import",
-        "tsx",
-        "scripts/orchestrate-loop.mjs",
-        "--workspace",
-        basename(cwd),
-        "--exclude-session",
-        String(exclude),
-        "--max-cycles",
-        "120",
-        "--interval-ms",
-        "60000",
-        "--max-actions",
-        "2",
-        "--keep-running",
-        "--allow-continue",
-        "--allow-watch",
-      ],
+      supervisorArgs.orchestrator,
       logPath,
       packageRoot(),
     );
@@ -535,7 +596,7 @@ async function launchFleetProcesses(
     writeFileSync(watchLog, `[${new Date().toISOString()}] spawning watch-experiments\n`, { flag: "a" });
     const watchOut = openSync(watchLog, "a");
     const nodeBin = resolveWorkerNodeBin();
-    const watcher = spawn(nodeBin, ["--import", "tsx", "scripts/watch-experiments.mjs", "--interval", "30s"], {
+    const watcher = spawn(nodeBin, supervisorArgs.watcher, {
       cwd: packageRoot(),
       detached: true,
       stdio: ["ignore", watchOut, watchOut],

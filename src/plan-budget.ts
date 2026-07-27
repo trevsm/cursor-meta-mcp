@@ -326,7 +326,13 @@ export function getBudgetSnapshot(
   const fleetStartedAt = fleet?.fleetStartedAt ?? state.fleetStartedAt;
   if (fleetStartedAt) {
     const fleetRunning = fleet?.running ?? (fleet?.activeWorkers ?? 0) > 0;
-    const fleetElapsedMs = resolveFleetElapsedMs(state, fleetRunning);
+    // The budget state only has its own clock once a fleet has started under
+    // the runtime clock; before that, fall back to the caller's start time
+    // (usually the manifest) so duration limits still apply.
+    const fleetElapsedMs = resolveFleetElapsedMs(
+      state.fleetStartedAt ? state : { ...state, fleetStartedAt },
+      fleetRunning,
+    );
     const percentOfMaxDuration = (fleetElapsedMs / limits.maxFleetDurationMs) * 100;
     fleetSection = {
       activeWorkers: fleet?.activeWorkers ?? 0,

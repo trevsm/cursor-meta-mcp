@@ -16,7 +16,12 @@ import {
   mergeAgiArchitecture,
   type AgiArchitecture,
 } from "./agi-architecture.js";
-import { launchSelfImproveFleet, type SelfImproveManifest, type SelfImproveParams } from "./self-improve.js";
+import {
+  launchSelfImproveFleet,
+  type FleetLauncher,
+  type SelfImproveManifest,
+  type SelfImproveParams,
+} from "./self-improve.js";
 import { pushGoal, setNorthStar } from "./world-model.js";
 
 export interface ActiveAgiSession {
@@ -122,7 +127,10 @@ export function buildDashboardCommand(cwd: string, port = 3847): string {
   return `npm run dashboard -- --cwd ${JSON.stringify(root)} --workspace ${JSON.stringify(workspace)} --meta-dir ${JSON.stringify(meta)} --port ${port}`;
 }
 
-export async function launchAgiMission(params: AgiMissionParams): Promise<AgiMissionResult> {
+export async function launchAgiMission(
+  params: AgiMissionParams,
+  launch: FleetLauncher = launchSelfImproveFleet,
+): Promise<AgiMissionResult> {
   const cwd = resolveProjectRoot(params.cwd);
   const task = params.task.trim();
   if (!task) {
@@ -179,7 +187,7 @@ export async function launchAgiMission(params: AgiMissionParams): Promise<AgiMis
   writeActiveAgiSession(session);
 
   const workerPrompt = params.prompt?.trim() || buildAgiWorkerPrompt(task);
-  const manifest = await launchSelfImproveFleet({
+  const manifest = await launch({
     cwd,
     metaDir: experimentsDir,
     goal: task,

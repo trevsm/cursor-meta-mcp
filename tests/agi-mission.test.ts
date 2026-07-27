@@ -23,16 +23,6 @@ mock.module("../src/fleet-preflight.js", {
     }),
   },
 });
-mock.module("../src/self-improve.js", {
-  namedExports: { launchSelfImproveFleet },
-});
-mock.module("../src/world-model.js", {
-  namedExports: {
-    setNorthStar: mock.fn(),
-    pushGoal: mock.fn(),
-  },
-});
-
 const {
   buildAgiWorkerPrompt,
   launchAgiMission,
@@ -49,10 +39,13 @@ test("launchAgiMission persists active session and launches fleet", async () => 
   process.env.CURSOR_META_HOME = join("/tmp", `agi-mission-${Date.now()}`);
   launchSelfImproveFleet.mock.resetCalls();
 
-  const result = await launchAgiMission({
-    cwd: "/Users/me/Projects/storefront",
-    task: "Build checkout flow with tests",
-  });
+  const result = await launchAgiMission(
+    {
+      cwd: "/Users/me/Projects/storefront",
+      task: "Build checkout flow with tests",
+    },
+    launchSelfImproveFleet,
+  );
 
   assert.equal(result.ok, true);
   assert.equal(result.session.task, "Build checkout flow with tests");
@@ -79,5 +72,8 @@ test("launchAgiMission persists active session and launches fleet", async () => 
 });
 
 test("launchAgiMission rejects empty task", async () => {
-  await assert.rejects(() => launchAgiMission({ cwd: "/repo", task: "   " }), /task is required/);
+  await assert.rejects(
+    () => launchAgiMission({ cwd: "/repo", task: "   " }, launchSelfImproveFleet),
+    /task is required/,
+  );
 });

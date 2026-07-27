@@ -117,7 +117,8 @@ mock.module("../src/consciousness-pulse.js", {
   },
 });
 
-const { buildSelfImprovePrompt, fleetSpawnPlan, launchSelfImproveFleet } = await import("../src/self-improve.js");
+const { buildSelfImprovePrompt, fleetSpawnPlan, fleetSupervisorArgs, launchSelfImproveFleet } =
+  await import("../src/self-improve.js");
 
 after(() => mock.restoreAll());
 
@@ -217,4 +218,39 @@ test("launchSelfImproveFleet waits for dedicated chat when workerMode ide", asyn
 
 test("launchSelfImproveFleet requires cwd", async () => {
   await assert.rejects(() => launchSelfImproveFleet({ cwd: "  " }), /cwd is required/);
+});
+
+test("every supervisor loop receives the project meta dir", () => {
+  const metaDir = "/home/me/.cursor-meta/projects/acme-api-abc123/experiments";
+  const args = fleetSupervisorArgs({
+    cwd: "/home/me/Projects/acme-api",
+    metaDir,
+    excludeSessionIndex: 1,
+    strategyIntervalMs: 300_000,
+    goal: "Ship checkout",
+    useLlm: false,
+  });
+
+  for (const argv of [args.strategyReview, args.orchestrator, args.watcher]) {
+    const index = argv.indexOf("--meta-dir");
+    assert.notEqual(index, -1);
+    assert.equal(argv[index + 1], metaDir);
+  }
+});
+
+test("supervisor args carry project root and workspace, not the package root", () => {
+  const args = fleetSupervisorArgs({
+    cwd: "/home/me/Projects/acme-api",
+    metaDir: "/tmp/experiments",
+    excludeSessionIndex: 1,
+    strategyIntervalMs: 300_000,
+    goal: "Ship checkout",
+    useLlm: true,
+  });
+
+  assert.equal(args.watcher[args.watcher.indexOf("--root") + 1], "/home/me/Projects/acme-api");
+  assert.equal(args.watcher[args.watcher.indexOf("--workspace") + 1], "acme-api");
+  assert.equal(args.orchestrator[args.orchestrator.indexOf("--workspace") + 1], "acme-api");
+  assert.equal(args.strategyReview[args.strategyReview.indexOf("--cwd") + 1], "/home/me/Projects/acme-api");
+  assert.ok(args.strategyReview.includes("--use-llm"));
 });

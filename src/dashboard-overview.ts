@@ -99,7 +99,9 @@ export function buildFleetOverview(input: {
     const sdk = workerActivity.find((row) => row.name.startsWith("sdk-worker"));
     const lastSession = sdk?.statusText?.startsWith("Last session:") ? sdk.statusText : null;
     return {
-      status: "idle",
+      // An archived session is a graceful finish; anything else means the
+      // fleet died with work outstanding.
+      status: lastSession ? "idle" : "bad",
       headline: lastSession ? "Fleet stopped — session archived" : "Fleet stopped",
       paragraph: lastSession
         ? `${sdk?.displayName ?? "Worker"}: ${lastSession} Run npm run fleet:preflight before the next launch.`
