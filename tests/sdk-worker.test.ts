@@ -202,3 +202,39 @@ test("runSdkWorker stops after eight consecutive transport errors", async () => 
     else process.env.CURSOR_API_KEY = prevKey;
   }
 });
+
+test("runSdkWorker resets consecutive error counter after a successful tick", async () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "sdk-worker-reset-"));
+  const checkpointPath = join(metaDir, "worker.json");
+  const service = new FakeLocalAgentService();
+  let calls = 0;
+  const failingRun = service.runLocalAgent.bind(service);
+  service.runLocalAgent = async (params, hooks) => {
+    calls += 1;
+    if (calls <= 7) throw new Error("Connection lost");
+    return failingRun(params, hooks);
+  };
+
+  const prevKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = "test-key";
+  try {
+    const result = await runSdkWorker({
+      cwd: process.cwd(),
+      metaDir,
+      checkpointPath,
+      service,
+      tickIntervalMs: 0,
+      durationMs: 60_000,
+      maxTicks: 10,
+      verifyTests: () => undefined,
+    });
+
+    assert.equal(result.stoppedBecause, "max_ticks");
+    assert.equal(result.ticks.length, 10);
+    assert.equal(result.ticks.filter((tick) => tick.error).length, 7);
+    assert.equal(result.ticks[7]?.error, undefined);
+  } finally {
+    if (prevKey === undefined) delete process.env.CURSOR_API_KEY;
+    else process.env.CURSOR_API_KEY = prevKey;
+  }
+});
