@@ -2,6 +2,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 
 export interface FleetTickMetrics {
   ticks: number;
+  /** ticks minus soft skips — used by productivity gates. Present on analyzed metrics. */
+  attemptedTicks?: number;
   productiveTicks: number;
   productiveRatio: number;
   commits: number;
@@ -62,6 +64,7 @@ export function analyzeWorkerCheckpoint(
       ticks.length === 0 && state.stoppedBecause ? undefined : state.stoppedBecause;
     return {
       ticks: ticks.length,
+      attemptedTicks: Math.max(0, attemptedTicks),
       productiveTicks,
       productiveRatio: attemptedTicks > 0 ? productiveTicks / attemptedTicks : 0,
       commits: outcomes.reduce((sum, outcome) => sum + (outcome.commits ?? 0), 0),
@@ -83,6 +86,7 @@ export function analyzeWorkerCheckpoint(
 export const PRODUCTIVE_TICK_GATE = 0.3;
 
 export function attemptedTickCount(metrics: FleetTickMetrics): number {
+  if (typeof metrics.attemptedTicks === "number") return Math.max(0, metrics.attemptedTicks);
   return Math.max(0, metrics.ticks - metrics.softSkips);
 }
 

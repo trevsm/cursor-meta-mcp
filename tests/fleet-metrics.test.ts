@@ -32,8 +32,10 @@ test("analyzeWorkerCheckpoint computes productive ratio", () => {
   const metrics = analyzeWorkerCheckpoint(path);
   assert.ok(metrics);
   assert.equal(metrics.ticks, 3);
+  assert.equal(metrics.attemptedTicks, 2);
   assert.equal(metrics.productiveTicks, 1);
   assert.equal(metrics.productiveRatio, 1 / 2);
+  assert.equal(metrics.attemptedTicks, 2);
   assert.equal(metrics.errors, 1);
   assert.equal(metrics.softSkips, 1);
   assert.equal(metrics.lastCommitted, false);
