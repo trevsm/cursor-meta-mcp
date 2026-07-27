@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 
 import { formatArchivedSessionSummary, listArchivedWorkerSessions } from "./checkpoint-archive.js";
-import { friendlyExperimentName } from "./fleet-labels.js";
+import { fleetWorkerRoleDescription, friendlyExperimentName } from "./fleet-labels.js";
 import type { DashboardExperimentRow } from "./dashboard.js";
 import { tailRunEvents } from "./run-events.js";
 import { describeTickOutcome, type TickOutcome } from "./tick-outcome.js";
@@ -43,11 +43,6 @@ export interface WorkerActivityBreakdown {
   liveEvents: WorkerLiveEvent[];
 }
 
-const WORKER_ROLES: Record<string, string> = {
-  "strategy-review-loop": "Reviews fleet health every 5 minutes",
-  "watch-experiments": "Patrols workers, budget, and relaunch gates",
-  "orchestrator-loop": "Pulse orchestrator for IDE sessions",
-};
 
 interface CheckpointTick {
   tick: number;
@@ -56,6 +51,105 @@ interface CheckpointTick {
   error?: string;
   outcome?: TickOutcome;
   lastAssistantTail?: string;
+}
+
+export function buildWorkerActivity(
+  experiments: DashboardExperimentRow[],
+  options?: { metaDir?: string; strategyStatus?: Record<string, unknown> | null },
+): WorkerActivityBreakdown[] {
+  const metaDir = options?.metaDir;
+  const rows: WorkerActivityBreakdown[] = [];
+
+  for (const exp of experiments) {
+    const displayName = exp.displayName ?? friendlyExperimentName(exp.name);
+    const cp = exp.checkpoint;
+    const last = cp?.lastTick;
+    const err = last?.error?.trim();
+    const alive = exp.alive;
+    const status: WorkerActivityBreakdown["status"] = !alive
+      ? "dead"
+      : err
+        ? "error"
+        : last?.skipped === "busy"
+          ? "active"
+          : "idle";
+
+    if (exp.name.startsWith("sdk-worker")) {
+      const ticks = readCheckpointTicks(exp.checkpointPath).slice(-5).reverse().map(tickBreakdown);
+      const liveEvents = liveEventsForAgent(exp.agentId, metaDir);
+      const activeRun =
+        alive &&
+        liveEvents.some((event) => event.at && Date.now() - Date.parse(event.at) < 120_000);
+      rows.push({
+        name: exp.name,
+        displayName,
+        alive,
+        role: fleetWorkerRoleDescription(exp.name),
+        status: !alive ? "dead" : err ? "error" : activeRun ? "active" : status,
+        statusText: err
+          ? err.slice(0, 160)
+          : activeRun
+            ? (liveEvents[0]?.text ?? "Running SDK tick…")
+            : (() => {
+                const archives = exp.checkpointPath
+                  ? listArchivedWorkerSessions(exp.checkpointPath, 1)
+                  : [];
+                if (archives[0] && (cp?.ticks ?? 0) === 0) {
+                  return `Last session: ${formatArchivedSessionSummary(archives[0])}`;
+                }
+                return (
+                  ticks[0]?.workSummary ??
+                  ticks[0]?.outcomeSummary ??
+                  (cp?.ticks ? `Tick ${cp.ticks} complete, awaiting next interval` : "Starting…")
+                );
+              })(),
+        ticksCompleted: cp?.ticks ?? 0,
+        productiveRatio: cp?.productiveRatio,
+        recentTicks: ticks,
+        liveEvents,
+      });
+      continue;
+    }
+
+    if (exp.name === "strategy-review-loop") {
+      const strat = options?.strategyStatus;
+      rows.push({
+        name: exp.name,
+        displayName,
+        alive,
+        role: fleetWorkerRoleDescription(exp.name),
+        status: alive ? "idle" : "dead",
+        statusText:
+          typeof strat?.recommendation === "string" && strat.recommendation.trim()
+            ? strat.recommendation
+            : alive
+              ? "Waiting for next review interval"
+              : "Stopped",
+        ticksCompleted: 0,
+        recentTicks: [],
+        liveEvents: [],
+      });
+      continue;
+    }
+
+    rows.push({
+      name: exp.name,
+      displayName,
+      alive,
+      role: fleetWorkerRoleDescription(exp.name),
+      status,
+      statusText: alive ? "Supervisor running" : "Stopped",
+      ticksCompleted: cp?.ticks ?? 0,
+      recentTicks: [],
+      liveEvents: [],
+    });
+  }
+
+  return rows.sort((a, b) => {
+    const rank = (row: WorkerActivityBreakdown) =>
+      row.name.startsWith("sdk-worker") ? 0 : row.name === "strategy-review-loop" ? 1 : 2;
+    return rank(a) - rank(b);
+  });
 }
 
 function readCheckpointTicks(path?: string): CheckpointTick[] {
@@ -126,103 +220,4 @@ function liveEventsForAgent(agentId: string | undefined, metaDir?: string, max =
     }
   }
   return events.sort((a, b) => Date.parse(b.at ?? "") - Date.parse(a.at ?? "")).slice(0, max);
-}
-
-export function buildWorkerActivity(
-  experiments: DashboardExperimentRow[],
-  options?: { metaDir?: string; strategyStatus?: Record<string, unknown> | null },
-): WorkerActivityBreakdown[] {
-  const metaDir = options?.metaDir;
-  const rows: WorkerActivityBreakdown[] = [];
-
-  for (const exp of experiments) {
-    const displayName = exp.displayName ?? friendlyExperimentName(exp.name);
-    const cp = exp.checkpoint;
-    const last = cp?.lastTick;
-    const err = last?.error?.trim();
-    const alive = exp.alive;
-    const status: WorkerActivityBreakdown["status"] = !alive
-      ? "dead"
-      : err
-        ? "error"
-        : last?.skipped === "busy"
-          ? "active"
-          : "idle";
-
-    if (exp.name.startsWith("sdk-worker")) {
-      const ticks = readCheckpointTicks(exp.checkpointPath).slice(-5).reverse().map(tickBreakdown);
-      const liveEvents = liveEventsForAgent(exp.agentId, metaDir);
-      const activeRun =
-        alive &&
-        liveEvents.some((event) => event.at && Date.now() - Date.parse(event.at) < 120_000);
-      rows.push({
-        name: exp.name,
-        displayName,
-        alive,
-        role: WORKER_ROLES[exp.name] ?? "Ships verified diffs: test → commit → push",
-        status: !alive ? "dead" : err ? "error" : activeRun ? "active" : status,
-        statusText: err
-          ? err.slice(0, 160)
-          : activeRun
-            ? (liveEvents[0]?.text ?? "Running SDK tick…")
-            : (() => {
-                const archives = exp.checkpointPath
-                  ? listArchivedWorkerSessions(exp.checkpointPath, 1)
-                  : [];
-                if (archives[0] && (cp?.ticks ?? 0) === 0) {
-                  return `Last session: ${formatArchivedSessionSummary(archives[0])}`;
-                }
-                return (
-                  ticks[0]?.workSummary ??
-                  ticks[0]?.outcomeSummary ??
-                  (cp?.ticks ? `Tick ${cp.ticks} complete, awaiting next interval` : "Starting…")
-                );
-              })(),
-        ticksCompleted: cp?.ticks ?? 0,
-        productiveRatio: cp?.productiveRatio,
-        recentTicks: ticks,
-        liveEvents,
-      });
-      continue;
-    }
-
-    if (exp.name === "strategy-review-loop") {
-      const strat = options?.strategyStatus;
-      rows.push({
-        name: exp.name,
-        displayName,
-        alive,
-        role: WORKER_ROLES[exp.name] ?? "Strategy review",
-        status: alive ? "idle" : "dead",
-        statusText:
-          typeof strat?.recommendation === "string" && strat.recommendation.trim()
-            ? strat.recommendation
-            : alive
-              ? "Waiting for next review interval"
-              : "Stopped",
-        ticksCompleted: 0,
-        recentTicks: [],
-        liveEvents: [],
-      });
-      continue;
-    }
-
-    rows.push({
-      name: exp.name,
-      displayName,
-      alive,
-      role: WORKER_ROLES[exp.name] ?? "Fleet supervisor",
-      status,
-      statusText: alive ? "Supervisor running" : "Stopped",
-      ticksCompleted: cp?.ticks ?? 0,
-      recentTicks: [],
-      liveEvents: [],
-    });
-  }
-
-  return rows.sort((a, b) => {
-    const rank = (row: WorkerActivityBreakdown) =>
-      row.name.startsWith("sdk-worker") ? 0 : row.name === "strategy-review-loop" ? 1 : 2;
-    return rank(a) - rank(b);
-  });
 }

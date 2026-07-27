@@ -7,6 +7,7 @@
  *      CURSOR_META_FLEET_VERIFY (test,lint), CURSOR_META_FLEET_GOAL
  *      CURSOR_META_CI_VALIDATOR (local|github, default local on external repos)
  *      CURSOR_META_CI_WATCH (1|0, default 1 on external — watch-only, never gates ticks)
+ *      CURSOR_META_ORBIT (1|0 — mission ledger drives coders; exit when queue drains)
  */
 import {
   FLEET_FILTER_ENV,
@@ -20,6 +21,9 @@ import { runFleetPreflight } from "../src/fleet-preflight.js";
 import { resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
 
 const cwd = resolveFleetTargetCwd(process.argv[2]);
+if (process.env.CURSOR_META_ORBIT?.trim() !== "0") {
+  process.env.CURSOR_META_ORBIT = "1";
+}
 const goal =
   process.env.CURSOR_META_FLEET_GOAL?.trim() ||
   process.argv.slice(3).join(" ").trim() ||

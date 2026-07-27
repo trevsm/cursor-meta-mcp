@@ -48,7 +48,7 @@ test("buildWorkerActivity includes live sdk run events", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -85,7 +85,7 @@ test("buildWorkerActivity ignores stale sdk run events for active status", () =>
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -119,7 +119,7 @@ test("buildWorkerActivity does not mark dead sdk worker active from recent run e
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: false,
         agentId,
@@ -136,7 +136,7 @@ test("buildWorkerActivity marks busy-skipped sdk worker as active", () => {
   const rows = buildWorkerActivity([
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 1,
       alive: true,
       checkpoint: {
@@ -167,7 +167,7 @@ test("buildWorkerActivity merges live events from multiple sdk runs", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -201,7 +201,7 @@ test("buildWorkerActivity maps assistant and status live event kinds", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -229,7 +229,7 @@ test("buildWorkerActivity maps unknown live event types to other", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -255,7 +255,7 @@ test("buildWorkerActivity maps error live event kind", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -281,7 +281,7 @@ test("buildWorkerActivity keeps error status when recent live events exist", () 
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -319,7 +319,7 @@ test("buildWorkerActivity caps live events at eight newest rows", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -351,7 +351,7 @@ test("buildWorkerActivity ignores live events from other agent ids", () => {
     [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId: "agent-mine",
@@ -369,7 +369,7 @@ test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const errorRows = buildWorkerActivity([
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 1,
       alive: true,
       checkpoint: {
@@ -385,7 +385,7 @@ test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const deadRows = buildWorkerActivity([
     {
       name: "sdk-worker-2",
-      displayName: "Self-improve worker #2",
+      displayName: "Coder #2",
       pid: 2,
       alive: false,
       checkpoint: { exists: true, ticks: 5 },
@@ -426,7 +426,7 @@ test("buildWorkerActivity maps sdk worker ticks and strategy status", () => {
   const experiments: DashboardExperimentRow[] = [
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 123,
       alive: true,
       agentId: "agent-test",
@@ -462,7 +462,7 @@ test("buildWorkerActivity maps sdk worker ticks and strategy status", () => {
 
   assert.equal(rows.length, 3);
   assert.equal(rows[0]?.name, "sdk-worker-1");
-  assert.match(rows[0]?.displayName ?? "", /Self-improve worker/i);
+  assert.match(rows[0]?.displayName ?? "", /Coder/i);
   assert.equal(rows[0]?.recentTicks.length, 1);
   assert.equal(rows[0]?.recentTicks[0]?.workSummary, "Tick 2 — added dashboard activity breakdown");
   assert.match(rows[0]?.recentTicks[0]?.outcomeSummary ?? "", /commit/i);
@@ -485,7 +485,7 @@ test("buildWorkerActivity tolerates malformed checkpoint files", () => {
   const rows = buildWorkerActivity([
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 1,
       alive: true,
       checkpointPath,
@@ -511,7 +511,7 @@ test("buildWorkerActivity surfaces tick errors in recent tick breakdown", () => 
   const rows = buildWorkerActivity([
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 1,
       alive: true,
       checkpointPath,
@@ -591,7 +591,7 @@ test("buildWorkerActivity shows starting status for new sdk workers", () => {
   const rows = buildWorkerActivity([
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 1,
       alive: true,
       checkpoint: { exists: true, ticks: 0 },
@@ -623,7 +623,7 @@ test("buildWorkerActivity keeps only the five most recent checkpoint ticks", () 
   const rows = buildWorkerActivity([
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       pid: 1,
       alive: true,
       checkpointPath,

@@ -23,6 +23,7 @@ import { formatCiRulesForPrompt, resolveFleetCiPolicy } from "./fleet-ci-policy.
 import { TICK_REPORT_INSTRUCTION } from "./ground-truth.js";
 import { formatLearningsForPrompt } from "./learnings.js";
 import { spawnSdkWorker, resolveTickIntervalMs, type SdkWorkerParams } from "./sdk-worker.js";
+import { ensureLaunchMission, orbitEnabled } from "./orbit-worker.js";
 import { experimentsDir, metaHome } from "./meta-home.js";
 import {
   assertBudgetAllowed,
@@ -363,6 +364,15 @@ async function launchFleetProcesses(
   assertBudgetAllowed("spawn_fleet_worker");
   recordBudgetEvent({ at: new Date().toISOString(), action: "fleet_start", source: "meta_self_improve" });
   const prompt = buildSelfImprovePrompt(cwd, params.prompt ?? params.goal, metaDir);
+  const goalText = (params.goal ?? params.prompt ?? "").trim();
+  if (goalText && (orbitEnabled(metaDir, cwd) || process.env.CURSOR_META_ORBIT?.trim() === "1")) {
+    try {
+      const verifyLabel = formatVerifyCommandLabel(resolveVerifyCommands(cwd));
+      ensureLaunchMission({ cwd, goal: goalText, verify: verifyLabel, metaDir });
+    } catch {
+      /* ledger is best-effort at launch */
+    }
+  }
   const auth = await probeWorkerAuth();
   const workerMode = await resolveHonestWorkerMode(params.workerMode);
   const authNote = workerAuthHint(auth);

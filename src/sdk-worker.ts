@@ -23,6 +23,15 @@ import {
 } from "./tick-outcome.js";
 import { appendEpisode } from "./world-model.js";
 import { probeWorkerAuth, workerAuthHint } from "./worker-auth.js";
+import {
+  finalizeOrbitTick,
+  missionPromptBlock,
+  orbitEnabled,
+  prepareOrbitTick,
+  workerIdFromCheckpoint,
+  type OrbitTickContext,
+} from "./orbit-worker.js";
+import { stationId } from "./orbit-ledger.js";
 
 export interface SdkWorkerParams {
   cwd: string;
@@ -67,7 +76,7 @@ export interface SdkWorkerState {
   agentId?: string;
 }
 
-export type SdkWorkerStopReason = "duration" | "max_ticks" | "error" | "consecutive_errors";
+export type SdkWorkerStopReason = "duration" | "max_ticks" | "error" | "consecutive_errors" | "missions_drained";
 
 export interface SdkWorkerResult extends SdkWorkerState {
   endedAt: string;
@@ -117,19 +126,23 @@ const CONTINUATION_PROMPT = [
   TICK_REPORT_INSTRUCTION,
 ].join("\n");
 
-function buildTickPrompt(state: SdkWorkerState, tick: number): string {
+function buildTickPrompt(state: SdkWorkerState, tick: number, missionBlock?: string): string {
   const prior = state.ticks.at(-1);
   if (prior?.groundTruth?.blocked && prior.groundTruth.correctionPrompt) {
     return prior.groundTruth.correctionPrompt;
   }
+
+  const missionPrefix = missionBlock?.trim() ? `${missionBlock.trim()}\n\n` : "";
+
   if (tick <= 1) {
     const batchReminder = formatBatchGitReminder(state.ticks, resolveCommitBatchPolicy(state.cwd));
-    return batchReminder ? `${state.prompt}\n\n${batchReminder}` : state.prompt;
+    const body = batchReminder ? `${state.prompt}\n\n${batchReminder}` : state.prompt;
+    return `${missionPrefix}${body}`;
   }
   const batchReminder = formatBatchGitReminder(state.ticks, resolveCommitBatchPolicy(state.cwd));
   const lines = [CONTINUATION_PROMPT];
   if (batchReminder) lines.push(batchReminder);
-  return lines.join("\n\n");
+  return `${missionPrefix}${lines.join("\n\n")}`;
 }
 
 function mergeGroundTruthAudits(
@@ -263,14 +276,42 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
   const startTick =
     state.ticks.length > 0 ? (state.ticks.at(-1)?.tick ?? state.ticks.length) + 1 : 1;
 
+  const useOrbit = orbitEnabled(metaDir, state.cwd);
+  const orbitCtx: OrbitTickContext | null = useOrbit
+    ? {
+        station: stationId(state.cwd),
+        workerId: workerIdFromCheckpoint(checkpointPath),
+        metaDir,
+      }
+    : null;
+
   for (let tick = startTick; tick <= state.maxTicks; tick += 1) {
     if (Date.now() - startedAtMs >= state.durationMs) {
       stoppedBecause = "duration";
       break;
     }
 
+    let activeMission = null;
+    if (orbitCtx) {
+      const prep = prepareOrbitTick(orbitCtx);
+      if (prep.exitDrained) {
+        stoppedBecause = "missions_drained";
+        break;
+      }
+      if (!prep.mission) {
+        await sleep(tickIntervalMs);
+        continue;
+      }
+      activeMission = prep.mission;
+    }
+
     const repoBefore = captureRepoSnapshot(state.cwd);
-    const entry = await runSdkWorkerTick(service, { ...params, agentId }, tick, buildTickPrompt(state, tick));
+    const entry = await runSdkWorkerTick(
+      service,
+      { ...params, agentId },
+      tick,
+      buildTickPrompt(state, tick, activeMission ? missionPromptBlock(activeMission) : undefined),
+    );
     if (entry.agentId) {
       agentId = entry.agentId;
       state.agentId = agentId;
@@ -326,6 +367,20 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     state.ticks.push(entry);
     writeSdkCheckpoint(state, checkpointPath);
     params.onTick?.(entry, state);
+
+    if (orbitCtx && activeMission) {
+      try {
+        finalizeOrbitTick({
+          ctx: orbitCtx,
+          mission: activeMission,
+          error: entry.error,
+          outcome: entry.outcome,
+          tickReportDone: entry.groundTruth?.tickReport?.done === true,
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
 
     try {
       appendEpisode(

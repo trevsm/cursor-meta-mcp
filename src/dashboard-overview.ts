@@ -1,5 +1,6 @@
 import type { WorkerActivityBreakdown, WorkerTickBreakdown } from "./dashboard-activity.js";
 import type { DashboardSnapshot, FleetProductivitySummary } from "./dashboard.js";
+import type { MissionSummary } from "./orbit-ledger.js";
 
 export interface FleetOverview {
   headline: string;
@@ -32,10 +33,33 @@ function explainWorkerError(error: string): string {
   return error;
 }
 
-function missionWhy(manifest: DashboardSnapshot["manifest"]): string | undefined {
+/**
+ * The why, preferring the ledger over the launch goal.
+ *
+ * A manifest goal is a static launch string that never retires; a mission states
+ * the reason for the work actually in flight right now.
+ */
+function missionWhy(
+  manifest: DashboardSnapshot["manifest"],
+  missions?: MissionSummary | null,
+): string | undefined {
+  const active = missions?.active ?? missions?.next;
+  const intent = cleanText(active?.intent);
+  if (intent) return truncate(intent, 220);
+
   const goal = manifest?.goal?.trim();
   if (!goal) return undefined;
   return truncate(goal, 220);
+}
+
+/** Ledger progress, e.g. `3 of 5 missions landed`. */
+function missionProgress(missions?: MissionSummary | null): string | undefined {
+  if (!missions || missions.total === 0) return undefined;
+  const parts = [`${missions.landed} of ${missions.total} missions landed`];
+  if (missions.blocked > 0) {
+    parts.push(`${missions.blocked} blocked`);
+  }
+  return parts.join(", ");
 }
 
 function strategyIssues(status: DashboardSnapshot["strategyStatus"]): string[] {
@@ -48,8 +72,9 @@ function whyHeadline(input: {
   strategyStatus: DashboardSnapshot["strategyStatus"];
   sdkWorker?: WorkerActivityBreakdown;
   status: FleetOverview["status"];
+  missions?: MissionSummary | null;
 }): string {
-  const { manifest, strategyStatus, sdkWorker, status } = input;
+  const { manifest, strategyStatus, sdkWorker, status, missions } = input;
   const pivot = cleanText(typeof strategyStatus?.pivot === "string" ? strategyStatus.pivot : "");
   const recommendation = cleanText(
     typeof strategyStatus?.recommendation === "string" ? strategyStatus.recommendation : "",
@@ -62,10 +87,21 @@ function whyHeadline(input: {
     if (/SDK run rate/i.test(err || latestErr)) return "Blocked — hourly SDK run cap";
     return "Blocked — worker error";
   }
+
+  // A drained queue is the completion signal a duration-driven fleet never had.
+  if (missions && missions.total > 0 && missions.drained) {
+    return truncate(`All missions landed — ${missionProgress(missions)}`, 100);
+  }
+
+  const activeMission = missions?.active;
+  if (activeMission) {
+    return truncate(`${activeMission.id}: ${cleanText(activeMission.title)}`, 100);
+  }
+
   if (pivot) return truncate(pivot, 100);
   if (recommendation) return truncate(recommendation.split(/[.!?]/)[0] ?? recommendation, 100);
   if (sdkWorker?.status === "active") {
-    const mission = missionWhy(manifest);
+    const mission = missionWhy(manifest, missions);
     if (mission) return truncate(`Working on: ${mission}`, 100);
     return "Deep slice in progress";
   }
@@ -79,12 +115,24 @@ function whyParagraph(input: {
   strategyStatus: DashboardSnapshot["strategyStatus"];
   sdkWorker?: WorkerActivityBreakdown;
   productivity: FleetProductivitySummary | null;
+  missions?: MissionSummary | null;
 }): string {
-  const { manifest, strategyStatus, sdkWorker, productivity } = input;
+  const { manifest, strategyStatus, sdkWorker, productivity, missions } = input;
   const parts: string[] = [];
 
-  const mission = missionWhy(manifest);
+  const mission = missionWhy(manifest, missions);
   if (mission) parts.push(`Why we're here: ${mission}`);
+
+  if (missions && missions.total > 0) {
+    const progress = missionProgress(missions);
+    if (missions.drained) {
+      parts.push(
+        `Why nothing is queued: ${progress} and no mission remains open — file the next mission or retire the coder.`,
+      );
+    } else if (progress) {
+      parts.push(`Where we stand: ${progress}, ${missions.open} still open.`);
+    }
+  }
 
   const onTrack = strategyStatus?.onTrack === true;
   const score = typeof strategyStatus?.score === "number" ? strategyStatus.score : undefined;
@@ -135,8 +183,9 @@ export function buildFleetOverview(input: {
   strategyStatus: DashboardSnapshot["strategyStatus"];
   workerActivity: WorkerActivityBreakdown[];
   productivity: FleetProductivitySummary | null;
+  missions?: MissionSummary | null;
 }): FleetOverview {
-  const { fleetHealth: fh, manifest, strategyStatus, workerActivity, productivity } = input;
+  const { fleetHealth: fh, manifest, strategyStatus, workerActivity, productivity, missions } = input;
   const sdkWorker = workerActivity.find((row) => row.name.startsWith("sdk-worker"));
 
   if (manifest?.budgetBlocked) {
@@ -149,11 +198,12 @@ export function buildFleetOverview(input: {
   }
 
   if (!fh.total) {
+    const why = missionWhy(manifest, missions);
     return {
       status: "idle",
       headline: "Fleet idle",
-      paragraph: missionWhy(manifest)
-        ? `Why nothing is running: no workers are active. Mission when launched: ${missionWhy(manifest)}`
+      paragraph: why
+        ? `Why nothing is running: no workers are active. Mission when launched: ${why}`
         : "Why nothing is running: no workers are active. Launch the fleet to start autonomous work.",
     };
   }
@@ -175,8 +225,8 @@ export function buildFleetOverview(input: {
 
   return {
     status,
-    headline: whyHeadline({ manifest, strategyStatus, sdkWorker, status }),
-    paragraph: whyParagraph({ manifest, strategyStatus, sdkWorker, productivity }),
+    headline: whyHeadline({ manifest, strategyStatus, sdkWorker, status, missions }),
+    paragraph: whyParagraph({ manifest, strategyStatus, sdkWorker, productivity, missions }),
   };
 }
 

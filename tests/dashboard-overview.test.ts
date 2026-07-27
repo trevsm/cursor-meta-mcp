@@ -3,10 +3,15 @@ import { test } from "node:test";
 
 const { buildFleetOverview, humanShippedTick } = await import("../src/dashboard-overview.js");
 import type { WorkerActivityBreakdown } from "../src/dashboard-activity.js";
+import type { Mission, MissionSummary } from "../src/orbit-ledger.js";
 
 const healthyFleet = {
   total: 2,
   alive: 2,
+  codersTotal: 1,
+  codersAlive: 1,
+  supervisorsTotal: 2,
+  supervisorsAlive: 2,
   watcherAlive: true,
   strategyReviewerAlive: true,
   manifestAt: null,
@@ -17,11 +22,49 @@ const lintMission = {
   goal: "Drive workflow-builder lint to zero before UX work. Local verify only — no GitHub CI pushes.",
 };
 
+const idleCoder: WorkerActivityBreakdown = {
+  name: "sdk-worker-1",
+  displayName: "Coder #1",
+  alive: true,
+  role: "Ships verified diffs",
+  status: "idle",
+  statusText: "Tick 3 complete",
+  ticksCompleted: 3,
+  recentTicks: [],
+  liveEvents: [],
+};
+
+function missionSummary(overrides: Partial<MissionSummary> = {}): MissionSummary {
+  const active: Mission = {
+    id: "fa-a3k91",
+    title: "Clear workflow-builder react-hooks lint",
+    intent: "Lint noise hides real regressions in the workflow builder.",
+    status: "active",
+    acceptance: [],
+    station: "faciliq-platform-core",
+    createdAt: "2026-07-27T20:00:00.000Z",
+    updatedAt: "2026-07-27T20:00:00.000Z",
+  };
+  return {
+    station: "faciliq-platform-core",
+    total: 3,
+    open: 1,
+    inFlight: 1,
+    landed: 1,
+    blocked: 0,
+    dropped: 0,
+    active,
+    next: null,
+    drained: false,
+    ...overrides,
+  };
+}
+
 test("buildFleetOverview leads with mission and strategy whys", () => {
   const workerActivity: WorkerActivityBreakdown[] = [
     {
       name: "sdk-worker-1",
-      displayName: "Self-improve worker #1",
+      displayName: "Coder #1",
       alive: true,
       role: "Ships verified diffs",
       status: "idle",
@@ -68,7 +111,7 @@ test("buildFleetOverview explains SDK rate limit as why blocked", () => {
     workerActivity: [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         alive: true,
         role: "Ships verified diffs",
         status: "error",
@@ -98,7 +141,15 @@ test("buildFleetOverview handles budget block and idle fleet", () => {
   assert.match(blocked.paragraph, /Why work stopped/i);
 
   const idle = buildFleetOverview({
-    fleetHealth: { ...healthyFleet, total: 0, alive: 0 },
+    fleetHealth: {
+      ...healthyFleet,
+      total: 0,
+      alive: 0,
+      codersTotal: 0,
+      codersAlive: 0,
+      supervisorsTotal: 0,
+      supervisorsAlive: 0,
+    },
     manifest: lintMission,
     strategyStatus: null,
     workerActivity: [],
@@ -116,7 +167,7 @@ test("buildFleetOverview explains low productivity when gate missed", () => {
     workerActivity: [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         alive: true,
         role: "Ships verified diffs",
         status: "idle",
@@ -143,7 +194,13 @@ test("buildFleetOverview explains low productivity when gate missed", () => {
 
 test("buildFleetOverview warns when fleet is degraded", () => {
   const overview = buildFleetOverview({
-    fleetHealth: { ...healthyFleet, total: 3, alive: 2 },
+    fleetHealth: {
+      ...healthyFleet,
+      total: 3,
+      alive: 2,
+      codersAlive: 1,
+      supervisorsAlive: 1,
+    },
     manifest: lintMission,
     strategyStatus: null,
     workerActivity: [],
@@ -165,7 +222,7 @@ test("buildFleetOverview uses pivot as headline when present", () => {
     workerActivity: [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         alive: true,
         role: "Ships verified diffs",
         status: "active",
@@ -180,6 +237,90 @@ test("buildFleetOverview uses pivot as headline when present", () => {
 
   assert.match(overview.headline, /chain-graph-preview/i);
   assert.match(overview.paragraph, /Why next:.*chain-graph-preview/i);
+});
+
+test("mission intent overrides the static launch goal as the why", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: null,
+    workerActivity: [idleCoder],
+    productivity: null,
+    missions: missionSummary(),
+  });
+
+  assert.match(overview.paragraph, /Why we're here: Lint noise hides real regressions/);
+  assert.doesNotMatch(overview.paragraph, /Local verify only/);
+  assert.match(overview.headline, /^fa-a3k91: Clear workflow-builder react-hooks lint/);
+});
+
+test("overview reports ledger progress alongside the why", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: null,
+    workerActivity: [idleCoder],
+    productivity: null,
+    missions: missionSummary({ landed: 2, total: 4, open: 1, blocked: 1 }),
+  });
+
+  assert.match(overview.paragraph, /Where we stand: 2 of 4 missions landed, 1 blocked/);
+});
+
+test("a drained queue reads as completion, not as an idle fleet", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: null,
+    workerActivity: [idleCoder],
+    productivity: null,
+    missions: missionSummary({
+      total: 3,
+      landed: 3,
+      open: 0,
+      inFlight: 0,
+      active: null,
+      drained: true,
+    }),
+  });
+
+  assert.match(overview.headline, /All missions landed — 3 of 3 missions landed/);
+  assert.match(overview.paragraph, /Why nothing is queued/);
+  assert.match(overview.paragraph, /retire the coder/);
+});
+
+test("overview falls back to the launch goal when no missions are filed", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: null,
+    workerActivity: [idleCoder],
+    productivity: null,
+    missions: null,
+  });
+
+  assert.match(overview.paragraph, /Why we're here: Drive workflow-builder lint to zero/);
+  assert.doesNotMatch(overview.paragraph, /missions landed/);
+});
+
+test("worker errors still outrank mission state in the headline", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: lintMission,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        ...idleCoder,
+        status: "error",
+        statusText: "SDK run rate 20/20 per hour",
+        recentTicks: [{ tick: 4, error: "SDK run rate 20/20 per hour" }],
+      },
+    ],
+    productivity: null,
+    missions: missionSummary(),
+  });
+
+  assert.match(overview.headline, /Blocked — hourly SDK run cap/i);
 });
 
 test("humanShippedTick still formats shipped metrics for activity cards", () => {

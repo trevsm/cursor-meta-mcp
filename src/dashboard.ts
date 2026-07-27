@@ -12,6 +12,7 @@ import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
 import { inspectFleetResumeState } from "./fleet-lifecycle.js";
 import {
+  computeFleetRoleCounts,
   friendlyExperimentName,
   friendlyEpisodeActor,
   friendlySdkAgentLabel,
@@ -26,6 +27,7 @@ import {
 } from "./fleet-metrics.js";
 import { buildWorkerActivity, type WorkerActivityBreakdown } from "./dashboard-activity.js";
 import { buildFleetOverview } from "./dashboard-overview.js";
+import { stationId, summarizeStation, type MissionSummary } from "./orbit-ledger.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
 import { getBudgetSnapshot, loadBudgetState, resolveBudgetStatePath, resolveFleetElapsedMs, resolveFleetStartedAt } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, coerceStopReason, type LongSessionState } from "./long-session.js";
@@ -121,6 +123,10 @@ export interface DashboardSnapshot {
   fleetHealth: {
     total: number;
     alive: number;
+    codersTotal: number;
+    codersAlive: number;
+    supervisorsTotal: number;
+    supervisorsAlive: number;
     watcherAlive: boolean;
     strategyReviewerAlive: boolean;
     manifestAt: string | null;
@@ -308,6 +314,39 @@ export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]
       lastPushed: false,
     }),
     gatePercent: PRODUCTIVE_TICK_GATE * 100,
+  };
+}
+
+/** Mission ledger for the fleet's target repo, or null when none has been filed. */
+function resolveStationMissions(root: string | undefined, metaDir: string): MissionSummary | null {
+  if (!root?.trim()) return null;
+  try {
+    const summary = summarizeStation(stationId(root), metaDir);
+    return summary.total > 0 ? summary : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildFleetHealth(
+  experiments: DashboardExperimentRow[],
+  manifest: ReturnType<typeof loadFleetManifest>,
+  staleManifest: boolean,
+): DashboardSnapshot["fleetHealth"] {
+  const aliveCount = experiments.filter((row) => row.alive).length;
+  const watcherAlive = pidAlive(manifest?.watcherPid);
+  const roleCounts = computeFleetRoleCounts({
+    experiments: experiments.map((row) => ({ name: row.name, alive: row.alive })),
+    watcherAlive,
+  });
+  return {
+    total: experiments.length,
+    alive: aliveCount,
+    ...roleCounts,
+    watcherAlive,
+    strategyReviewerAlive: pidAlive(manifest?.strategyReviewerPid),
+    manifestAt: manifest?.at ?? null,
+    staleManifest,
   };
 }
 
@@ -687,14 +726,7 @@ export function collectDashboardLiveSnapshot(options?: {
   const manifestAt = manifest?.at ?? null;
   const manifestAgeMs = manifestAt ? Date.now() - Date.parse(manifestAt) : null;
   const staleManifest = aliveCount === 0 && (manifestAgeMs ?? 0) > 5 * 60_000;
-  const fleetHealth = {
-    total: experiments.length,
-    alive: aliveCount,
-    watcherAlive: pidAlive(manifest?.watcherPid),
-    strategyReviewerAlive: pidAlive(manifest?.strategyReviewerPid),
-    manifestAt,
-    staleManifest,
-  };
+  const fleetHealth = buildFleetHealth(experiments, manifest, staleManifest);
   const spawnThoughts = collectSpawnThoughts({ metaDir, experiments, pulse });
   const workerActivity = buildWorkerActivity(experiments, { metaDir, strategyStatus });
   const worldModel = loadWorldModel(metaDir);
@@ -711,12 +743,14 @@ export function collectDashboardLiveSnapshot(options?: {
     recentEpisodes: episodes,
     watchStatus,
   });
+  const missions = resolveStationMissions(manifest?.root, metaDir);
   const overview = buildFleetOverview({
     fleetHealth,
     manifest,
     strategyStatus,
     workerActivity,
     productivity: summarizeFleetProductivity(experiments),
+    missions,
   });
   const activeSummary: ActiveSummary = {
     ...activeSummaryBase,
@@ -778,14 +812,7 @@ export function collectDashboardSnapshot(options?: {
     at: new Date().toISOString(),
     metaDir,
     manifest,
-    fleetHealth: {
-      total: experiments.length,
-      alive: aliveCount,
-      watcherAlive: pidAlive(manifest?.watcherPid),
-      strategyReviewerAlive: pidAlive(manifest?.strategyReviewerPid),
-      manifestAt,
-      staleManifest,
-    },
+    fleetHealth: buildFleetHealth(experiments, manifest, staleManifest),
     supervisor,
     budget,
     watchStatus,

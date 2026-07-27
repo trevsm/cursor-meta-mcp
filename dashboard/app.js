@@ -129,6 +129,14 @@ function resolvePrimaryAction(data) {
   return { path: "/api/start", label: "Start fleet", mode: "start" };
 }
 
+function formatFleetRoleSummary(fh) {
+  const coders = fh.codersAlive ?? 0;
+  const supervisors = fh.supervisorsAlive ?? 0;
+  const coderLabel = coders === 1 ? "coder" : "coders";
+  const supervisorLabel = supervisors === 1 ? "supervisor" : "supervisors";
+  return `${coders} ${coderLabel} · ${supervisors} ${supervisorLabel}`;
+}
+
 function updateHeader(data) {
   const fh = data?.fleetHealth ?? {};
   const fc = data?.fleetControl ?? {};
@@ -160,7 +168,7 @@ function updateHeader(data) {
   ring.className = `status-ring ${ringClass}`;
   setLucideIcon(ring, ringIcon);
   statusLabel.textContent = statusText;
-  workerLine.textContent = `${workerCount} worker${workerCount === 1 ? "" : "s"} running`;
+  workerLine.textContent = formatFleetRoleSummary(fh);
 
   const budgetStatus = data?.budget?.status ?? "ok";
   const pillEl = document.getElementById("budget-pill");

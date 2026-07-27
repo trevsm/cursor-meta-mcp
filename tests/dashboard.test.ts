@@ -19,6 +19,7 @@ import {
 } from "../src/dashboard.js";
 import { loadBudgetState, saveBudgetState } from "../src/plan-budget.js";
 import { appendRunEvent } from "../src/run-events.js";
+import { claimNextMission, fileMission, landMission } from "../src/orbit-ledger.js";
 
 test("readJsonSafe returns null for missing files", () => {
   assert.equal(readJsonSafe("/tmp/does-not-exist-dashboard.json"), null);
@@ -75,7 +76,7 @@ test("buildExperimentRows reads productive metrics from checkpoint files", () =>
     }),
   );
   const rows = buildExperimentRows([{ name: "sdk-worker-1", pid: 99_999_999, checkpointPath: path }], null);
-  assert.equal(rows[0]?.displayName, "Self-improve worker #1");
+  assert.equal(rows[0]?.displayName, "Coder #1");
   assert.equal(rows[0]?.checkpoint?.exists, true);
   assert.equal(rows[0]?.checkpoint?.ticks, 2);
   assert.equal(rows[0]?.checkpoint?.attemptedTicks, 2);
@@ -137,6 +138,29 @@ test("collectDashboardSnapshot reads experiment dir when present", () => {
   assert.equal(snapshot.dedicatedWorker?.sessionIndex, 4);
   assert.ok(snapshot.gitSync);
   assert.ok(snapshot.gitSync.summary);
+});
+
+test("collectDashboardSnapshot counts coders and supervisors separately", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-roles-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [
+        { name: "sdk-worker-1", pid: process.pid },
+        { name: "strategy-review-loop", pid: process.pid },
+      ],
+      watcherPid: process.pid,
+      strategyReviewerPid: process.pid,
+    }),
+  );
+  const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
+  assert.equal(snapshot.fleetHealth.codersTotal, 1);
+  assert.equal(snapshot.fleetHealth.codersAlive, 1);
+  assert.equal(snapshot.fleetHealth.supervisorsTotal, 2);
+  assert.equal(snapshot.fleetHealth.supervisorsAlive, 2);
 });
 
 test("collectDashboardSnapshot fleetRuntime uses budget fleetStartedAt not manifest refresh", () => {
@@ -232,7 +256,18 @@ test("collectDashboardSnapshot does not mark staleManifest for fresh dead fleet"
 
 test("buildActiveSummary summarizes fleet and worker tails", () => {
   const summary = buildActiveSummary({
-    fleetHealth: { total: 2, alive: 2, watcherAlive: true, strategyReviewerAlive: true, manifestAt: null, staleManifest: false },
+    fleetHealth: {
+      total: 2,
+      alive: 2,
+      codersTotal: 1,
+      codersAlive: 1,
+      supervisorsTotal: 1,
+      supervisorsAlive: 1,
+      watcherAlive: true,
+      strategyReviewerAlive: true,
+      manifestAt: null,
+      staleManifest: false,
+    },
     manifest: { goal: "Improve tests" },
     budget: { warnings: [] },
     strategyStatus: { onTrack: true, recommendation: "Keep going" },
@@ -263,7 +298,18 @@ test("buildActiveSummary summarizes fleet and worker tails", () => {
 
 test("buildActiveSummary uses friendly labels for worker-session experiments", () => {
   const summary = buildActiveSummary({
-    fleetHealth: { total: 1, alive: 1, watcherAlive: false, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    fleetHealth: {
+      total: 1,
+      alive: 1,
+      codersTotal: 1,
+      codersAlive: 1,
+      supervisorsTotal: 0,
+      supervisorsAlive: 0,
+      watcherAlive: false,
+      strategyReviewerAlive: false,
+      manifestAt: null,
+      staleManifest: false,
+    },
     manifest: null,
     budget: { warnings: [] },
     strategyStatus: { onTrack: true, recommendation: "Keep going" },
@@ -271,7 +317,7 @@ test("buildActiveSummary uses friendly labels for worker-session experiments", (
     experiments: [
       {
         name: "worker-session-2",
-        displayName: "IDE worker #2",
+        displayName: "IDE coder #2",
         pid: 1,
         alive: true,
         checkpoint: {
@@ -288,13 +334,24 @@ test("buildActiveSummary uses friendly labels for worker-session experiments", (
     ],
     spawnThoughts: [],
   });
-  assert.ok(summary.lines.some((line) => /IDE worker #2: auth expired/.test(line.text)));
+  assert.ok(summary.lines.some((line) => /IDE coder #2: auth expired/.test(line.text)));
 });
 
 test("buildActiveSummary friendly-labels recent episode actors", () => {
   const agentId = "agent-episode-abc";
   const summary = buildActiveSummary({
-    fleetHealth: { total: 1, alive: 1, watcherAlive: false, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    fleetHealth: {
+      total: 1,
+      alive: 1,
+      codersTotal: 1,
+      codersAlive: 1,
+      supervisorsTotal: 0,
+      supervisorsAlive: 0,
+      watcherAlive: false,
+      strategyReviewerAlive: false,
+      manifestAt: null,
+      staleManifest: false,
+    },
     manifest: null,
     budget: { warnings: [] },
     strategyStatus: null,
@@ -302,7 +359,7 @@ test("buildActiveSummary friendly-labels recent episode actors", () => {
     experiments: [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -318,7 +375,7 @@ test("buildActiveSummary friendly-labels recent episode actors", () => {
     ],
     spawnThoughts: [],
   });
-  assert.ok(summary.lines.some((line) => /Self-improve worker #1 · tick 2 · commit · success/.test(line.text)));
+  assert.ok(summary.lines.some((line) => /Coder #1 · tick 2 · commit · success/.test(line.text)));
 });
 
 test("collectSpawnThoughts includes worker tails and live chats", () => {
@@ -378,7 +435,7 @@ test("collectSpawnThoughts labels sdk runs from worker agent index", () => {
     experiments: [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -401,7 +458,7 @@ test("collectSpawnThoughts labels sdk runs from worker agent index", () => {
 
   const sdkThought = thoughts.find((thought) => thought.source === "sdk-run");
   assert.ok(sdkThought);
-  assert.match(sdkThought?.label ?? "", /Self-improve worker #1 · tick 3/);
+  assert.match(sdkThought?.label ?? "", /Coder #1 · tick 3/);
   assert.match(sdkThought?.text ?? "", /Committed ground-truth fix/);
 });
 
@@ -420,7 +477,7 @@ test("collectSpawnThoughts keeps newest sdk run per agentId", () => {
     experiments: [
       {
         name: "sdk-worker-1",
-        displayName: "Self-improve worker #1",
+        displayName: "Coder #1",
         pid: 1,
         alive: true,
         agentId,
@@ -469,6 +526,85 @@ test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
   assert.ok(live.worldModel);
 });
 
+function writeLiveFleetManifest(metaDir: string, root: string): void {
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  const checkpointPath = join(experimentsDir, "sdk-worker-1.json");
+  writeFileSync(
+    checkpointPath,
+    JSON.stringify({ startedAt: new Date().toISOString(), ticks: [], agentId: "agent-ledger" }),
+  );
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      root,
+      goal: "Static launch goal that never retires.",
+      experiments: [
+        {
+          name: "sdk-worker-1",
+          pid: process.pid,
+          checkpointPath,
+          logPath: join(experimentsDir, "sdk-worker-1.log"),
+        },
+      ],
+      watcherPid: process.pid,
+      strategyReviewerPid: process.pid,
+    }),
+  );
+}
+
+test("collectDashboardLiveSnapshot surfaces mission intent for the manifest station", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-ledger-"));
+  const root = "/Users/me/Desktop/faciliq-platform-core";
+  writeLiveFleetManifest(metaDir, root);
+
+  const mission = fileMission(
+    {
+      station: "faciliq-platform-core",
+      title: "Clear workflow-builder react-hooks lint",
+      intent: "Lint noise hides real regressions in the workflow builder.",
+    },
+    metaDir,
+  );
+  claimNextMission("faciliq-platform-core", "sdk-worker-1", metaDir);
+
+  const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 1 });
+  assert.match(live.activeSummary.overview, /Lint noise hides real regressions/);
+  assert.doesNotMatch(live.activeSummary.overview, /Static launch goal/);
+  assert.match(live.activeSummary.headline, new RegExp(mission.id));
+});
+
+test("collectDashboardLiveSnapshot falls back to the launch goal without a ledger", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-no-ledger-"));
+  writeLiveFleetManifest(metaDir, "/Users/me/Desktop/faciliq-platform-core");
+
+  const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 1 });
+  assert.match(live.activeSummary.overview, /Static launch goal that never retires/);
+});
+
+test("collectDashboardLiveSnapshot reports a drained ledger as completion", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-drained-"));
+  const station = "faciliq-platform-core";
+  writeLiveFleetManifest(metaDir, `/Users/me/Desktop/${station}`);
+
+  const mission = fileMission(
+    { station, title: "Clear lint", intent: "Lint noise hides regressions." },
+    metaDir,
+  );
+  claimNextMission(station, "sdk-worker-1", metaDir);
+  landMission(
+    station,
+    mission.id,
+    { commits: ["b6930f5"], tests: { passed: true } },
+    metaDir,
+  );
+
+  const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 1 });
+  assert.match(live.activeSummary.headline, /All missions landed/);
+  assert.match(live.activeSummary.overview, /retire the coder/);
+});
+
 test("collectDashboardLiveSnapshot reports sdk worker error despite recent live events", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dashboard-error-live-"));
   const experimentsDir = defaultExperimentsDir(metaDir);
@@ -514,7 +650,18 @@ test("collectDashboardLiveSnapshot reports sdk worker error despite recent live 
 
 test("buildActiveSummary warns when productive gate fails on attempted ticks", () => {
   const summary = buildActiveSummary({
-    fleetHealth: { total: 1, alive: 1, watcherAlive: true, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    fleetHealth: {
+      total: 1,
+      alive: 1,
+      codersTotal: 1,
+      codersAlive: 1,
+      supervisorsTotal: 1,
+      supervisorsAlive: 1,
+      watcherAlive: true,
+      strategyReviewerAlive: false,
+      manifestAt: null,
+      staleManifest: false,
+    },
     manifest: null,
     budget: { warnings: [] },
     strategyStatus: null,
@@ -552,7 +699,18 @@ test("buildActiveSummary warns when productive gate fails on attempted ticks", (
 
 test("buildActiveSummary skips productive warn when soft skips leave too few attempts", () => {
   const summary = buildActiveSummary({
-    fleetHealth: { total: 1, alive: 1, watcherAlive: true, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    fleetHealth: {
+      total: 1,
+      alive: 1,
+      codersTotal: 1,
+      codersAlive: 1,
+      supervisorsTotal: 1,
+      supervisorsAlive: 1,
+      watcherAlive: true,
+      strategyReviewerAlive: false,
+      manifestAt: null,
+      staleManifest: false,
+    },
     manifest: null,
     budget: { warnings: [] },
     strategyStatus: null,

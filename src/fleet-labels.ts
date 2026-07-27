@@ -1,24 +1,99 @@
 /** Human-readable labels for fleet experiments and SDK runs (dashboard + summaries). */
 
+const SUPERVISOR_NAMES = new Set([
+  "strategy-review-loop",
+  "watch-experiments",
+  "orchestrator-loop",
+]);
+
 const SUPERVISOR_LABELS: Record<string, string> = {
   "strategy-review-loop": "Strategy critic",
   "watch-experiments": "Fleet watcher",
   "orchestrator-loop": "Pulse orchestrator",
 };
 
+export type FleetRoleKind = "coder" | "supervisor";
+
+export function fleetRoleKind(experimentName: string): FleetRoleKind {
+  if (SUPERVISOR_NAMES.has(experimentName)) return "supervisor";
+  return "coder";
+}
+
+function isCoderExperiment(name: string): boolean {
+  if (name.startsWith("sdk-worker")) return true;
+  if (name === "worker-dedicated") return true;
+  if (/^worker-session-\d+$/.test(name)) return true;
+  if (/^worker-\d+$/.test(name)) return true;
+  return false;
+}
+
+export function computeFleetRoleCounts(input: {
+  experiments: Array<{ name: string; alive: boolean }>;
+  watcherAlive: boolean;
+}): {
+  codersTotal: number;
+  codersAlive: number;
+  supervisorsTotal: number;
+  supervisorsAlive: number;
+} {
+  let codersTotal = 0;
+  let codersAlive = 0;
+  let supervisorsTotal = 0;
+  let supervisorsAlive = 0;
+
+  for (const exp of input.experiments) {
+    if (fleetRoleKind(exp.name) === "supervisor") {
+      supervisorsTotal++;
+      if (exp.alive) supervisorsAlive++;
+    } else if (isCoderExperiment(exp.name)) {
+      codersTotal++;
+      if (exp.alive) codersAlive++;
+    }
+  }
+
+  const includeWatcher = input.experiments.length > 0 || input.watcherAlive;
+  if (includeWatcher) {
+    supervisorsTotal++;
+    if (input.watcherAlive) supervisorsAlive++;
+  }
+
+  return { codersTotal, codersAlive, supervisorsTotal, supervisorsAlive };
+}
+
+export const FLEET_WORKER_ROLE_DESCRIPTIONS: Record<string, string> = {
+  "strategy-review-loop": "Reviews fleet health every 5 minutes",
+  "watch-experiments": "Patrols workers, budget, and relaunch gates",
+  "orchestrator-loop": "Pulse orchestrator for IDE sessions",
+};
+
+export function fleetWorkerRoleDescription(experimentName: string): string {
+  const mapped = FLEET_WORKER_ROLE_DESCRIPTIONS[experimentName];
+  if (mapped) return mapped;
+  if (experimentName.startsWith("sdk-worker")) {
+    return "Ships verified diffs: test → commit → push";
+  }
+  if (experimentName === "worker-dedicated") {
+    return "Dedicated IDE coding session";
+  }
+  if (/^worker-session-\d+$/.test(experimentName) || /^worker-\d+$/.test(experimentName)) {
+    return "IDE coding session";
+  }
+  return "Fleet supervisor";
+}
+
 export function friendlyExperimentName(raw: string): string {
   const mapped = SUPERVISOR_LABELS[raw];
   if (mapped) return mapped;
 
   const sdk = /^sdk-worker-(\d+)$/.exec(raw);
-  if (sdk) return `Self-improve worker #${sdk[1]}`;
-  if (raw === "sdk-worker-main") return "Self-improve worker";
+  if (sdk) return `Coder #${sdk[1]}`;
+  if (raw === "sdk-worker-main") return "Coder";
 
-  if (raw === "worker-dedicated") return "Dedicated IDE worker";
+  if (raw === "worker-dedicated") return "Dedicated IDE coder";
   const ideSession = /^worker-session-(\d+)$/.exec(raw);
-  if (ideSession) return `IDE worker #${ideSession[1]}`;
+  if (ideSession) return `IDE coder #${ideSession[1]}`;
   const ide = /^worker-(\d+)$/.exec(raw);
-  if (ide) return `IDE worker #${ide[1]}`;
+  if (ide) return `IDE coder #${ide[1]}`;
 
   return raw
     .split("-")
@@ -71,7 +146,7 @@ export function friendlyEpisodeActor(
   agentIndex?: Map<string, { workerName: string; tick?: number; agentName?: string }>,
 ): string | undefined {
   if (!actor) return undefined;
-  if (actor === "sdk-worker") return "Self-improve worker";
+  if (actor === "sdk-worker") return "Coder";
   if (actor.startsWith("agent-")) {
     const ctx = agentIndex?.get(actor);
     if (ctx) {
