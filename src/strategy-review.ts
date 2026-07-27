@@ -8,7 +8,7 @@ import { getChatById, getChatByIndex } from "./history-store.js";
 import { loadSessionSummary, loadSessionSummaryById } from "./history.js";
 import { isMetaDiscussion, isStrategySessionTitle } from "./meta-discussion.js";
 import { defaultSuccessCriteria } from "./mission.js";
-import { analyzeWorkerCheckpoint, PRODUCTIVE_TICK_GATE } from "./fleet-metrics.js";
+import { analyzeWorkerCheckpoint, attemptedTickCount, PRODUCTIVE_TICK_GATE } from "./fleet-metrics.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
 import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes } from "./world-model.js";
 
