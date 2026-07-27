@@ -632,6 +632,18 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   border-color: rgba(108, 182, 255, 0.35);
 }
 
+.btn-danger {
+  background: rgba(240, 113, 120, 0.1);
+  border-color: rgba(240, 113, 120, 0.35);
+  color: #ffb4b8;
+}
+
+.btn-danger.armed {
+  background: rgba(240, 113, 120, 0.22);
+  border-color: var(--bad);
+  color: #fff;
+}
+
 pre {
   margin: 0;
   font-family: var(--mono);

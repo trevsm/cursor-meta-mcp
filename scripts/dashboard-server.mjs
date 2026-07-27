@@ -18,6 +18,7 @@ import {
   tailFile,
 } from "../src/dashboard.js";
 import { tailRunEvents } from "../src/run-events.js";
+import { wipeFleetDashboardState } from "../src/fleet-reset.js";
 import { launchSelfImproveFleet } from "../src/self-improve.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +147,17 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
     res.end(tailFile(path, 120));
     return;
+  }
+
+  if (url.pathname === "/api/reset" && req.method === "POST") {
+    try {
+      const result = wipeFleetDashboardState({ metaDir, root: fleetCwd });
+      return json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return json(res, 500, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (url.pathname === "/api/relaunch" && req.method === "POST") {

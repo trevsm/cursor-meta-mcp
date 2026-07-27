@@ -337,6 +337,50 @@ async function refreshAll() {
   await Promise.all([refreshLive(), refreshFull()]);
 }
 
+let resetArmed = false;
+let resetArmTimer = null;
+
+function disarmResetButton(btn) {
+  resetArmed = false;
+  if (resetArmTimer) clearTimeout(resetArmTimer);
+  resetArmTimer = null;
+  btn.textContent = "Reset";
+  btn.classList.remove("armed");
+}
+
+async function resetDashboard() {
+  const btn = document.getElementById("reset");
+  if (!btn) return;
+
+  if (!resetArmed) {
+    resetArmed = true;
+    btn.textContent = "Confirm reset";
+    btn.classList.add("armed");
+    resetArmTimer = setTimeout(() => disarmResetButton(btn), 5000);
+    document.getElementById("summary-meta").textContent =
+      "Click Confirm reset within 5s to wipe fleet logs, checkpoints, and budget clock.";
+    return;
+  }
+
+  disarmResetButton(btn);
+  btn.disabled = true;
+  btn.textContent = "Resetting…";
+  try {
+    const res = await fetch("/api/reset", { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? `Reset failed (${res.status})`);
+    document.getElementById("summary-meta").textContent =
+      `Reset complete — removed ${body.removedFiles?.length ?? 0} file(s).`;
+    await refreshAll();
+  } catch (error) {
+    document.getElementById("summary-meta").textContent = `Reset failed: ${error.message ?? error}`;
+    alert(error.message ?? String(error));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Reset";
+  }
+}
+
 async function relaunchFleet() {
   const btn = document.getElementById("relaunch");
   btn.disabled = true;
@@ -355,6 +399,7 @@ async function relaunchFleet() {
 }
 
 document.getElementById("refresh").addEventListener("click", refreshAll);
+document.getElementById("reset").addEventListener("click", resetDashboard);
 document.getElementById("relaunch").addEventListener("click", relaunchFleet);
 document.getElementById("log-select").addEventListener("change", (e) => loadLog(e.target.value));
 
