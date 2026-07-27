@@ -198,6 +198,41 @@ test("buildWorkerActivity maps unknown live event types to other", () => {
   assert.equal(rows[0]?.liveEvents[0]?.kind, "other");
 });
 
+test("buildWorkerActivity caps live events at eight newest rows", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-cap-"));
+  const runsDir = join(metaDir, "runs");
+  mkdirSync(runsDir, { recursive: true });
+  const agentId = "agent-cap";
+  const lines = Array.from({ length: 10 }, (_, index) =>
+    JSON.stringify({
+      type: "thinking",
+      message: `Thought ${index}`,
+      at: new Date(Date.now() - (10 - index) * 1000).toISOString(),
+      runId: "run-many",
+      agentId,
+    }),
+  );
+  writeFileSync(join(runsDir, "run-many.jsonl"), `${lines.join("\n")}\n`);
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.liveEvents.length, 8);
+  assert.equal(rows[0]?.liveEvents[0]?.text, "Thought 9");
+  assert.equal(rows[0]?.liveEvents.at(-1)?.text, "Thought 2");
+});
+
 test("buildWorkerActivity ignores live events from other agent ids", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-other-"));
   appendRunEvent(
