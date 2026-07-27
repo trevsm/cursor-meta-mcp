@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSdkWorkerArgs, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
+import { buildSdkWorkerArgs, defaultSdkCheckpointPath, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
 import { FakeLocalAgentService } from "./helpers/fake-service.js";
 
 test("summarizeSdkWorker aggregates tick outcomes", () => {
@@ -62,6 +62,29 @@ test("summarizeSdkWorker aggregates tick outcomes", () => {
   assert.equal(summary.filesChanged, 2);
   assert.equal(summary.testFailures, 1);
   assert.equal(summary.checkpointPath, "/tmp/sdk-worker.json");
+});
+
+test("summarizeSdkWorker defaults checkpoint path when result omits it", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "sdk-summary-default-"));
+  const prev = process.env.CURSOR_META_HOME;
+  process.env.CURSOR_META_HOME = metaDir;
+  try {
+    const summary = summarizeSdkWorker({
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      elapsedMs: 0,
+      cwd: "/repo",
+      durationMs: 60_000,
+      maxTicks: 1,
+      prompt: "work",
+      stoppedBecause: "duration",
+      ticks: [],
+    });
+    assert.equal(summary.checkpointPath, defaultSdkCheckpointPath());
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_META_HOME;
+    else process.env.CURSOR_META_HOME = prev;
+  }
 });
 
 test("buildSdkWorkerArgs forwards worker options", () => {
