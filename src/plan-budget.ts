@@ -194,15 +194,17 @@ function eventsInLastHour(state: BudgetState, action: BudgetEvent["action"]): nu
   }).length;
 }
 
+const SPAWN_ACTIONS: BudgetAction[] = [
+  "spawn_sdk",
+  "spawn_fleet_worker",
+  "relaunch_worker",
+  "orchestrate_spawn",
+];
+
 function spawnsInLastHour(state: BudgetState): number {
   const cutoff = Date.now() - HOUR_MS;
   return state.events.filter((event) => {
-    if (
-      event.action !== "spawn_sdk" &&
-      event.action !== "spawn_fleet_worker" &&
-      event.action !== "relaunch_worker" &&
-      event.action !== "orchestrate_spawn"
-    ) {
+    if (!SPAWN_ACTIONS.includes(event.action as BudgetAction)) {
       return false;
     }
     return Date.parse(event.at) >= cutoff;
@@ -465,6 +467,12 @@ export function setPlanUsage(used: number, limit?: number, source: "env" | "manu
 
 export function resetFleetBudgetClock(path = budgetStatePath()): BudgetState {
   const state = loadBudgetState(path);
+  const cutoff = Date.now() - HOUR_MS;
+  // Fresh fleet launch should not inherit spawn-rate blocks from the prior hour.
+  state.events = state.events.filter((event) => {
+    if (Date.parse(event.at) < cutoff) return true;
+    return !SPAWN_ACTIONS.includes(event.action as BudgetAction);
+  });
   state.fleetStartedAt = undefined;
   state.relaunchCount = 0;
   state.budgetBlocked = false;

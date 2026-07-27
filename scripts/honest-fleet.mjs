@@ -12,6 +12,13 @@ const auth = await probeWorkerAuth();
 const mode = await resolveHonestWorkerMode("sdk");
 console.error(`[honest-fleet] preflight auth=${JSON.stringify(auth)} resolvedMode=${mode}`);
 console.error(`[honest-fleet] ${workerAuthHint(auth)}`);
+if (!auth.apiKey) {
+  console.error(
+    "[honest-fleet] CURSOR_API_KEY is required for SDK workers. Uncomment and set it in ~/.cursor/.env",
+  );
+  console.error("[honest-fleet] Create a key: https://cursor.com/dashboard/integrations?tab=api-keys");
+  process.exit(1);
+}
 if (!auth.sdk && mode === "ide") {
   console.error("[honest-fleet] SDK unavailable — launching IDE long-session worker instead.");
 }

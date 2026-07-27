@@ -120,6 +120,10 @@ test("resetFleetBudgetClock clears fleet clock and block flags", () => {
   state.relaunchCount = 3;
   state.budgetBlocked = true;
   state.blockedReason = "max duration";
+  state.events.push(
+    { at: new Date().toISOString(), action: "spawn_sdk", source: "test" },
+    { at: new Date().toISOString(), action: "relaunch_worker", source: "test" },
+  );
   saveBudgetState(state, path);
 
   const reset = resetFleetBudgetClock(path);
@@ -127,5 +131,9 @@ test("resetFleetBudgetClock clears fleet clock and block flags", () => {
   assert.equal(reset.relaunchCount, 0);
   assert.equal(reset.budgetBlocked, false);
   assert.equal(reset.blockedReason, undefined);
+  assert.equal(
+    reset.events.filter((event) => event.action === "spawn_sdk" || event.action === "relaunch_worker").length,
+    0,
+  );
   rmSync(join(path, ".."), { recursive: true, force: true });
 });

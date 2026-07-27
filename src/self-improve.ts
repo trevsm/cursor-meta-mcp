@@ -331,6 +331,12 @@ async function launchFleetProcesses(
 
   const worktrees: WorktreeInfo[] = [];
 
+  if (spawnSdk && parallelWorkers > 0 && !auth.apiKey) {
+    throw new Error(
+      "SDK fleet requires CURSOR_API_KEY in ~/.cursor/.env. CLI fallback fails in detached workers (ENOENT / shell). Create a key at https://cursor.com/dashboard/integrations?tab=api-keys",
+    );
+  }
+
   if (spawnSdk && parallelWorkers > 0) {
     for (let i = 0; i < parallelWorkers; i += 1) {
       const name = `sdk-worker-${i + 1}`;
