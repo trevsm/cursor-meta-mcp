@@ -7,8 +7,23 @@ import { test } from "node:test";
 import {
   appendRunEvent,
   listRunEventSources,
+  recentRunThoughts,
   tailRunEvents,
 } from "../src/run-events.js";
+
+test("appendRunEvent persists spawn label for dashboard display", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "run-events-label-"));
+  appendRunEvent(
+    "run-label",
+    { type: "thinking", message: "Starting tick" },
+    { metaDir, agentId: "agent-fleet", label: "self-improve-fleet" },
+  );
+  const sources = listRunEventSources(metaDir);
+  assert.equal(sources[0]?.label, "self-improve-fleet");
+  const thoughts = recentRunThoughts(metaDir, 5, 5, 60_000);
+  assert.equal(thoughts[0]?.label, "self-improve-fleet");
+  assert.equal(thoughts[0]?.agentId, "agent-fleet");
+});
 
 test("appendRunEvent and tailRunEvents round-trip", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "run-events-"));
