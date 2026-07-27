@@ -42,6 +42,61 @@ function fleetState(fh) {
   return "ok";
 }
 
+function renderWorkerActivity(rows) {
+  const el = document.getElementById("worker-activity");
+  if (!rows?.length) {
+    el.innerHTML = '<div class="empty">No workers in manifest</div>';
+    return;
+  }
+  el.innerHTML = rows
+    .map((worker) => {
+      const ticks = (worker.recentTicks ?? [])
+        .map(
+          (tick) => `<div class="tick-row">
+            <div class="tick-row-head">
+              <span>Tick ${tick.tick}${tick.producedWork ? " · shipped" : tick.error ? " · failed" : ""}</span>
+              <span>${tick.durationMs != null ? fmtDuration(tick.durationMs) : ""}</span>
+            </div>
+            <div class="tick-row-meta">${escapeHtml(tick.outcomeSummary ?? tick.error ?? "—")}</div>
+            ${tick.workSummary ? `<div class="tick-row-work">${escapeHtml(tick.workSummary)}</div>` : ""}
+          </div>`,
+        )
+        .join("");
+      const events = (worker.liveEvents ?? [])
+        .slice(0, 6)
+        .map(
+          (event) => `<div class="live-event">
+            <span class="live-event-kind">${escapeHtml(event.kind)}</span>
+            <span class="live-event-text">${escapeHtml(event.text)}</span>
+          </div>`,
+        )
+        .join("");
+      const stats = [
+        worker.ticksCompleted ? `${worker.ticksCompleted} ticks` : "",
+        worker.productiveRatio != null
+          ? `${(worker.productiveRatio * 100).toFixed(0)}% productive`
+          : "",
+      ]
+        .filter(Boolean)
+        .map((s) => `<span class="stat-chip">${escapeHtml(s)}</span>`)
+        .join("");
+      return `<article class="worker-card ${worker.status}">
+        <div class="worker-head">
+          <div>
+            <div class="worker-title">${escapeHtml(worker.displayName)}</div>
+            <div class="worker-role">${escapeHtml(worker.role)}</div>
+          </div>
+          ${pill(worker.status === "active" ? "alive" : worker.status === "error" ? "bad" : worker.alive ? "ok" : "dead")}
+        </div>
+        <div class="worker-status">${escapeHtml(worker.statusText)}</div>
+        ${stats ? `<div class="worker-stats">${stats}</div>` : ""}
+        ${ticks ? `<div class="tick-list">${ticks}</div>` : ""}
+        ${events ? `<div class="live-events"><h4>Live stream</h4>${events}</div>` : ""}
+      </article>`;
+    })
+    .join("");
+}
+
 function renderLive(data) {
   lastLiveAt = data.at;
   const summary = data.activeSummary ?? {};
@@ -62,6 +117,7 @@ function renderLive(data) {
 
   const thoughts = data.spawnThoughts ?? [];
   document.getElementById("thought-count").textContent = String(thoughts.length);
+  renderWorkerActivity(data.workerActivity ?? []);
   const feed = document.getElementById("thought-feed");
   feed.innerHTML = thoughts.length
     ? thoughts

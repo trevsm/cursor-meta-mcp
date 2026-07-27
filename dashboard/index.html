@@ -40,12 +40,17 @@
     <div class="layout">
       <section class="panel thoughts-panel">
         <div class="panel-head">
-          <h2>Spawn thoughts</h2>
-          <span class="count" id="thought-count">0</span>
+          <h2>Worker activity</h2>
         </div>
-        <div class="thought-feed" id="thought-feed">
-          <div class="empty">No active spawns yet</div>
+        <div class="worker-activity" id="worker-activity">
+          <div class="empty">Waiting for fleet data…</div>
         </div>
+        <details class="spawn-details">
+          <summary>Live event stream <span class="count" id="thought-count">0</span></summary>
+          <div class="thought-feed" id="thought-feed">
+            <div class="empty">No events yet</div>
+          </div>
+        </details>
       </section>
 
       <aside class="sidebar">

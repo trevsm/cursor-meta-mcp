@@ -23,6 +23,7 @@ import {
   PRODUCTIVE_TICK_GATE,
   type FleetTickMetrics,
 } from "./fleet-metrics.js";
+import { buildWorkerActivity, type WorkerActivityBreakdown } from "./dashboard-activity.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
 import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, coerceStopReason, type LongSessionState } from "./long-session.js";
@@ -97,6 +98,7 @@ export interface DashboardLiveSnapshot {
   at: string;
   activeSummary: ActiveSummary;
   spawnThoughts: SpawnThought[];
+  workerActivity: WorkerActivityBreakdown[];
   fleetHealth: DashboardSnapshot["fleetHealth"];
   pulseAt?: string;
   liveChatCount: number;
@@ -290,7 +292,9 @@ export function buildExperimentRows(
       watch?.checkpoint && typeof watch.checkpoint === "object"
         ? (watch.checkpoint as DashboardExperimentRow["checkpoint"])
         : undefined;
-    const rawCheckpoint = readJsonSafe<{ agentId?: string }>(exp.checkpointPath);
+    const rawCheckpoint = exp.checkpointPath
+      ? readJsonSafe<{ agentId?: string }>(exp.checkpointPath)
+      : null;
 
     return {
       name: exp.name,
@@ -638,6 +642,7 @@ export function collectDashboardLiveSnapshot(options?: {
     staleManifest,
   };
   const spawnThoughts = collectSpawnThoughts({ metaDir, experiments, pulse });
+  const workerActivity = buildWorkerActivity(experiments, { metaDir, strategyStatus });
   const worldModel = loadWorldModel(metaDir);
   const episodes = recentEpisodes(metaDir, 8);
   const activeSummary = buildActiveSummary({
@@ -656,6 +661,7 @@ export function collectDashboardLiveSnapshot(options?: {
     at: new Date().toISOString(),
     activeSummary,
     spawnThoughts,
+    workerActivity,
     fleetHealth,
     pulseAt: "error" in pulse ? undefined : pulse.at,
     liveChatCount: "error" in pulse ? 0 : pulse.live.length,

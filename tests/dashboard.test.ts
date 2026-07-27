@@ -403,6 +403,7 @@ test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
   const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 2 });
   assert.ok(live.activeSummary.headline);
   assert.ok(Array.isArray(live.spawnThoughts));
+  assert.ok(Array.isArray(live.workerActivity));
   assert.ok(live.fleetHealth);
   assert.ok(live.worldModel);
 });
