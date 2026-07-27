@@ -161,3 +161,12 @@ test("runSdkWorkerTick preserves agentId on transport errors", async () => {
   assert.match(entry.error ?? "", /Connection lost/);
   assert.equal(entry.agentId, "agent-test-1");
 });
+
+test("runSdkWorkerTick tags initial runLocalAgent with fleet agent name", async () => {
+  const service = new FakeLocalAgentService();
+  service.runError = new Error("No auth available");
+  const entry = await runSdkWorkerTick(service, { cwd: "/repo" }, 1, "work");
+  assert.equal(service.lastRunParams?.name, SDK_FLEET_AGENT_NAME);
+  assert.match(entry.error ?? "", /No auth available/);
+  assert.equal(entry.agentId, undefined);
+});
