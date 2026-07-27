@@ -9,7 +9,7 @@ export const DEFAULT_GENOME = [
   "Each tick:",
   "1. One small verified improvement only — minimize scope.",
   "2. Run `npm run test:fast` on touched areas before claiming success.",
-  "3. Git commit verified work; push when ahead of origin.",
+  "3. Git commit verified slices; push batches only (see batch policy below).",
   "4. End with a structured tick report (JSON footer) — prose claims are ignored.",
   "5. No architecture theater, meta-discussion, or user questions.",
   "",

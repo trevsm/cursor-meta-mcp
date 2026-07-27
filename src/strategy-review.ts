@@ -9,6 +9,7 @@ import { loadSessionSummary, loadSessionSummaryById } from "./history.js";
 import { isMetaDiscussion, isStrategySessionTitle } from "./meta-discussion.js";
 import { defaultSuccessCriteria } from "./mission.js";
 import { analyzeWorkerCheckpoint, attemptedTickCount, PRODUCTIVE_TICK_GATE } from "./fleet-metrics.js";
+import { resolveCommitBatchPolicy } from "./fleet-commit-policy.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
 import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes } from "./world-model.js";
 
@@ -335,12 +336,26 @@ export function heuristicStrategyReview(
   }
 
   const gitStatus = getGitSyncStatus(context.cwd);
-  if (gitStatus.available && gitStatus.dirty && CONCRETE_PROGRESS.test(transcriptTail)) {
+  const batchPolicy = resolveCommitBatchPolicy(context.cwd);
+  if (gitStatus.available && gitStatus.dirty && CONCRETE_PROGRESS.test(transcriptTail) && !batchPolicy.enabled) {
     score -= 15;
     issues.push("uncommitted_work");
     pivot =
       pivot ??
       "Tests passed but work is uncommitted. Stage only your changes (skip .env and .tmp-*), commit with a clear message, then push.";
+  }
+
+  if (
+    gitStatus.available &&
+    gitStatus.dirty &&
+    CONCRETE_PROGRESS.test(transcriptTail) &&
+    batchPolicy.enabled
+  ) {
+    score -= 5;
+    issues.push("batch_local_work");
+    pivot =
+      pivot ??
+      "Batch mode: local uncommitted work is expected — keep accumulating until verify is green, then commit once per slice.";
   }
 
   if (gitStatus.available && gitStatus.behind > 0) {
@@ -351,12 +366,22 @@ export function heuristicStrategyReview(
       `Pull/rebase ${gitStatus.behind} commit(s) from origin/${gitStatus.branch} before starting new work.`;
   }
 
-  if (gitStatus.available && gitStatus.unpushed) {
+  if (gitStatus.available && gitStatus.unpushed && !batchPolicy.enabled) {
     score -= 10;
     issues.push("unpushed_commits");
     pivot =
       pivot ??
       `Push ${gitStatus.ahead} local commit(s) to origin/${gitStatus.branch} before starting new features.`;
+  }
+
+  if (gitStatus.available && gitStatus.unpushed && batchPolicy.enabled) {
+    if (gitStatus.ahead >= batchPolicy.minCommitsBeforePush) {
+      score -= 5;
+      issues.push("batch_ready_to_push");
+      pivot =
+        pivot ??
+        `Batch ready: ${gitStatus.ahead} local commit(s) — push once verify is green on the batch.`;
+    }
   }
 
   if (/parallel .+: [3-9]\d* tabs/.test(context.pulseSummary)) {
@@ -444,6 +469,12 @@ export function strategyRecommendation(onTrack: boolean, issues: string[]): stri
   }
   if (issues.includes("low_productive_ratio")) {
     return "Raise productive-tick ratio: one verified git change + test:fast per tick; do not scale.";
+  }
+  if (issues.includes("batch_local_work")) {
+    return "Batch mode: keep local changes uncommitted until the slice is green, then commit once.";
+  }
+  if (issues.includes("batch_ready_to_push")) {
+    return "Batch is ready — push local commits once verify is green.";
   }
   if (issues.includes("uncommitted_work")) {
     return "Commit verified changes before starting new work.";

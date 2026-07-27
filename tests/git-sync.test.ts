@@ -85,7 +85,24 @@ test("formatGitSyncStatusForPrompt urges commit and push when dirty/ahead", () =
   });
   assert.match(prompt, /2 commit\(s\) ahead/);
   assert.match(prompt, /commit verified changes/);
-  assert.match(prompt, /push to origin/);
+  assert.match(prompt, /push batch to origin/);
+});
+
+test("formatGitSyncStatusForPrompt defers push under batch policy", () => {
+  const prompt = formatGitSyncStatusForPrompt(
+    {
+      available: true,
+      branch: "feat/work",
+      ahead: 1,
+      behind: 0,
+      dirty: true,
+      unpushed: true,
+      uncommittedSummary: "apps/web/foo.ts",
+    },
+    "/Users/me/Desktop/faciliq-platform-core",
+  );
+  assert.match(prompt, /do not push yet/i);
+  assert.match(prompt, /keep working locally/i);
 });
 
 test("getGitSyncStatus ignores .tmp-* paths when summarizing dirty tree", () => {
@@ -106,9 +123,8 @@ test("getGitSyncStatus treats tmp-only working tree as clean for prompts", () =>
   assert.equal(status.uncommittedSummary, "(clean working tree)");
 });
 
-test("SELF_IMPROVE_GIT_RULES requires commit and push each tick", () => {
-  assert.match(SELF_IMPROVE_GIT_RULES, /git commit → git push/);
-  assert.match(SELF_IMPROVE_GIT_RULES, /npm test/);
+test("SELF_IMPROVE_GIT_RULES requires verify commit push when batching off", () => {
+  assert.match(SELF_IMPROVE_GIT_RULES, /git commit → push/);
   assert.match(SELF_IMPROVE_GIT_RULES, /\.tmp-\*/);
 });
 

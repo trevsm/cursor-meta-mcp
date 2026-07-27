@@ -51,6 +51,22 @@ test("detectCompletionClaims maps structured report booleans", () => {
   assert.equal(claims.claimedPushed, true);
 });
 
+test("parseTickReport reads fenced JSON footer", () => {
+  const tail = [
+    "Shipped fix.",
+    TICK_REPORT_LABEL,
+    "```json",
+    '{"done":false,"testsPass":true,"committed":true,"pushed":false}',
+    "```",
+  ].join("\n");
+  assert.deepEqual(parseTickReport(tail), {
+    done: false,
+    testsPass: true,
+    committed: true,
+    pushed: false,
+  });
+});
+
 test("auditGroundTruth blocks missing tick report when work was produced", () => {
   const audit = auditGroundTruth("All tests pass.", {
     headBefore: "a",

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { waitForChatSession } from "./chat-activity.js";
 import { auditGroundTruth, type GroundTruthAudit } from "./ground-truth.js";
+import { auditBatchCommit, auditBatchPush, resolveCommitBatchPolicy } from "./fleet-commit-policy.js";
 import { markTickProductivity } from "./fleet-metrics.js";
 import { metaHome, metaPath } from "./meta-home.js";
 import { formatLearningsForPrompt, recordTickLesson } from "./learnings.js";
@@ -125,6 +126,28 @@ const DEFAULT_DURATION_MS = 10 * 60 * 1000;
 const DEFAULT_TICK_INTERVAL_MS = 15_000;
 const DEFAULT_MAX_TICKS = 500;
 const DEFAULT_WAIT_TIMEOUT_MS = 45 * 60 * 1000;
+
+function mergeLongSessionGroundTruth(
+  base: GroundTruthAudit,
+  ...extras: Array<{ violations: string[]; blocked: boolean; correctionPrompt?: string }>
+): GroundTruthAudit {
+  const violations = [...base.violations];
+  let blocked = base.blocked;
+  const corrections: string[] = base.correctionPrompt ? [base.correctionPrompt] : [];
+  for (const extra of extras) {
+    if (extra.violations.length === 0) continue;
+    violations.push(...extra.violations);
+    blocked = blocked || extra.blocked;
+    if (extra.correctionPrompt) corrections.push(extra.correctionPrompt);
+  }
+  if (violations.length === base.violations.length) return base;
+  return {
+    ...base,
+    violations,
+    blocked,
+    correctionPrompt: corrections.length > 0 ? corrections.join("\n\n") : undefined,
+  };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -400,7 +423,16 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
           .map((t) => t.outcome)
           .filter((o): o is TickOutcome => o != null);
         if (entry.outcome) markTickProductivity(entry.outcome, priorOutcomes);
-        entry.groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
+        const batchPolicy = resolveCommitBatchPolicy(state.cwd);
+        const groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
+        entry.groundTruth = mergeLongSessionGroundTruth(
+          groundTruth,
+          auditBatchCommit(state.ticks, entry.outcome, batchPolicy),
+          auditBatchPush(state.ticks, entry.outcome, batchPolicy),
+        );
+        if (entry.groundTruth.blocked && entry.outcome) {
+          entry.outcome.countsAsProductive = false;
+        }
         entry.lessonRecorded =
           recordTickLesson({
             audit: entry.groundTruth,

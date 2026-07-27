@@ -32,10 +32,25 @@ const pill = (status) => {
 
 const badge = (kind) => `<span class="badge ${kind}">${kind}</span>`;
 
+const WORKSPACE_STORAGE_KEY = "cursor-meta-dashboard-workspaceId";
+
 let fullData = null;
 let lastLiveAt = null;
 let primaryAction = { path: "/api/start", label: "Start fleet", mode: "start" };
 const workerCardOpen = new Map();
+let selectedWorkspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "";
+let workspaceCatalog = [];
+
+function apiQuery() {
+  if (!selectedWorkspaceId) return "";
+  return `?workspaceId=${encodeURIComponent(selectedWorkspaceId)}`;
+}
+
+function workspaceOptionLabel(row) {
+  const status = row.running ? " ● running" : "";
+  const workers = row.aliveCount > 0 ? ` · ${row.aliveCount} up` : "";
+  return `${row.label}${status}${workers}`;
+}
 
 const LUCIDE_OPTS = { attrs: { "stroke-width": 1.75 } };
 
@@ -186,8 +201,47 @@ function updateHeader(data) {
 
 async function loadLog(name) {
   if (!name) return;
-  const res = await fetch(`/api/logs/${encodeURIComponent(name)}`);
+  const res = await fetch(`/api/logs/${encodeURIComponent(name)}${apiQuery()}`);
   document.getElementById("log-view").textContent = await res.text();
+}
+
+async function loadWorkspaces() {
+  const res = await fetch("/api/workspaces");
+  const body = await res.json();
+  workspaceCatalog = body.workspaces ?? [];
+
+  const stored = localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? "";
+  const preferred =
+    (stored && workspaceCatalog.some((row) => row.id === stored) && stored) ||
+    (body.defaultWorkspaceId &&
+      workspaceCatalog.some((row) => row.id === body.defaultWorkspaceId) &&
+      body.defaultWorkspaceId) ||
+    workspaceCatalog.find((row) => row.running)?.id ||
+    workspaceCatalog[0]?.id ||
+    "";
+
+  selectedWorkspaceId = preferred;
+  if (selectedWorkspaceId) {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, selectedWorkspaceId);
+  }
+  renderWorkspaceSelect();
+}
+
+function renderWorkspaceSelect() {
+  const select = document.getElementById("workspace-select");
+  if (!select) return;
+  if (!workspaceCatalog.length) {
+    select.innerHTML = '<option value="">No fleet workspaces found</option>';
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = workspaceCatalog
+    .map(
+      (row) =>
+        `<option value="${escapeHtml(row.id)}"${row.id === selectedWorkspaceId ? " selected" : ""}>${escapeHtml(workspaceOptionLabel(row))}</option>`,
+    )
+    .join("");
 }
 
 function fleetState(fh) {
@@ -474,7 +528,7 @@ function escapeHtml(text) {
 
 async function refreshLive() {
   try {
-    const res = await fetch("/api/live");
+    const res = await fetch(`/api/live${apiQuery()}`);
     renderLive(await res.json());
   } catch (error) {
     document.getElementById("summary-meta").textContent = `Live update failed: ${error.message ?? error}`;
@@ -482,8 +536,16 @@ async function refreshLive() {
 }
 
 async function refreshFull() {
-  const res = await fetch("/api/status");
+  const res = await fetch(`/api/status${apiQuery()}`);
   renderFull(await res.json());
+  try {
+    const wsRes = await fetch("/api/workspaces");
+    const body = await wsRes.json();
+    workspaceCatalog = body.workspaces ?? [];
+    renderWorkspaceSelect();
+  } catch {
+    /* workspace list refresh is best-effort */
+  }
 }
 
 async function refreshAll() {
@@ -520,7 +582,7 @@ async function resetDashboard() {
   btn.disabled = true;
   btn.textContent = "Resetting…";
   try {
-    const res = await fetch("/api/reset", { method: "POST" });
+    const res = await fetch(`/api/reset${apiQuery()}`, { method: "POST" });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? `Reset failed (${res.status})`);
     document.getElementById("summary-meta").textContent =
@@ -543,7 +605,7 @@ async function resetFleetRuntime() {
   btn.disabled = true;
   btn.textContent = "Resetting…";
   try {
-    const res = await fetch("/api/reset-runtime", { method: "POST" });
+    const res = await fetch(`/api/reset-runtime${apiQuery()}`, { method: "POST" });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? `Reset clock failed (${res.status})`);
     document.getElementById("summary-meta").textContent = "Runtime clock reset — checkpoints and logs unchanged.";
@@ -573,7 +635,7 @@ async function postFleetAction(path, busyLabel, triggerBtn) {
     if (labelEl) labelEl.textContent = busyLabel;
   }
   try {
-    const res = await fetch(path, { method: "POST" });
+    const res = await fetch(`${path}${apiQuery()}`, { method: "POST" });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? `${defaultLabel} failed (${res.status})`);
     document.getElementById("summary-meta").textContent = `${defaultLabel} complete.`;
@@ -619,9 +681,20 @@ document.addEventListener("click", (event) => {
   closeHeaderMenu();
 });
 document.getElementById("log-select").addEventListener("change", (e) => loadLog(e.target.value));
+document.getElementById("workspace-select").addEventListener("change", async (event) => {
+  selectedWorkspaceId = event.target.value;
+  if (selectedWorkspaceId) {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, selectedWorkspaceId);
+  } else {
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  }
+  workerCardOpen.clear();
+  await refreshAll();
+});
 
-whenLucideReady(() => {
-  refreshAll();
+whenLucideReady(async () => {
+  await loadWorkspaces();
+  await refreshAll();
 });
 setInterval(refreshLive, 2000);
 setInterval(refreshFull, 8000);

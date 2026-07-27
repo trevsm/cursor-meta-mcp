@@ -4,13 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>cursor-meta fleet</title>
-  <link rel="stylesheet" href="/styles.css?v=8" />
+  <link rel="stylesheet" href="/styles.css?v=9" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-brand">
       <h1>cursor-meta fleet</h1>
       <div class="header-meta">
+        <label class="workspace-picker" for="workspace-select">
+          <span class="workspace-picker-label">Workspace</span>
+          <select id="workspace-select" aria-label="Fleet workspace">
+            <option value="">Loading workspaces…</option>
+          </select>
+        </label>
         <div class="header-path" id="header-path">loading…</div>
         <div class="header-refreshed" id="header-refreshed">Last refreshed —</div>
       </div>
@@ -142,6 +148,6 @@
   </main>
 
   <script src="/vendor/lucide.min.js"></script>
-  <script src="/app.js?v=9" type="module"></script>
+  <script src="/app.js?v=10" type="module"></script>
 </body>
 </html>

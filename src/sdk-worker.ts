@@ -8,6 +8,7 @@ import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 import { archiveWorkerCheckpointIfNeeded } from "./checkpoint-archive.js";
 import { CursorLocalService, type LocalAgentService } from "./cursor-local.js";
 import { auditGroundTruth, TICK_REPORT_INSTRUCTION, type GroundTruthAudit } from "./ground-truth.js";
+import { auditBatchCommit, auditBatchPush, formatBatchGitReminder, resolveCommitBatchPolicy } from "./fleet-commit-policy.js";
 import { markTickProductivity } from "./fleet-metrics.js";
 import { metaHome, metaPath } from "./meta-home.js";
 import { recordTickLesson } from "./learnings.js";
@@ -95,10 +96,38 @@ export function writeSdkCheckpoint(state: SdkWorkerState, path?: string): string
 
 export const DEFAULT_SDK_WORKER_PROMPT = [
   "Autonomous headless worker. Do not ask the user questions.",
-  "Each tick: one small verified improvement → npm run test:fast → git commit → structured tick report.",
-  "Minimize scope. No architecture theater. Prefer src/ and docs/ over tests-only diffs.",
+  "Each tick: one small verified improvement → verify → keep local until slice is green, then commit.",
+  "Minimize scope. No architecture theater. Prefer src/ over tests-only diffs.",
   TICK_REPORT_INSTRUCTION,
 ].join("\n");
+
+function buildTickPrompt(state: SdkWorkerState): string {
+  const batchReminder = formatBatchGitReminder(state.ticks, resolveCommitBatchPolicy(state.cwd));
+  if (!batchReminder) return state.prompt;
+  return `${state.prompt}\n\n${batchReminder}`;
+}
+
+function mergeGroundTruthAudits(
+  base: GroundTruthAudit,
+  ...extras: Array<{ violations: string[]; blocked: boolean; correctionPrompt?: string }>
+): GroundTruthAudit {
+  const violations = [...base.violations];
+  let blocked = base.blocked;
+  const corrections: string[] = base.correctionPrompt ? [base.correctionPrompt] : [];
+  for (const extra of extras) {
+    if (extra.violations.length === 0) continue;
+    violations.push(...extra.violations);
+    blocked = blocked || extra.blocked;
+    if (extra.correctionPrompt) corrections.push(extra.correctionPrompt);
+  }
+  if (violations.length === base.violations.length) return base;
+  return {
+    ...base,
+    violations,
+    blocked,
+    correctionPrompt: corrections.length > 0 ? corrections.join("\n\n") : undefined,
+  };
+}
 
 export const SDK_FLEET_AGENT_NAME = "self-improve-fleet";
 
@@ -216,7 +245,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     }
 
     const repoBefore = captureRepoSnapshot(state.cwd);
-    const entry = await runSdkWorkerTick(service, { ...params, agentId }, tick, state.prompt);
+    const entry = await runSdkWorkerTick(service, { ...params, agentId }, tick, buildTickPrompt(state));
     if (entry.agentId) {
       agentId = entry.agentId;
       state.agentId = agentId;
@@ -229,7 +258,16 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
           .map((t) => t.outcome)
           .filter((o): o is TickOutcome => o != null);
         if (entry.outcome) markTickProductivity(entry.outcome, priorOutcomes);
-        entry.groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
+        const batchPolicy = resolveCommitBatchPolicy(state.cwd);
+        const groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
+        entry.groundTruth = mergeGroundTruthAudits(
+          groundTruth,
+          auditBatchCommit(state.ticks, entry.outcome, batchPolicy),
+          auditBatchPush(state.ticks, entry.outcome, batchPolicy),
+        );
+        if (entry.groundTruth.blocked && entry.outcome) {
+          entry.outcome.countsAsProductive = false;
+        }
         entry.lessonRecorded =
           recordTickLesson({
             audit: entry.groundTruth,

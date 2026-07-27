@@ -3,7 +3,9 @@
  * Local fleet visibility dashboard.
  *
  *   npm run dashboard
- *   npm run dashboard -- --port 3847 --workspace cursor-meta-mcp
+ *   npm run dashboard -- --port 3847 --cwd ~/Desktop/faciliq-platform-core
+ *
+ * Switch workspaces in the UI dropdown, or via ?workspaceId= on API calls.
  */
 import { copyFileSync, createReadStream, existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -14,9 +16,12 @@ import { fileURLToPath } from "node:url";
 import {
   collectDashboardLiveSnapshot,
   collectDashboardSnapshot,
-  defaultExperimentsDir,
   tailFile,
 } from "../src/dashboard.js";
+import {
+  listDashboardWorkspaces,
+  resolveDashboardContext,
+} from "../src/dashboard-workspaces.js";
 import { tailRunEvents } from "../src/run-events.js";
 import { wipeFleetDashboardState } from "../src/fleet-reset.js";
 import {
@@ -62,17 +67,13 @@ const port = Number.parseInt(argValue("--port") ?? process.env.CURSOR_META_DASHB
 const host = argValue("--host") ?? "127.0.0.1";
 
 const activeAgi = readActiveAgiSession();
-const fleetCwd = argValue("--cwd") ?? activeAgi?.cwd ?? join(homedir(), "Projects", "cursor-meta-mcp");
-const resolvedCwd = resolveProjectRoot(fleetCwd);
-const workspace =
-  argValue("--workspace") ??
-  activeAgi?.workspace ??
-  workspaceNameForProject(resolvedCwd);
-const metaDir =
-  argValue("--meta-dir") ??
-  activeAgi?.projectMetaDir ??
-  projectMetaDir(resolvedCwd);
-const experimentsDir = join(metaDir, "experiments");
+const defaultCwd = resolveProjectRoot(
+  argValue("--cwd") ?? activeAgi?.cwd ?? join(homedir(), "Projects", "cursor-meta-mcp"),
+);
+const defaultWorkspace =
+  argValue("--workspace") ?? activeAgi?.workspace ?? workspaceNameForProject(defaultCwd);
+const defaultMetaDir =
+  argValue("--meta-dir") ?? activeAgi?.projectMetaDir ?? projectMetaDir(defaultCwd);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -123,6 +124,16 @@ function parseRequestUrl(req) {
   }
 }
 
+function contextFromUrl(url) {
+  return resolveDashboardContext({
+    workspaceId: url.searchParams.get("workspaceId"),
+    metaDir: url.searchParams.get("metaDir"),
+    defaultMetaDir,
+    defaultCwd,
+    defaultWorkspace,
+  });
+}
+
 const server = createServer(async (req, res) => {
   let url;
   try {
@@ -154,13 +165,35 @@ const server = createServer(async (req, res) => {
     return serveStatic(res, lucideUmd);
   }
 
+  if (url.pathname === "/api/workspaces") {
+    try {
+      const ctx = contextFromUrl(url);
+      const workspaces = listDashboardWorkspaces();
+      return json(res, 200, {
+        workspaces,
+        activeWorkspaceId: ctx.workspaceId,
+        defaultWorkspaceId: ctx.workspaceId,
+      });
+    } catch (error) {
+      return json(res, 500, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const ctx = contextFromUrl(url);
+
   if (url.pathname === "/api/live") {
     try {
-      return json(
-        res,
-        200,
-        collectDashboardLiveSnapshot({ metaDir, workspace }),
-      );
+      const snapshot = collectDashboardLiveSnapshot({
+        metaDir: ctx.metaDir,
+        workspace: ctx.workspace,
+      });
+      return json(res, 200, {
+        ...snapshot,
+        workspaceId: ctx.workspaceId,
+        workspaceLabel: ctx.workspace,
+      });
     } catch (error) {
       return json(res, 500, {
         error: error instanceof Error ? error.message : String(error),
@@ -170,7 +203,15 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/api/status") {
     try {
-      return json(res, 200, collectDashboardSnapshot({ metaDir, workspace }));
+      const snapshot = collectDashboardSnapshot({
+        metaDir: ctx.metaDir,
+        workspace: ctx.workspace,
+      });
+      return json(res, 200, {
+        ...snapshot,
+        workspaceId: ctx.workspaceId,
+        workspaceLabel: ctx.workspace,
+      });
     } catch (error) {
       return json(res, 500, {
         error: error instanceof Error ? error.message : String(error),
@@ -184,14 +225,14 @@ const server = createServer(async (req, res) => {
     const since = url.searchParams.get("since") ?? undefined;
     return json(res, 200, {
       runId,
-      events: tailRunEvents(runId, { metaDir, since }),
+      events: tailRunEvents(runId, { metaDir: ctx.metaDir, since }),
     });
   }
 
   const logMatch = url.pathname.match(/^\/api\/logs\/([^/]+)$/);
   if (logMatch) {
     const name = decodeURIComponent(logMatch[1]);
-    const path = join(experimentsDir, `${name}.log`);
+    const path = join(ctx.experimentsDir, `${name}.log`);
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
     res.end(tailFile(path, 120));
     return;
@@ -199,7 +240,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/api/reset" && req.method === "POST") {
     try {
-      const result = wipeFleetDashboardState({ metaDir, root: fleetCwd });
+      const result = wipeFleetDashboardState({ metaDir: ctx.metaDir, root: ctx.fleetCwd });
       return json(res, 200, { ok: true, ...result });
     } catch (error) {
       return json(res, 500, {
@@ -221,7 +262,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/api/stop" && req.method === "POST") {
     try {
-      const result = stopFleet({ metaDir: experimentsDir, source: "dashboard_stop" });
+      const result = stopFleet({ metaDir: ctx.experimentsDir, source: "dashboard_stop" });
       return json(res, 200, { ok: true, ...result });
     } catch (error) {
       return json(res, 500, {
@@ -230,8 +271,7 @@ const server = createServer(async (req, res) => {
     }
   }
 
-  const fleetLaunchParams = () =>
-    defaultDashboardFleetParams(fleetCwd, experimentsDir);
+  const fleetLaunchParams = () => defaultDashboardFleetParams(ctx.fleetCwd, ctx.experimentsDir);
 
   if (url.pathname === "/api/start" && req.method === "POST") {
     try {
@@ -277,9 +317,11 @@ server.listen(port, host, () => {
   if (!existsSync(dashboardIndex())) {
     console.error(`warning: dashboard assets missing at ${dashboardDir}`);
   }
+  const workspaces = listDashboardWorkspaces();
   console.error(`cursor-meta dashboard → http://${host}:${port}`);
-  console.error(`project: ${resolvedCwd}`);
-  console.error(`meta dir: ${metaDir}`);
+  console.error(`default project: ${defaultCwd}`);
+  console.error(`default meta dir: ${defaultMetaDir}`);
+  console.error(`workspaces: ${workspaces.length} discovered`);
   if (activeAgi?.task) {
     console.error(`mission: ${activeAgi.task.slice(0, 120)}${activeAgi.task.length > 120 ? "…" : ""}`);
   }

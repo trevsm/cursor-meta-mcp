@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
 
+import {
+  formatCommitBatchRulesForPrompt,
+  resolveCommitBatchPolicy,
+} from "./fleet-commit-policy.js";
+
 export interface GitSyncStatus {
   available: boolean;
   branch: string;
@@ -108,11 +113,12 @@ export function getGitSyncStatus(cwd: string): GitSyncStatus {
   }
 }
 
-export function formatGitSyncStatusForPrompt(status: GitSyncStatus): string {
+export function formatGitSyncStatusForPrompt(status: GitSyncStatus, cwd?: string): string {
   if (!status.available) {
     return status.error ? `Git unavailable: ${status.error}` : "Git unavailable.";
   }
 
+  const policy = resolveCommitBatchPolicy(cwd);
   const parts = [`branch=${status.branch}`];
   if (status.behind > 0) parts.push(`${status.behind} commit(s) behind origin`);
   if (status.ahead > 0) parts.push(`${status.ahead} commit(s) ahead of origin`);
@@ -124,15 +130,42 @@ export function formatGitSyncStatusForPrompt(status: GitSyncStatus): string {
 
   const actions: string[] = [];
   if (status.behind > 0) actions.push("pull/rebase before new work");
-  if (status.dirty) actions.push("commit verified changes");
-  if (status.unpushed) actions.push("push to origin");
+  if (status.dirty) {
+    actions.push(
+      policy.enabled
+        ? "keep working locally; commit when the slice is fully green"
+        : "commit verified changes",
+    );
+  }
+  if (status.unpushed) {
+    if (policy.enabled && status.ahead < policy.minCommitsBeforePush) {
+      actions.push(
+        `do not push yet — accumulate ${policy.minCommitsBeforePush}+ commits before pushing (${status.ahead} ahead)`,
+      );
+    } else {
+      actions.push("push batch to origin");
+    }
+  }
   if (actions.length === 0 && status.ahead === 0) actions.push("synced");
 
   return `Git state: ${parts.join("; ")}. Action: ${actions.join(", ")}.`;
 }
 
-export const SELF_IMPROVE_GIT_RULES = [
-  "Each tick: one high-value improvement → npm test → git commit → git push to keep origin current.",
-  "Never stage secrets (.env, credentials). Skip temp files (.tmp-*).",
-  "If git is ahead of, behind, or dirty vs origin, sync before starting new features.",
-].join(" ");
+export function selfImproveGitRules(cwd?: string): string {
+  const policy = resolveCommitBatchPolicy(cwd);
+  if (!policy.enabled) {
+    return [
+      "Each tick: one high-value improvement → verify → git commit → push when ahead of origin.",
+      "Never stage secrets (.env, credentials). Skip temp files (.tmp-*).",
+      "If git is ahead of, behind, or dirty vs origin, sync before starting new features.",
+    ].join(" ");
+  }
+  return [
+    formatCommitBatchRulesForPrompt(policy),
+    "Never stage secrets (.env, credentials). Skip temp files (.tmp-*).",
+    "If behind origin, pull/rebase before new feature work.",
+  ].join(" ");
+}
+
+/** @deprecated use selfImproveGitRules(cwd) */
+export const SELF_IMPROVE_GIT_RULES = selfImproveGitRules();

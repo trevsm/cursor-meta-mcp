@@ -13,7 +13,7 @@ import {
   formatGitSyncStatusForPrompt,
   getGitSyncStatus,
   gitFetch,
-  SELF_IMPROVE_GIT_RULES,
+  selfImproveGitRules,
 } from "./git-sync.js";
 import { spawnLongSession, type LongSessionParams } from "./long-session.js";
 import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
@@ -129,7 +129,7 @@ export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: str
   const lessons = formatLearningsForPrompt(meta);
   if (lessons) lines.push(lessons);
   const gitStatus = getGitSyncStatus(cwd);
-  lines.push(formatGitSyncStatusForPrompt(gitStatus), "");
+  lines.push(formatGitSyncStatusForPrompt(gitStatus, cwd), "");
 
   try {
     const workspaceHint = basename(cwd.trim()) || cwd;
@@ -163,7 +163,7 @@ export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: str
     "Rules: no user questions, no architecture theater.",
     `Verify before tick report: ${verify}`,
     TICK_REPORT_INSTRUCTION,
-    SELF_IMPROVE_GIT_RULES,
+    selfImproveGitRules(cwd),
   );
 
   const targetWarning = fleetTargetWarning(cwd);

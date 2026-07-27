@@ -78,8 +78,9 @@ mock.module("../src/git-sync.js", {
     formatGitSyncStatusForPrompt: mock.fn(
       () => "Git state: branch=main — clean and synced with origin.",
     ),
-    SELF_IMPROVE_GIT_RULES:
-      "Each tick: one high-value improvement → npm test → git commit → git push to keep origin current.",
+    selfImproveGitRules: mock.fn(
+      () => "Each tick: one high-value improvement → verify → git commit → push when ahead of origin.",
+    ),
   },
 });
 const spawnSdkWorker = mock.fn((params: { checkpointPath?: string }) => ({
@@ -127,7 +128,7 @@ test("buildSelfImprovePrompt includes base rules", () => {
   assert.match(prompt, /Custom base/);
   assert.match(prompt, /no user questions/);
   assert.match(prompt, /Tick report/);
-  assert.match(prompt, /git commit → git push/);
+  assert.match(prompt, /git commit → push/);
   assert.match(prompt, /Git state:/);
 });
 

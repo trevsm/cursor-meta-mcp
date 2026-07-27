@@ -301,24 +301,34 @@ function initRepo(): string {
 }
 
 test("heuristicStrategyReview flags uncommitted work after concrete progress", () => {
-  const cwd = initRepo();
-  writeFileSync(join(cwd, "change.txt"), "done\n");
-  const verdict = heuristicStrategyReview(
-    {
-      ...baseContext,
-      cwd,
-      gitDiffStat: " change.txt | 1 +",
-      gitSyncSummary: "dirty",
-    },
-    "Implemented fix and npm test passes.",
-  );
-  assert.equal(verdict.onTrack, false);
-  assert.ok(verdict.issues.includes("uncommitted_work"));
-  assert.match(verdict.pivot ?? "", /commit/i);
+  const prev = process.env.CURSOR_META_BATCH_COMMITS;
+  process.env.CURSOR_META_BATCH_COMMITS = "0";
+  try {
+    const cwd = initRepo();
+    writeFileSync(join(cwd, "change.txt"), "done\n");
+    const verdict = heuristicStrategyReview(
+      {
+        ...baseContext,
+        cwd,
+        gitDiffStat: " change.txt | 1 +",
+        gitSyncSummary: "dirty",
+      },
+      "Implemented fix and npm test passes.",
+    );
+    assert.equal(verdict.onTrack, false);
+    assert.ok(verdict.issues.includes("uncommitted_work"));
+    assert.match(verdict.pivot ?? "", /commit/i);
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_META_BATCH_COMMITS;
+    else process.env.CURSOR_META_BATCH_COMMITS = prev;
+  }
 });
 
 test("heuristicStrategyReview flags unpushed commits", () => {
-  const cwd = initRepo();
+  const prev = process.env.CURSOR_META_BATCH_COMMITS;
+  process.env.CURSOR_META_BATCH_COMMITS = "0";
+  try {
+    const cwd = initRepo();
   // Simulate upstream tracking with a fake remote ref by creating a second commit locally
   // and pointing origin/main at the first commit via a bare remote.
   const bare = mkdtempSync(join(tmpdir(), "strategy-origin-"));
@@ -341,6 +351,10 @@ test("heuristicStrategyReview flags unpushed commits", () => {
   assert.equal(verdict.onTrack, false);
   assert.ok(verdict.issues.includes("unpushed_commits"));
   assert.match(verdict.pivot ?? "", /Push/i);
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_META_BATCH_COMMITS;
+    else process.env.CURSOR_META_BATCH_COMMITS = prev;
+  }
 });
 
 test("heuristicStrategyReview flags behind origin", () => {

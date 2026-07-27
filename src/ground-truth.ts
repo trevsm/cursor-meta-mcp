@@ -49,6 +49,9 @@ export function parseTickReport(text: string | undefined): TickReport | null {
     .slice(jsonStart)
     .join("\n")
     .replace(TICK_REPORT_LINE, "")
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
     .trim();
 
   const brace = payload.indexOf("{");

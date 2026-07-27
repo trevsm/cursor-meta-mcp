@@ -778,7 +778,7 @@ export function collectDashboardSnapshot(options?: {
     experiments,
     logs: listLogSources(experimentsDir),
     dedicatedWorker,
-    gitSync: { ...gitStatus, summary: formatGitSyncStatusForPrompt(gitStatus) },
+    gitSync: { ...gitStatus, summary: formatGitSyncStatusForPrompt(gitStatus, fleetCwd) },
     fleetRuntime,
     fleetProductivity: summarizeFleetProductivity(experiments),
     fleetControl: {

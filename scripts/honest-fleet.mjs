@@ -12,6 +12,7 @@ import {
   fleetTargetWarning,
   resolveFleetTargetCwd,
 } from "../src/fleet-target.js";
+import { defaultHonestFleetGoal } from "../src/fleet-commit-policy.js";
 import { launchSelfImproveFleet } from "../src/self-improve.js";
 import { runFleetPreflight } from "../src/fleet-preflight.js";
 import { resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
@@ -20,7 +21,7 @@ const cwd = resolveFleetTargetCwd(process.argv[2]);
 const goal =
   process.env.CURSOR_META_FLEET_GOAL?.trim() ||
   process.argv.slice(3).join(" ").trim() ||
-  "One verified diff per tick: verify → commit → push. Structured tick report required.";
+  defaultHonestFleetGoal(cwd);
 const targetWarning = fleetTargetWarning(cwd);
 if (targetWarning) console.error(`[honest-fleet] warn: ${targetWarning}`);
 
