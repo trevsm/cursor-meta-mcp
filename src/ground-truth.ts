@@ -19,9 +19,9 @@ const DONE_CLAIM =
 const TESTS_PASS_CLAIM =
   /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout (?:claiming )?)(?<!\bdo not say )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\bensure )(?<!\bmake )(?<!\bneed )(?<!\bhelp )\b(?:all tests pass(?:ed)?(?!\s+(?:in|locally)\b)|(?<!\ball )tests pass(?:ed)?(?!\s+(?:in|locally)\b)|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?(?!\s+(?:in|locally)\b)|tests are passing(?!\s+(?:in|locally)\b))\b/i;
 const COMMIT_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bhave )(?<!\bthen )(?<!\bbe )(?<!\bHEAD )\bcommitted(?!\s+(?:earlier|locally|already|yesterday)\b)\b/i;
+  /(?<!\bnot yet )(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bhave )(?<!\bthen )(?<!\bbe )(?<!\bHEAD )\bcommitted(?!\s+(?:earlier|locally|already|yesterday)\b)\b/i;
 const PUSH_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bgot )\b(?:pushed to origin|(?<!\bthen committed and )pushed(?!\s+earlier\b))\b/i;
+  /(?<!\bnot yet )(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bgot )\b(?:pushed to origin|(?<!\bthen committed and )pushed(?!\s+earlier\b))\b/i;
 
 /** Strip procedural ground-truth footer lines before scanning assistant claims. */
 function assistantClaimText(text: string | undefined): string {

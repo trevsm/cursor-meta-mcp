@@ -52,6 +52,9 @@ test("detectCompletionClaims ignores conditional commit and push phrasing", () =
   assert.equal(detectCompletionClaims("then committed and pushed").claimedPushed, false);
   assert.equal(detectCompletionClaims("was pushed to origin").claimedPushed, false);
   assert.equal(detectCompletionClaims("got pushed to origin").claimedPushed, false);
+  assert.equal(detectCompletionClaims("not yet committed").claimedCommitted, false);
+  assert.equal(detectCompletionClaims("not yet pushed").claimedPushed, false);
+  assert.equal(detectCompletionClaims("not yet pushed to origin").claimedPushed, false);
 });
 
 test("detectCompletionClaims ignores negated tests-pass language", () => {
