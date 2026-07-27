@@ -31,3 +31,8 @@ test("resolveHonestWorkerMode defaults to sdk when api key present", async () =>
   const mode = await resolveHonestWorkerMode(undefined, { CURSOR_API_KEY: "test-key" });
   assert.equal(mode, "sdk");
 });
+
+test("resolveHonestWorkerMode defaults to ide without api key", async () => {
+  const mode = await resolveHonestWorkerMode(undefined, {});
+  assert.equal(mode, "ide");
+});
