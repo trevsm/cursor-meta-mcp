@@ -371,3 +371,35 @@ test("summarizeFleetProductivity aggregates worker checkpoints", () => {
   assert.equal(productivity?.productiveRatio, 0.5);
   assert.equal(productivity?.meetsGate, false);
 });
+
+test("summarizeFleetProductivity excludes soft skips from attempted ratio", () => {
+  const productivity = summarizeFleetProductivity([
+    {
+      name: "worker-a",
+      pid: 1,
+      alive: true,
+      checkpoint: {
+        exists: true,
+        ticks: 5,
+        productiveTicks: 2,
+        productiveRatio: 1,
+        metrics: {
+          ticks: 5,
+          productiveTicks: 2,
+          productiveRatio: 1,
+          commits: 2,
+          filesChanged: 2,
+          errors: 0,
+          softSkips: 3,
+          testFailures: 0,
+          lastCommitted: true,
+        },
+      },
+    },
+  ]);
+  assert.ok(productivity);
+  assert.equal(productivity?.totalTicks, 5);
+  assert.equal(productivity?.attemptedTicks, 2);
+  assert.equal(productivity?.productiveRatio, 1);
+  assert.equal(productivity?.meetsGate, false); // only 2 attempted < minTicks 3
+});
