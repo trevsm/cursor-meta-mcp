@@ -44,6 +44,15 @@ test("friendlyEpisodeActor maps sdk agent ids to worker labels", () => {
   assert.equal(friendlyEpisodeActor("sdk-worker"), "Self-improve worker");
 });
 
+test("friendlyEpisodeActor falls back for unknown agent ids", () => {
+  assert.equal(friendlyEpisodeActor("agent-unknown"), "Self Improve Fleet");
+  assert.equal(friendlyEpisodeActor("long-session"), "long-session");
+});
+
+test("friendlyExperimentName maps orchestrator-loop supervisor", () => {
+  assert.equal(friendlyExperimentName("orchestrator-loop"), "Pulse orchestrator");
+});
+
 test("indexWorkerAgents links agentId to worker experiment", () => {
   const map = indexWorkerAgents([
     {
