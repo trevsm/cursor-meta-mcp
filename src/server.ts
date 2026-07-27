@@ -146,9 +146,16 @@ const remoteMcpServerSchema = z
 
 const mcpServerSchema = z.union([stdioMcpServerSchema, remoteMcpServerSchema]);
 
+const sessionIdSchema = z
+  .string()
+  .min(1)
+  .refine((id) => /^[0-9a-f-]{36}$/i.test(id) || /^bc-[0-9a-f-]{36}$/i.test(id), {
+    message: "sessionId must be a composer UUID or cloud agent id (bc-...)",
+  });
+
 const sessionSelectorSchema = {
   sessionIndex: z.number().int().min(1).optional(),
-  sessionId: z.string().uuid().optional(),
+  sessionId: sessionIdSchema.optional(),
 };
 
 const ideChatControlSchema = {
@@ -158,6 +165,18 @@ const ideChatControlSchema = {
   workspace: z.string().min(1).optional(),
   model: z.string().optional(),
   mode: modeSchema,
+  requireVisible: z
+    .boolean()
+    .optional()
+    .describe(
+      "When true, fail fast: sidebar-visible delivery is not supported (headless CLI only). Default false.",
+    ),
+  force: z
+    .boolean()
+    .optional()
+    .describe(
+      "When true, allow headless send to cloud agent chats (bc-*). Response is in the tool result, not the sidebar.",
+    ),
 };
 
 const localAgentInputSchema = {
@@ -207,10 +226,10 @@ export function createServer(
     {
       title: "Show Cursor chat session",
       description:
-        "Load full content of a past Cursor chat by 1-based sessionIndex or by sessionId (UUID).",
+        "Load full content of a past Cursor chat by 1-based sessionIndex or by sessionId (composer UUID or bc-* cloud id from meta_search_chats).",
       inputSchema: {
         sessionIndex: z.number().int().min(1).optional(),
-        sessionId: z.string().uuid().optional(),
+        sessionId: sessionIdSchema.optional(),
       },
       annotations: { readOnlyHint: true },
     },
@@ -273,7 +292,7 @@ export function createServer(
     {
       title: "Spawn local Cursor agent",
       description:
-        "Create and run a local Cursor SDK agent on this machine. Returns agentId and runId for follow-ups. No cloud agents.",
+        "Create and run a headless local Cursor agent on this machine (agent/SDK). Returns agentId and runId for follow-ups. Does not open or update a sidebar chat tab. No cloud agents.",
       inputSchema: localAgentInputSchema,
       annotations: { destructiveHint: true, openWorldHint: true },
     },
@@ -507,7 +526,7 @@ export function createServer(
     {
       title: "Send message to IDE chat",
       description:
-        "Send a new user message to an existing Cursor IDE chat via the Agent CLI (--resume composerId). Requires ~/.local/bin/agent login.",
+        "Run a headless agent with the same chat context via `agent --resume -p`. The response is returned in the tool result — it does NOT append to the Cursor sidebar transcript. Local composer UUIDs only unless force=true for bc-* cloud chats. Requires ~/.local/bin/agent login.",
       inputSchema: ideChatControlSchema,
       annotations: { destructiveHint: true, openWorldHint: true },
     },
@@ -549,7 +568,7 @@ export function createServer(
     {
       title: "Intercept IDE chat",
       description:
-        "Stop an in-flight IDE chat (best effort) and immediately send a new steering message via Agent CLI --resume.",
+        "Best-effort abort of in-flight generation, then headless send via agent --resume -p (response in tool result, not sidebar).",
       inputSchema: {
         ...ideChatControlSchema,
         abortFirst: z.boolean().optional(),

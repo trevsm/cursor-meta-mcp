@@ -33,11 +33,11 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_list_active_chats` | List recently active or in-flight IDE chats |
 | `meta_get_chat_activity` | Inspect activity signals for one IDE chat |
 | `meta_watch_chat` | Poll until idle, optionally send follow-up |
-| `meta_send_to_chat` | Send a message to an IDE chat (`agent --resume`) |
+| `meta_send_to_chat` | Headless follow-up via `agent --resume -p` (response in tool result, **not** sidebar) |
 | `meta_abort_chat` | Best-effort stop for in-flight IDE generation |
-| `meta_intercept_chat` | Abort + send a steering message to an IDE chat |
+| `meta_intercept_chat` | Abort + headless steering send (response in tool result, **not** sidebar) |
 | `meta_create_chat` | Create a new empty chat and return its `composerId` |
-| `meta_spawn_local_agent` | Start a local agent in a given `cwd` |
+| `meta_spawn_local_agent` | Start a headless local agent in a given `cwd` (no sidebar tab) |
 | `meta_continue_from_chat` | Load past chat context + spawn a local agent |
 | `meta_follow_up` | Send another prompt to an existing SDK agent |
 | `meta_intercept_agent` | Cancel SDK run(s) + send a steering follow-up |
@@ -303,7 +303,7 @@ npx @modelcontextprotocol/inspector --cli --transport stdio --method tools/list 
 - **Unofficial** — reads Cursor's internal DB schema; may break on Cursor updates
 - **macOS-first** — Linux/Windows paths not implemented yet
 - **IDE abort is best-effort** — `meta_abort_chat` writes local composer state; in-flight runs may not stop instantly
-- **IDE send uses Agent CLI** — requires `~/.local/bin/agent login`; messages go through CLI `--resume`, not the sidebar UI directly
+- **IDE send is headless** — `meta_send_to_chat` runs `agent --resume -p` and returns the agent response in the tool result. It does **not** append messages to the Cursor sidebar transcript. Cloud agent chats (`bc-*`) require `force=true` and never update the sidebar.
 - **No IDE tab control** — cannot focus or open a sidebar chat tab via MCP
 - **Composer UUID ≠ SDK agent ID** — resume IDE chats by `sessionId`/`--resume`, SDK agents by `agentId`
 - **Node version** — must match Cursor's MCP host (22.x); rebuild `better-sqlite3` after Node upgrades

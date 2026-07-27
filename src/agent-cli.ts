@@ -24,7 +24,7 @@ async function agentBinExists(): Promise<boolean> {
 export async function isAgentCliLoggedIn(): Promise<boolean> {
   if (!(await agentBinExists())) return false;
   return new Promise((resolve) => {
-    const child = spawn(AGENT_BIN, ["status"], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(AGENT_BIN, ["status"], { stdio: ["ignore", "pipe", "pipe"], shell: true });
     let stdout = "";
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -54,6 +54,7 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(AGENT_BIN, args, {
       cwd,
+      shell: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
@@ -64,6 +65,9 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      reject(error);
     });
     child.on("close", (code) => {
       if (code !== 0) {

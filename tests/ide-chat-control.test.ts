@@ -49,6 +49,32 @@ test("sendToIdeChat resolves sessionIndex and sends via CLI resume", async () =>
 
   assert.equal(result.sessionId, activity.sessionId);
   assert.equal(result.result, "steered");
+  assert.equal(result.delivery.visibleInSidebar, false);
+  assert.equal(result.delivery.mode, "headless_cli");
+  assert.equal(result.sessionKind, "local");
+});
+
+test("sendToIdeChat rejects cloud agent ids unless force", async () => {
+  await assert.rejects(
+    () =>
+      sendToIdeChat({
+        sessionId: "bc-488030cd-2431-4387-94d5-e47f0c83b625",
+        prompt: "hello",
+        cwd: process.cwd(),
+      }),
+    /force=true/,
+  );
+});
+
+test("sendToIdeChat allows cloud agent ids with force", async () => {
+  const result = await sendToIdeChat({
+    sessionId: "bc-488030cd-2431-4387-94d5-e47f0c83b625",
+    prompt: "hello",
+    cwd: process.cwd(),
+    force: true,
+  });
+  assert.equal(result.sessionKind, "cloud");
+  assert.equal(result.result, "steered");
 });
 
 test("interceptIdeChat aborts then sends", async () => {

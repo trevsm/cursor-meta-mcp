@@ -12,6 +12,12 @@ import {
   runAgentCliResume,
   type AgentCliRunResult,
 } from "./agent-cli.js";
+import {
+  assessIdeChatDelivery,
+  assertIdeChatDeliveryAllowed,
+  type IdeChatDeliveryAssessment,
+  type IdeChatDeliveryInfo,
+} from "./chat-session.js";
 
 export interface SendToIdeChatParams {
   sessionId?: string;
@@ -21,6 +27,10 @@ export interface SendToIdeChatParams {
   workspace?: string;
   mode?: "agent" | "plan" | "ask";
   model?: string;
+  /** When true, fail unless sidebar injection is supported (it is not today). */
+  requireVisible?: boolean;
+  /** Bypass cloud-agent guard; still headless — response in tool result only. */
+  force?: boolean;
 }
 
 export interface InterceptIdeChatParams extends SendToIdeChatParams {
@@ -31,6 +41,9 @@ export interface IdeChatActionResult extends AgentCliRunResult {
   sessionId: string;
   activityBefore?: ChatActivity;
   abort?: { attempted: boolean; aborted: boolean; previousStatus?: string };
+  delivery: IdeChatDeliveryInfo;
+  sessionKind: IdeChatDeliveryAssessment["sessionKind"];
+  warnings: string[];
 }
 
 async function requireCliLogin(): Promise<void> {
@@ -65,10 +78,26 @@ function resolveSessionId(
   throw new Error("Provide sessionId or sessionIndex.");
 }
 
+function loadOptionalActivity(sessionId: string, activity?: ChatActivity): ChatActivity | undefined {
+  if (activity) return activity;
+  try {
+    return getChatActivity(sessionId);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function sendToIdeChat(params: SendToIdeChatParams): Promise<IdeChatActionResult> {
   await requireCliLogin();
   const { sessionId, activity } = resolveSessionId(params, { allowMissingActivity: true });
-  const cwd = params.cwd ?? activity?.workspace;
+  const activityBefore = loadOptionalActivity(sessionId, activity);
+  const assessment = assessIdeChatDelivery(sessionId, activityBefore);
+  assertIdeChatDeliveryAllowed(assessment, {
+    requireVisible: params.requireVisible,
+    force: params.force,
+  });
+
+  const cwd = params.cwd ?? activityBefore?.workspace;
   if (!cwd || cwd === "unknown") {
     throw new Error("cwd or workspace is required when the chat workspace is unknown.");
   }
@@ -85,7 +114,10 @@ export async function sendToIdeChat(params: SendToIdeChatParams): Promise<IdeCha
   return {
     ...cli,
     sessionId,
-    activityBefore: activity,
+    activityBefore,
+    delivery: assessment.delivery,
+    sessionKind: assessment.sessionKind,
+    warnings: assessment.warnings,
   };
 }
 
