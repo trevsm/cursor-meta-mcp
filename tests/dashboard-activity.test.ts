@@ -269,3 +269,35 @@ test("buildWorkerActivity tolerates malformed checkpoint files", () => {
 
   assert.equal(rows[0]?.recentTicks.length, 0);
 });
+
+test("buildWorkerActivity surfaces tick errors in recent tick breakdown", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-tick-err-"));
+  const cpDir = join(metaDir, "experiments");
+  mkdirSync(cpDir, { recursive: true });
+  const checkpointPath = join(cpDir, "sdk-worker-1.json");
+  writeFileSync(
+    checkpointPath,
+    JSON.stringify({
+      ticks: [{ tick: 3, at: "2026-07-27T17:00:00.000Z", error: "spawn failed" }],
+    }),
+  );
+
+  const rows = buildWorkerActivity([
+    {
+      name: "sdk-worker-1",
+      displayName: "Self-improve worker #1",
+      pid: 1,
+      alive: true,
+      checkpointPath,
+      checkpoint: {
+        exists: true,
+        ticks: 3,
+        lastTick: { tick: 3, error: "spawn failed" },
+      },
+    },
+  ]);
+
+  assert.equal(rows[0]?.status, "error");
+  assert.equal(rows[0]?.recentTicks[0]?.outcomeSummary, "error");
+  assert.match(rows[0]?.statusText ?? "", /spawn failed/);
+});
