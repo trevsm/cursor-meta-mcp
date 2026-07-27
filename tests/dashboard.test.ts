@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -284,6 +284,47 @@ test("collectSpawnThoughts labels sdk runs from worker agent index", () => {
   assert.ok(sdkThought);
   assert.match(sdkThought?.label ?? "", /Self-improve worker #1 · tick 3/);
   assert.match(sdkThought?.text ?? "", /Committed ground-truth fix/);
+});
+
+test("collectSpawnThoughts keeps newest sdk run per agentId", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-sdk-dedupe-"));
+  const agentId = "agent-dedupe-12345678";
+  appendRunEvent("run-old", { type: "assistant", message: "stale tail" }, { metaDir, agentId });
+  const oldPath = join(metaDir, "runs", "run-old.jsonl");
+  const oldTime = (Date.now() - 60_000) / 1000;
+  utimesSync(oldPath, oldTime, oldTime);
+
+  appendRunEvent("run-new", { type: "assistant", message: "fresh tail" }, { metaDir, agentId });
+
+  const thoughts = collectSpawnThoughts({
+    metaDir,
+    experiments: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: {
+          exists: true,
+          ticks: 2,
+          lastTick: { tick: 2, at: new Date().toISOString(), agentId },
+        },
+      },
+    ],
+    pulse: {
+      at: new Date().toISOString(),
+      scanned: 0,
+      live: [],
+      frustrationEvents: [],
+      orchestrationMatrix: [],
+      parallelWorkspaces: [],
+    },
+  });
+
+  const sdkThoughts = thoughts.filter((thought) => thought.source === "sdk-run");
+  assert.equal(sdkThoughts.length, 1);
+  assert.match(sdkThoughts[0]?.text ?? "", /fresh tail/);
 });
 
 test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
