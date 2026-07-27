@@ -74,6 +74,13 @@ test("detectCompletionClaims ignores speculative should-work-now phrasing", () =
   assert.equal(detectCompletionClaims("Should work now.").claimedDone, true);
 });
 
+test("detectCompletionClaims ignores conditional done phrasing", () => {
+  assert.equal(detectCompletionClaims("Task complete once tests pass").claimedDone, false);
+  assert.equal(detectCompletionClaims("Task complete when verified").claimedDone, false);
+  assert.equal(detectCompletionClaims("ready to merge after review").claimedDone, false);
+  assert.equal(detectCompletionClaims("The task is complete.").claimedDone, true);
+});
+
 test("detectCompletionClaims ignores haven't/didn't commit and imperative complete", () => {
   assert.equal(detectCompletionClaims("I haven't committed these changes.").claimedCommitted, false);
   assert.equal(detectCompletionClaims("I didn't commit yet.").claimedCommitted, false);
@@ -93,7 +100,7 @@ test("auditGroundTruth blocks should-work-now claims without recorded outcome", 
 });
 
 test("auditGroundTruth blocks ready-to-merge claims without recorded outcome", () => {
-  const audit = auditGroundTruth("Ready to merge after review.", undefined);
+  const audit = auditGroundTruth("Ready to merge.", undefined);
   assert.equal(audit.blocked, true);
   assert.equal(audit.claimedDone, true);
   assert.ok(audit.violations.some((v) => /no tick outcome recorded/i.test(v)));
