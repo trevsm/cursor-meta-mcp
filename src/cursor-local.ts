@@ -14,6 +14,12 @@ import {
   runAgentCliPrompt,
   shouldUseAgentCliFallback,
 } from "./agent-cli.js";
+import {
+  assertBudgetAllowed,
+  recordBudgetEvent,
+  recordSdkRunComplete,
+  recordSpawn,
+} from "./plan-budget.js";
 
 export type ConversationMode = "agent" | "plan" | "ask";
 export type McpServerInput = McpServerConfig;
@@ -322,6 +328,9 @@ export class CursorLocalService implements LocalAgentService {
   }
 
   async runLocalAgent(params: RunLocalAgentParams, hooks?: RunHooks): Promise<AgentRunResult> {
+    assertBudgetAllowed("spawn_sdk");
+    recordSpawn("spawn_sdk", params.name ?? "runLocalAgent");
+
     const auth = await this.ensureSpawnAuth();
     if (auth === "cli") {
       const cwd = this.normalizeCwd(params.cwd);
@@ -356,7 +365,13 @@ export class CursorLocalService implements LocalAgentService {
     });
     try {
       const run = await agent.send(params.prompt);
-      return await this.driveRun(agent.agentId, run, hooks);
+      const result = await this.driveRun(agent.agentId, run, hooks);
+      recordSdkRunComplete({
+        durationMs: result.durationMs,
+        model: result.model ?? params.model ?? this.defaultModel,
+        source: params.name ?? "runLocalAgent",
+      });
+      return result;
     } finally {
       await disposeAgent(agent);
     }
@@ -408,6 +423,8 @@ export class CursorLocalService implements LocalAgentService {
   }
 
   async followUp(params: FollowUpParams, hooks?: RunHooks): Promise<AgentRunResult> {
+    assertBudgetAllowed("follow_up_sdk");
+
     if (params.agentId === "cli-session" || shouldUseAgentCliFallback(this.apiKey)) {
       if (!(await isAgentCliLoggedIn())) {
         throw new Error("CLI follow-up requires ~/.local/bin/agent login.");
@@ -441,7 +458,13 @@ export class CursorLocalService implements LocalAgentService {
         params.prompt,
         params.model ? { model: { id: params.model } } : undefined,
       );
-      return await this.driveRun(agent.agentId, run, hooks);
+      const result = await this.driveRun(agent.agentId, run, hooks);
+      recordSdkRunComplete({
+        durationMs: result.durationMs,
+        model: result.model ?? params.model ?? this.defaultModel,
+        source: "followUp",
+      });
+      return result;
     } finally {
       await disposeAgent(agent);
     }

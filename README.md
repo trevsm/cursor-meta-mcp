@@ -17,7 +17,8 @@ Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for
 | **Consciousness pulse** | Live scan for active chats, frustration risk, orchestration plays |
 | **Auto-orchestrate** | Execute pulse WATCH/CONTINUE/INTERCEPT/SPAWN recommendations |
 | **Mission** | One-call goal + success criteria → relentless loop until done |
-| **Long session** | Keep an IDE chat working for a wall-clock duration with checkpoints |
+| **Long session** | Wall-clock autonomous IDE chat: idle → follow-up → repeat with checkpoints |
+| **Self-improve fleet** | One-call worker fleet + orchestrator + watcher + strategy reviewer for autonomous repo improvement |
 
 All history reads stay on disk. Model calls still go through Cursor's API (local runtime, not Cursor cloud VMs).
 
@@ -52,6 +53,8 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_orchestrate_loop` | Repeat orchestrate pulse until idle or maxCycles |
 | `meta_mission` | Goal + success criteria → worker/critic loop until approved |
 | `meta_long_session` | Keep an IDE chat working for a duration (spawn + checkpoint by default) |
+| `meta_self_improve` | Launch worker long-sessions + orchestrator + watcher + strategy reviewer (conductor excluded) |
+| `meta_strategy_review` | Dimension-4 meta-critic: onTrack, pivot, spawn, kill from goal + transcript + git diff |
 | `meta_whoami` | Verify auth (API key or CLI login) |
 
 ## Requirements
@@ -111,6 +114,8 @@ Reload Cursor (`Cmd+Shift+P` → **Reload Window**), then enable **cursor-meta**
 
 ```
 Mission: add meta_mission with tests. Done when npm test passes and changes are committed.
+
+Self-improve: stand up autonomous worker fleet on this repo for 2 hours — no user moves.
 ```
 
 Ask in natural language — the agent picks tools automatically:
@@ -175,6 +180,59 @@ node scripts/relentless-loop.mjs "Fix failing tests" /path/to/project
 node scripts/relentless-loop.mjs --ide --session 5 "Continue work" /path/to/project
 ```
 
+### Long-running IDE sessions
+
+`meta_long_session` keeps an IDE chat working for a wall-clock duration: when idle, send a follow-up prompt; when busy, skip and retry. Checkpoints land under `~/.cursor-meta/long-sessions/` (or a custom `checkpointPath`).
+
+**Prefer `spawn=true` (default)** so the driver detaches and survives MCP timeouts:
+
+```json
+{
+  "cwd": "/Users/you/project",
+  "sessionIndex": 2,
+  "durationMs": 7200000,
+  "tickIntervalMs": 60000,
+  "prompt": "Keep improving autonomously. Verify with npm test."
+}
+```
+
+Read progress later with `readCheckpoint: true` (same `checkpointPath` / session target).
+
+CLI (after `npm run build`):
+
+```bash
+npm run long-session -- --session 2 --cwd /path/to/project --duration 2h
+npm run long-session -- --session-id UUID --cwd . --duration 30m --prompt "Keep adding tests"
+```
+
+Busy and missing-session skips do not burn the consecutive-error budget (chat still working, or SQLite/CLI lag after create). Soft idle-wait timeouts do; hard failures stop immediately.
+
+Optional knobs: `continueOnBusy` / `continueOnTimeout` (default true), `maxConsecutiveErrors` (default 8). Set `continueOnTimeout: false` to stop on the first idle-wait timeout.
+
+### Self-improve fleet
+
+`meta_self_improve` is the one-call autopilot: creates a dedicated worker IDE chat, attaches `meta_long_session` loops to chosen tabs, starts orchestrator + fleet watcher + **strategy reviewer (dimension 4)**, and injects pulse-aware prompts. The conductor session (default `#1`) is excluded from orchestration.
+
+```json
+{
+  "cwd": "/Users/you/Projects/cursor-meta-mcp",
+  "excludeSessionIndex": 1,
+  "workerSessionIndexes": [2, 9],
+  "durationMs": 7200000,
+  "goal": "Autonomously improve this repo with verified npm test on every tick"
+}
+```
+
+### Strategy review (dimension 4)
+
+`meta_strategy_review` asks whether the fleet is working on the **right problem** — not just whether output is polished. It reads goal, transcript tail, `git diff --stat`, pulse signals, and worker checkpoints. Returns `{ onTrack, pivot, spawn, kill }`.
+
+Heuristics always run (no API key needed). When `CURSOR_API_KEY` is set, an LLM critic merges with heuristics. The self-improve fleet runs this automatically every 5 minutes and intercepts workers when off-track.
+
+CLI: `npm run strategy-review -- --cwd . --once`
+
+CLI: `npm run experiments` (uses `tsx` so source changes apply without rebuilding `dist/`).
+
 ### Session indexes
 
 - `meta_list_chats` returns **1-based** `sessionIndex` values (1 = most recent).
@@ -196,6 +254,8 @@ npm run build
 npm test
 node scripts/test-mcp.mjs
 ```
+
+Long-session / experiment CLIs load TypeScript via `tsx` (`node --import tsx …`) so source changes apply without rebuilding `dist/` first. The MCP server entrypoint still uses `dist/` (`npm run build`).
 
 Smoke-test via MCP Inspector:
 

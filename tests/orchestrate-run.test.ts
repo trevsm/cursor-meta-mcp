@@ -71,6 +71,56 @@ test("orchestratePulse respects maxActions", async () => {
   assert.ok(result.skipped.some((entry) => entry.reason.includes("maxActions")));
 });
 
+test("orchestratePulse filters excluded sessions from live pulse", async () => {
+  const result = await orchestratePulse(
+    { dryRun: true, excludeSessionIndexes: [2] },
+    undefined,
+    () => ({
+      ...pulseReport,
+      live: [
+        {
+          sessionId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          sessionIndex: 2,
+          title: "Worker",
+          workspace: "/Users/you/project",
+          signals: ["generating"],
+          frustrationRisk: { score: 0, reason: null },
+        },
+        {
+          sessionId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          sessionIndex: 3,
+          title: "Other",
+          workspace: "/Users/you/project",
+          signals: ["generating"],
+          frustrationRisk: { score: 0, reason: null },
+        },
+      ],
+      frustrationEvents: [
+        {
+          sessionId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          sessionIndex: 2,
+          title: "Worker",
+          workspace: "/Users/you/project",
+          signals: [],
+          frustrationRisk: { score: 0.9, reason: "terse_still" },
+        },
+        {
+          sessionId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+          sessionIndex: 4,
+          title: "Frustrated",
+          workspace: "/Users/you/project",
+          signals: [],
+          frustrationRisk: { score: 0.9, reason: "terse_still" },
+        },
+      ],
+    }),
+  );
+  assert.equal(result.pulse.live.length, 1);
+  assert.equal(result.pulse.live[0]?.sessionIndex, 3);
+  assert.equal(result.pulse.frustrationEvents.length, 1);
+  assert.equal(result.pulse.frustrationEvents[0]?.sessionIndex, 4);
+});
+
 test("orchestrateLoop stops when idle on first cycle", async () => {
   const result = await orchestrateLoop({ maxCycles: 5, intervalMs: 1, stopWhenIdle: true }, undefined, async () => ({
     pulse: { ...pulseReport, orchestrationMatrix: [] },

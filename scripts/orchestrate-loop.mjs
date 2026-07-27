@@ -6,8 +6,8 @@
  *   node scripts/orchestrate-loop.mjs --dry-run --workspace cursor-meta-mcp --exclude-session 1
  *   node scripts/orchestrate-loop.mjs --workspace cursor-meta-mcp --max-cycles 3 --exclude-session 1
  */
-import { CursorLocalService } from "../dist/cursor-local.js";
-import { orchestrateLoop, summarizeLoop } from "../dist/orchestrate-loop.js";
+import { CursorLocalService } from "../src/cursor-local.js";
+import { orchestrateLoop, summarizeLoop } from "../src/orchestrate-loop.js";
 
 function flag(name) {
   return process.argv.includes(name);

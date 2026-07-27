@@ -2,7 +2,7 @@
 /**
  * Consciousness Pulse CLI — delegates to the MCP module.
  */
-import { runConsciousnessPulse } from "../dist/consciousness-pulse.js";
+import { runConsciousnessPulse } from "../src/consciousness-pulse.js";
 
 const limitArg = process.argv.indexOf("--limit");
 const workspaceArg = process.argv.indexOf("--workspace");

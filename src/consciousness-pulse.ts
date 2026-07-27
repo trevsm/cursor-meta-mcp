@@ -4,7 +4,13 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 
 import { getSessionIndexForId } from "./history-store.js";
-import { isMetaDiscussion, isOrchestrationExempt } from "./meta-discussion.js";
+import {
+  isMetaDiscussion,
+  isOrchestrationExempt,
+  isRepeatedFailureLoop,
+  isTerseRejection,
+  isTerseStill,
+} from "./meta-discussion.js";
 
 export { isMetaDiscussion } from "./meta-discussion.js";
 
@@ -100,6 +106,9 @@ export function frustrationRiskFromBubbles(bubbles: PulseBubble[]): FrustrationR
   if (FRUSTRATION_AFTER_DONE.test(userText)) {
     return { score: 0.95, reason: "post_failure_rejection" };
   }
+  if (isRepeatedFailureLoop(userText)) {
+    return { score: 0.9, reason: "repeated_failure_loop" };
+  }
   if (
     lastAsst &&
     AGENT_CLAIMED_DONE.test(lastAsst.text.slice(-500)) &&
@@ -107,11 +116,31 @@ export function frustrationRiskFromBubbles(bubbles: PulseBubble[]): FrustrationR
   ) {
     return { score: 0.85, reason: "false_completion_response" };
   }
-  if (/^still\.?$/i.test(userText)) {
+  if (isTerseStill(userText)) {
     return { score: 0.92, reason: "terse_still" };
+  }
+  if (isTerseRejection(userText)) {
+    return { score: 0.88, reason: "terse_rejection" };
   }
 
   return { score: 0, reason: null };
+}
+
+/** Detect when an idle assistant is waiting on the user instead of continuing. */
+export function assistantOfferedHandoff(text: string): boolean {
+  const tail = text.slice(-800);
+  const trimmedTail = tail.trim();
+  if (
+    /\b(want me to|would you like|should i|shall i|let me know|next step|what would you like|which (one|option)|pick one|your call|awaiting (your )?(input|direction))\b/i.test(
+      tail,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\?\s*$/.test(trimmedTail) &&
+    /\b(i can|i could|options?|prefer|choose|continue|proceed|also)\b/i.test(tail)
+  );
 }
 
 export function orchestrationPlays(
@@ -132,12 +161,15 @@ export function orchestrationPlays(
   }
 
   if (risk.score >= 0.8 && risk.reason !== null) {
+    const interceptPrompt =
+      risk.reason === "repeated_failure_loop"
+        ? "Stop. You are looping on the same failure. Diff your last change against the actual error, abandon the repeating approach, and fix the root cause with a verified alternative."
+        : "Stop. The last approach failed. Re-read the actual error state, verify before claiming done, then fix root cause only.";
     plays.push({
       action: "INTERCEPT",
       tool: "meta_intercept_chat",
       why: `Frustration event (${risk.reason}) — abort false path, inject corrective steer`,
-      prompt:
-        "Stop. The last approach failed. Re-read the actual error state, verify before claiming done, then fix root cause only.",
+      prompt: interceptPrompt,
     });
   }
 
@@ -147,12 +179,13 @@ export function orchestrationPlays(
       return plays;
     }
     const lastAsst = [...bubbles].reverse().find((bubble) => bubble.type === "assistant");
-    if (lastAsst?.text.includes("Want me to") || lastAsst?.text.includes("Next step")) {
+    if (lastAsst && assistantOfferedHandoff(lastAsst.text)) {
       plays.push({
         action: "CONTINUE",
         tool: "meta_watch_chat",
-        why: "Agent offered next steps but session went idle — auto-continue highest-value branch",
-        prompt: "Execute the most valuable next step you proposed. Do not re-explain.",
+        why: "Agent paused for user direction while idle — auto-continue highest-value branch",
+        prompt:
+          "Do not ask the user. Pick the highest-value next step and execute it. Verify with tests when code changes.",
       });
     }
   }

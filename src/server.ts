@@ -41,6 +41,14 @@ import {
   resolveSentimentSessionIndex,
   runSentimentAnalysis,
 } from "./sentiment-analysis.js";
+import { launchSelfImproveFleet } from "./self-improve.js";
+import {
+  getBudgetSnapshot,
+  loadBudgetState,
+  setPlanUsage,
+  writeBudgetStatus,
+} from "./plan-budget.js";
+import { runStrategyReview } from "./strategy-review.js";
 import { watchIdeChat } from "./watch-chat.js";
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -52,7 +60,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.5.0",
+  version: "0.6.0",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -843,6 +851,9 @@ export function createServer(
         idleStableMs: z.number().int().min(500).max(120_000).optional(),
         prompt: z.string().min(1).optional(),
         checkpointPath: z.string().min(1).optional(),
+        continueOnBusy: z.boolean().optional(),
+        continueOnTimeout: z.boolean().optional(),
+        maxConsecutiveErrors: z.number().int().min(1).max(100).optional(),
         spawn: z.boolean().optional(),
         readCheckpoint: z.boolean().optional(),
       },
@@ -863,6 +874,92 @@ export function createServer(
           return jsonResult(spawnLongSession(params));
         }
         return jsonResult(await runLongSession(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_strategy_review",
+    {
+      title: "Strategy review (dimension 4)",
+      description:
+        "Meta-critic: are we working on the RIGHT problem? Reads goal, transcript tail, git diff, pulse, and worker checkpoints. Returns onTrack, pivot, spawn, kill. Uses heuristics always; merges LLM critic when available.",
+      inputSchema: {
+        goal: z.string().min(1),
+        cwd: z.string().min(1),
+        successCriteria: z.array(z.string().min(1)).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        sessionId: z.string().uuid().optional(),
+        workspace: z.string().min(1).optional(),
+        useLlm: z.boolean().optional(),
+        model: z.string().optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async (params, extra) => {
+      try {
+        return jsonResult(
+          await runStrategyReview(service, { ...params, useLlm: params.useLlm ?? true }, runHooksFrom(extra)),
+        );
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_self_improve",
+    {
+      title: "Autonomous self-improvement fleet",
+      description:
+        "One-call autopilot: create a dedicated worker IDE chat, attach long-session loops to worker tabs, start orchestrator + fleet watcher + strategy reviewer (dimension 4). Workers get pulse-aware prompts. Conductor session (default #1) is excluded.",
+      inputSchema: {
+        cwd: z.string().min(1),
+        excludeSessionIndex: z.number().int().min(1).optional(),
+        workerSessionIndexes: z.array(z.number().int().min(1)).optional(),
+        durationMs: z.number().int().min(60_000).max(86_400_000).optional(),
+        withOrchestrator: z.boolean().optional(),
+        withWatcher: z.boolean().optional(),
+        withStrategyReviewer: z.boolean().optional(),
+        strategyReviewIntervalMs: z.number().int().min(60_000).max(3_600_000).optional(),
+        goal: z.string().min(1).optional(),
+        metaDir: z.string().min(1).optional(),
+        prompt: z.string().min(1).optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(await launchSelfImproveFleet(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_plan_budget",
+    {
+      title: "Plan usage and budget status",
+      description:
+        "Read local spend ledger: SDK run time, spawn rates, estimated cents, and optional plan request usage (CURSOR_META_PLAN_USED_REQUESTS / CURSOR_META_PLAN_REQUEST_LIMIT). Optionally seed plan usage from dashboard numbers.",
+      inputSchema: {
+        planUsedRequests: z.number().int().min(0).optional(),
+        planRequestLimit: z.number().int().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (params) => {
+      try {
+        if (params.planUsedRequests != null) {
+          setPlanUsage(params.planUsedRequests, params.planRequestLimit, "manual");
+        }
+        const state = loadBudgetState();
+        const snapshot = getBudgetSnapshot(state);
+        writeBudgetStatus(snapshot);
+        return jsonResult(snapshot);
       } catch (error) {
         return errorResult(error);
       }

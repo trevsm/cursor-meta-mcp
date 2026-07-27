@@ -6,8 +6,8 @@
  *   node scripts/relentless-loop.mjs "Fix the failing tests" /path/to/project
  *   node scripts/relentless-loop.mjs --ide --session 5 "Continue sentiment work" /path/to/project
  */
-import { CursorLocalService } from "../dist/cursor-local.js";
-import { runRelentlessLoop } from "../dist/relentless-loop.js";
+import { CursorLocalService } from "../src/cursor-local.js";
+import { runRelentlessLoop } from "../src/relentless-loop.js";
 
 function parseArgs(argv) {
   const args = [...argv];

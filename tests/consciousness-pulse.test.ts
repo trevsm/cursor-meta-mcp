@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   activitySignalsFromComposer,
+  assistantOfferedHandoff,
   frustrationRiskFromBubbles,
   isMetaDiscussion,
   orchestrationPlays,
@@ -25,6 +26,22 @@ test("frustrationRiskFromBubbles flags post-failure rejection", () => {
   ]);
   assert.equal(risk.score, 0.95);
   assert.equal(risk.reason, "post_failure_rejection");
+});
+
+test("frustrationRiskFromBubbles flags repeated failure loops", () => {
+  const sameError = frustrationRiskFromBubbles([
+    { type: "assistant", text: "Try rebuilding the native module." },
+    { type: "user", text: "same error again" },
+  ]);
+  assert.equal(sameError.score, 0.9);
+  assert.equal(sameError.reason, "repeated_failure_loop");
+
+  const looping = frustrationRiskFromBubbles([
+    { type: "assistant", text: "Let me try another approach." },
+    { type: "user", text: "we're going in circles" },
+  ]);
+  assert.equal(looping.score, 0.9);
+  assert.equal(looping.reason, "repeated_failure_loop");
 });
 
 test("frustrationRiskFromBubbles flags terse still after claimed done", () => {
@@ -83,6 +100,18 @@ test("orchestrationPlays recommends intercept on high frustration", () => {
   assert.match(plays[0]?.why ?? "", /Frustration event/);
 });
 
+test("orchestrationPlays uses loop-specific intercept prompt", () => {
+  const plays = orchestrationPlays(
+    "Bug fix",
+    "/Users/you/project",
+    [],
+    { score: 0.9, reason: "repeated_failure_loop" },
+    [{ type: "user", text: "same error again" }],
+  );
+  assert.equal(plays[0]?.action, "INTERCEPT");
+  assert.match(plays[0]?.prompt ?? "", /looping on the same failure/);
+});
+
 test("orchestrationPlays skips continue on strategy session titles", () => {
   const plays = orchestrationPlays(
     "Conversation strategy review",
@@ -118,6 +147,34 @@ test("orchestrationPlays does not intercept meta discussion frustration", () => 
     { type: "user", text: "this is still low level though?" },
   ]);
   assert.equal(plays.some((play) => play.action === "INTERCEPT"), false);
+});
+
+test("frustrationRiskFromBubbles flags terse rejection", () => {
+  const risk = frustrationRiskFromBubbles([
+    { type: "assistant", text: "I updated the config." },
+    { type: "user", text: "nope" },
+  ]);
+  assert.equal(risk.score, 0.88);
+  assert.equal(risk.reason, "terse_rejection");
+});
+
+test("assistantOfferedHandoff detects pause-for-user patterns", () => {
+  assert.equal(assistantOfferedHandoff("Want me to implement the next step?"), true);
+  assert.equal(assistantOfferedHandoff("Would you like me to continue with tests?"), true);
+  assert.equal(assistantOfferedHandoff("I can also refactor the parser — should I?"), true);
+  assert.equal(assistantOfferedHandoff("All tests pass. Ready for review."), false);
+});
+
+test("orchestrationPlays recommends continue on soft handoff questions", () => {
+  const plays = orchestrationPlays(
+    "Feature",
+    "/Users/you/project",
+    [],
+    { score: 0, reason: null },
+    [{ type: "assistant", text: "I can add coverage next — would you like that?" }],
+  );
+  assert.equal(plays[0]?.action, "CONTINUE");
+  assert.match(plays[0]?.prompt ?? "", /Do not ask the user/);
 });
 
 test("orchestrationPlays recommends continue when agent offered next steps", () => {

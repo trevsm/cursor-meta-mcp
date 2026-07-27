@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 
-import { runLongSession, summarizeLongSession } from "../dist/long-session.js";
+import { parseDurationMs, runLongSession, summarizeLongSession } from "../src/long-session.js";
 
 function flag(name) {
   return process.argv.includes(name);
@@ -20,19 +20,7 @@ function argValue(name) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-function parseDuration(raw) {
-  if (!raw) return undefined;
-  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)?$/i.exec(raw.trim());
-  if (!match) {
-    throw new Error(`Invalid duration: ${raw}. Use 30m, 2h, 90s, 600000ms.`);
-  }
-  const amount = Number(match[1]);
-  const unit = (match[2] ?? "ms").toLowerCase();
-  const multipliers = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-  return Math.round(amount * multipliers[unit]);
-}
-
-const durationMs = parseDuration(argValue("--duration")) ?? parseDuration("10m");
+const durationMs = argValue("--duration") ? parseDurationMs(argValue("--duration")) : parseDurationMs("10m");
 const sessionIndexRaw = argValue("--session");
 const sessionId = argValue("--session-id");
 const cwd = argValue("--cwd") ?? process.cwd();
@@ -53,12 +41,17 @@ const params = {
   sessionId,
   durationMs,
   maxTicks: argValue("--max-ticks") ? Number(argValue("--max-ticks")) : undefined,
-  tickIntervalMs: argValue("--tick-interval") ? parseDuration(argValue("--tick-interval")) : undefined,
-  waitTimeoutMs: argValue("--wait-timeout") ? parseDuration(argValue("--wait-timeout")) : undefined,
+  tickIntervalMs: argValue("--tick-interval") ? parseDurationMs(argValue("--tick-interval")) : undefined,
+  waitTimeoutMs: argValue("--wait-timeout") ? parseDurationMs(argValue("--wait-timeout")) : undefined,
   pollIntervalMs: argValue("--poll-ms") ? Number(argValue("--poll-ms")) : undefined,
   idleStableMs: argValue("--idle-ms") ? Number(argValue("--idle-ms")) : undefined,
   checkpointPath: argValue("--checkpoint"),
   prompt,
+  continueOnBusy: flag("--no-continue-on-busy") ? false : undefined,
+  continueOnTimeout: flag("--no-continue-on-timeout") ? false : undefined,
+  maxConsecutiveErrors: argValue("--max-consecutive-errors")
+    ? Number(argValue("--max-consecutive-errors"))
+    : undefined,
 };
 
 console.error(
@@ -79,6 +72,7 @@ params.onTick = (tick, state) => {
       tick: tick.tick,
       watchedMs: tick.watchedMs,
       wasAlreadyIdle: tick.wasAlreadyIdle,
+      skipped: tick.skipped,
       error: tick.error,
       totalTicks: state.ticks.length,
     }),
@@ -86,7 +80,7 @@ params.onTick = (tick, state) => {
 };
 
 const result = await runLongSession(params);
-const summary = summarizeLongSession(result, params.checkpointPath);
+const summary = summarizeLongSession(result);
 
 console.log(
   JSON.stringify(
@@ -102,4 +96,4 @@ console.log(
   ),
 );
 
-process.exit(result.stoppedBecause === "error" ? 1 : 0);
+process.exit(result.stoppedBecause === "error" || result.stoppedBecause === "consecutive_errors" ? 1 : 0);

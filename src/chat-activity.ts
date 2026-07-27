@@ -159,6 +159,35 @@ export function getChatActivityByIndex(sessionIndex: number): ChatActivity {
   return getChatActivity(summary.id, summary);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Poll until a freshly created chat appears in Cursor's SQLite storage. */
+export async function waitForChatSession(
+  sessionId: string,
+  options: { timeoutMs?: number; pollMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const pollMs = options.pollMs ?? 500;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      getChatActivity(sessionId);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("not found")) {
+        throw error;
+      }
+    }
+    await sleep(pollMs);
+  }
+
+  throw new Error(`Chat session ${sessionId} not found after ${timeoutMs}ms.`);
+}
+
 export function listActiveChats(args: ListActiveChatsArgs = {}): ChatActivity[] {
   const withinMs = args.withinMs ?? 5 * 60 * 1000;
   const limit = args.limit ?? 20;

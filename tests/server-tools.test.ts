@@ -36,12 +36,15 @@ test("registers all meta_* tools", async () => {
       "meta_mission",
       "meta_orchestrate_loop",
       "meta_orchestrate_pulse",
+      "meta_plan_budget",
       "meta_relentless_loop",
       "meta_search_chats",
+      "meta_self_improve",
       "meta_send_to_chat",
       "meta_sentiment_analysis",
       "meta_show_chat",
       "meta_spawn_local_agent",
+      "meta_strategy_review",
       "meta_watch_chat",
       "meta_whoami",
     ]);
@@ -271,6 +274,45 @@ test("meta_watch_chat validates session selector", async () => {
   const missing = await callMetaTool(new FakeLocalAgentService(), "meta_watch_chat", {});
   assert.equal(missing.isError, true);
   assert.match(textResult(missing), /Provide sessionIndex or sessionId/);
+});
+
+test("meta_long_session schema exposes resilience knobs", async () => {
+  const service = new FakeLocalAgentService();
+  await withMcpClient(service, async (client) => {
+    const tools = await client.listTools();
+    const tool = tools.tools.find((entry) => entry.name === "meta_long_session");
+    assert.ok(tool);
+    const props = (tool.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    assert.ok("continueOnBusy" in props);
+    assert.ok("continueOnTimeout" in props);
+    assert.ok("maxConsecutiveErrors" in props);
+    assert.ok("readCheckpoint" in props);
+  });
+});
+
+test("meta_long_session requires session target when spawning", async () => {
+  const missing = await callMetaTool(new FakeLocalAgentService(), "meta_long_session", {
+    cwd: process.cwd(),
+    spawn: true,
+  });
+  assert.equal(missing.isError, true);
+  assert.match(textResult(missing), /sessionIndex or sessionId/);
+});
+
+test("meta_self_improve schema includes fleet options", async () => {
+  const service = new FakeLocalAgentService();
+  await withMcpClient(service, async (client) => {
+    const tools = await client.listTools();
+    const tool = tools.tools.find((entry) => entry.name === "meta_self_improve");
+    assert.ok(tool);
+    const props = (tool.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    assert.ok("cwd" in props);
+    assert.ok("excludeSessionIndex" in props);
+    assert.ok("workerSessionIndexes" in props);
+    assert.ok("withOrchestrator" in props);
+    assert.ok("withWatcher" in props);
+    assert.ok("metaDir" in props);
+  });
 });
 
 test("meta_list_active_chats reads local activity when available", async (t) => {

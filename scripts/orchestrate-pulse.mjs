@@ -7,8 +7,8 @@
  *   node scripts/orchestrate-pulse.mjs --workspace cursor-meta-mcp --max 2
  *   node scripts/orchestrate-pulse.mjs --allow-intercept --max 1
  */
-import { CursorLocalService } from "../dist/cursor-local.js";
-import { orchestratePulse } from "../dist/orchestrate-pulse.js";
+import { CursorLocalService } from "../src/cursor-local.js";
+import { orchestratePulse } from "../src/orchestrate-pulse.js";
 
 function flag(name) {
   return process.argv.includes(name);

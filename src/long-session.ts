@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { waitForChatSession } from "./chat-activity.js";
+import { recordBudgetEvent } from "./plan-budget.js";
 import { getIdeChatActivity, sendToIdeChat } from "./ide-chat-control.js";
 import { waitForChatIdle } from "./relentless-loop.js";
 import { isChatActive, lastAssistantTail } from "./watch-chat.js";
@@ -41,7 +43,7 @@ export interface LongSessionTick {
   wasAlreadyIdle: boolean;
   lastAssistantTail?: string;
   error?: string;
-  skipped?: "busy" | "timeout";
+  skipped?: "busy" | "timeout" | "missing";
 }
 
 export interface LongSessionState {
@@ -69,6 +71,7 @@ export const DEFAULT_LONG_SESSION_PROMPT = [
   "Keep going. Do not stop or ask the user for moves.",
   "Self-improve this codebase autonomously: fix bugs, add tests, tighten heuristics, verify with npm test.",
   "Minimize scope per tick; ship small verified improvements.",
+  "Do not create git commits unless explicitly asked.",
   "When idle, pick the highest-value next improvement and execute it.",
 ].join(" ");
 
@@ -111,15 +114,23 @@ export function shouldStopLongSession(
   return null;
 }
 
-function isSoftTickFailure(message: string): boolean {
-  return /timed out waiting for chat|chat_busy/i.test(message);
+export function isTransientSessionMissing(message: string): boolean {
+  return /chat session .+ not found|session #\d+ not found|not found after \d+ms/i.test(message);
 }
 
-/** Busy skips mean the chat is still working — do not burn the error budget. */
+/** Busy/missing skips do not burn the error budget; timeout soft skips do. */
 export function countsTowardConsecutiveErrors(tick: LongSessionTick): boolean {
   if (!tick.error) return false;
-  if (tick.skipped === "busy") return false;
+  if (tick.skipped === "busy" || tick.skipped === "missing") return false;
   return true;
+}
+
+function safeAssistantTail(sessionIndex?: number, sessionId?: string): string | undefined {
+  try {
+    return lastAssistantTail(sessionIndex, sessionId);
+  } catch {
+    return undefined;
+  }
 }
 
 export async function runLongSessionTick(
@@ -154,12 +165,27 @@ export async function runLongSessionTick(
 
   const wasAlreadyIdle = !activityBefore || !isChatActive(activityBefore);
   if (wasAlreadyIdle) {
-    await sendToIdeChat({
-      sessionId: params.sessionId,
-      sessionIndex: params.sessionIndex,
-      prompt,
-      cwd: params.cwd,
-    });
+    try {
+      await sendToIdeChat({
+        sessionId: params.sessionId,
+        sessionIndex: params.sessionIndex,
+        prompt,
+        cwd: params.cwd,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isTransientSessionMissing(message)) {
+        return {
+          tick,
+          at: new Date().toISOString(),
+          watchedMs: Date.now() - tickStarted,
+          wasAlreadyIdle,
+          skipped: "missing",
+          error: message,
+        };
+      }
+      throw error;
+    }
   }
 
   try {
@@ -170,6 +196,17 @@ export async function runLongSessionTick(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (isTransientSessionMissing(message)) {
+      return {
+        tick,
+        at: new Date().toISOString(),
+        watchedMs: Date.now() - tickStarted,
+        wasAlreadyIdle,
+        skipped: "missing",
+        error: message,
+        lastAssistantTail: safeAssistantTail(params.sessionIndex, params.sessionId),
+      };
+    }
     const continueOnTimeout = params.continueOnTimeout ?? true;
     if (continueOnTimeout && /timed out waiting for chat/i.test(message)) {
       return {
@@ -179,7 +216,7 @@ export async function runLongSessionTick(
         wasAlreadyIdle,
         skipped: "timeout",
         error: message,
-        lastAssistantTail: lastAssistantTail(params.sessionIndex, params.sessionId),
+        lastAssistantTail: safeAssistantTail(params.sessionIndex, params.sessionId),
       };
     }
     throw error;
@@ -190,7 +227,7 @@ export async function runLongSessionTick(
     at: new Date().toISOString(),
     watchedMs: Date.now() - tickStarted,
     wasAlreadyIdle,
-    lastAssistantTail: lastAssistantTail(params.sessionIndex, params.sessionId),
+    lastAssistantTail: safeAssistantTail(params.sessionIndex, params.sessionId),
   };
 }
 
@@ -222,6 +259,18 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
   let consecutiveErrors = 0;
   let resolvedSessionId = params.sessionId;
 
+  if (resolvedSessionId) {
+    try {
+      await waitForChatSession(resolvedSessionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Freshly created chats can lag in SQLite; proceed and treat tick-level misses as soft.
+      if (!isTransientSessionMissing(message)) {
+        throw error;
+      }
+    }
+  }
+
   for (let tick = 1; tick <= state.maxTicks; tick += 1) {
     const stop = shouldStopLongSession(startedAtMs, state.ticks.length, state);
     if (stop) {
@@ -247,16 +296,20 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
         state.prompt,
       );
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       entry = {
         tick,
         at: new Date().toISOString(),
         watchedMs: Date.now() - tickStarted,
         wasAlreadyIdle: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
+        ...(isTransientSessionMissing(message) ? { skipped: "missing" as const } : {}),
       };
     }
 
-    const softFailure = entry.error != null && isSoftTickFailure(entry.error);
+    // Soft failures are ticks that intentionally skipped (busy/timeout/missing).
+    // Thrown errors (e.g. continueOnTimeout=false) have no skipped marker and hard-stop.
+    const softFailure = entry.skipped != null;
     if (entry.error && !softFailure) {
       state.ticks.push(entry);
       state.stoppedBecause = "error";
@@ -282,6 +335,19 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
     writeCheckpoint(state, checkpointPath);
     params.onTick?.(entry, state);
 
+    if (entry.skipped !== "busy") {
+      try {
+        recordBudgetEvent({
+          at: entry.at,
+          action: "ide_tick",
+          source: state.sessionId,
+          durationMs: entry.watchedMs,
+        });
+      } catch {
+        /* budget ledger is best-effort */
+      }
+    }
+
     const stopAfterTick = shouldStopLongSession(startedAtMs, state.ticks.length, state);
     if (stopAfterTick) {
       stoppedBecause = stopAfterTick;
@@ -289,12 +355,24 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
     }
 
     const elapsed = Date.now() - tickStarted;
-    if (elapsed < tickIntervalMs) {
-      await sleep(tickIntervalMs - elapsed);
+    const waitMs = nextTickWaitMs(entry, tickIntervalMs, params.pollIntervalMs);
+    if (elapsed < waitMs) {
+      await sleep(waitMs - elapsed);
     }
   }
 
   return finalizeLongSession(state, startedAtMs, stoppedBecause, checkpointPath);
+}
+
+/** After a busy/missing skip, poll sooner so we resume promptly when the chat is ready. */
+export function nextTickWaitMs(
+  tick: LongSessionTick,
+  tickIntervalMs: number,
+  pollIntervalMs?: number,
+): number {
+  if (tick.skipped !== "busy" && tick.skipped !== "missing") return tickIntervalMs;
+  const poll = pollIntervalMs ?? 2_000;
+  return Math.min(tickIntervalMs, Math.max(poll, 2_000));
 }
 
 function finalizeLongSession(
@@ -320,12 +398,14 @@ export function summarizeLongSession(result: LongSessionResult): {
   errors: number;
   busySkips: number;
   timeouts: number;
+  missingSkips: number;
   avgWatchMs: number;
   checkpointPath: string;
 } {
   const errors = result.ticks.filter((tick) => tick.error && tick.skipped == null).length;
   const busySkips = result.ticks.filter((tick) => tick.skipped === "busy").length;
   const timeouts = result.ticks.filter((tick) => tick.skipped === "timeout").length;
+  const missingSkips = result.ticks.filter((tick) => tick.skipped === "missing").length;
   const avgWatchMs =
     result.ticks.length === 0
       ? 0
@@ -335,10 +415,29 @@ export function summarizeLongSession(result: LongSessionResult): {
     errors,
     busySkips,
     timeouts,
+    missingSkips,
     avgWatchMs,
     checkpointPath:
       result.checkpointPath ?? defaultCheckpointPath(result.sessionId, result.sessionIndex),
   };
+}
+
+/** Parse durations like `30m`, `2h`, `90s`, `600000ms` (unit defaults to ms). */
+export function parseDurationMs(raw: string): number {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)?$/i.exec(raw.trim());
+  if (!match) {
+    throw new Error(`Invalid duration: ${raw}. Use 30m, 2h, 90s, 600000ms.`);
+  }
+  const amount = Number(match[1]);
+  const unit = (match[2] ?? "ms").toLowerCase();
+  const multipliers: Record<string, number> = {
+    ms: 1,
+    s: 1000,
+    m: 60_000,
+    h: 3_600_000,
+    d: 86_400_000,
+  };
+  return Math.round(amount * multipliers[unit]!);
 }
 
 export interface SpawnLongSessionResult {
@@ -349,7 +448,7 @@ export interface SpawnLongSessionResult {
 }
 
 export function buildLongSessionArgs(params: LongSessionParams): string[] {
-  const args = ["scripts/long-session.mjs", "--cwd", params.cwd.trim()];
+  const args = ["--import", "tsx", "scripts/long-session.mjs", "--cwd", params.cwd.trim()];
   if (params.sessionIndex != null) args.push("--session", String(params.sessionIndex));
   if (params.sessionId) args.push("--session-id", params.sessionId);
   if (params.durationMs != null) args.push("--duration", String(params.durationMs));
@@ -360,6 +459,11 @@ export function buildLongSessionArgs(params: LongSessionParams): string[] {
   if (params.idleStableMs != null) args.push("--idle-ms", String(params.idleStableMs));
   if (params.checkpointPath) args.push("--checkpoint", params.checkpointPath);
   if (params.prompt) args.push("--prompt", params.prompt);
+  if (params.continueOnBusy === false) args.push("--no-continue-on-busy");
+  if (params.continueOnTimeout === false) args.push("--no-continue-on-timeout");
+  if (params.maxConsecutiveErrors != null) {
+    args.push("--max-consecutive-errors", String(params.maxConsecutiveErrors));
+  }
   return args;
 }
 

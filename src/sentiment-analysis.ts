@@ -4,7 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 
 import { getSessionIndexForId, listChatSummaries } from "./history-store.js";
-import { isMetaDiscussion } from "./meta-discussion.js";
+import { isMetaDiscussion, isRepeatedFailureLoop, isTerseRejection, isTerseStill } from "./meta-discussion.js";
 
 export interface SentimentScores {
   valence: number;
@@ -104,7 +104,7 @@ const FRUSTRATION: Pattern[] = [
   [/\b(ugh|wtf|ffs|come on|seriously\?|ridiculous|useless|terrible|awful|bad job)\b/i, 0.85],
   [/:\/\s*$/i, 0.65],
   [/\b(still)\b/i, 0.45],
-  [/\b(again\??|once more|same (issue|problem|error))\b/i, 0.4],
+  [/\b(again\??|once more)\b/i, 0.4],
 ];
 
 const CONFUSION: Pattern[] = [
@@ -182,7 +182,9 @@ export function analyzeUserMessage(
   if (wordCount <= 3 && /\b(still|broken|wrong|no|nope|why)\b/i.test(trimmed)) {
     frustration = Math.max(frustration, 0.75);
   }
-  if (/^still\.?$/i.test(trimmed)) frustration = Math.max(frustration, 0.92);
+  if (isTerseStill(trimmed)) frustration = Math.max(frustration, 0.92);
+  if (isTerseRejection(trimmed)) frustration = Math.max(frustration, 0.88);
+  if (isRepeatedFailureLoop(trimmed)) frustration = Math.max(frustration, 0.9);
   if (ctx.afterClaimedDone && (frustration > 0.2 || /\b(still|but|wrong|not)\b/i.test(trimmed))) {
     frustration = Math.min(1, frustration + 0.25);
   }

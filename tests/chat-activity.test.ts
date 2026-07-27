@@ -11,6 +11,7 @@ import {
   getChatActivity,
   getChatActivityByIndex,
   listActiveChats,
+  waitForChatSession,
 } from "../src/chat-activity.js";
 
 let tempDir: string | undefined;
@@ -119,4 +120,19 @@ test("abortIdeChatInStorage marks composer state aborted", () => {
   assert.equal(parsed.status, "aborted");
   assert.deepEqual(parsed.generatingBubbleIds, []);
   db.close();
+});
+
+test("waitForChatSession resolves when session exists", async () => {
+  previousDbPath = process.env.CURSOR_META_STATE_DB;
+  process.env.CURSOR_META_STATE_DB = seedTestDb();
+  await waitForChatSession("11111111-1111-1111-1111-111111111111", { timeoutMs: 1000 });
+});
+
+test("waitForChatSession times out for missing session", async () => {
+  previousDbPath = process.env.CURSOR_META_STATE_DB;
+  process.env.CURSOR_META_STATE_DB = seedTestDb();
+  await assert.rejects(
+    () => waitForChatSession("99999999-9999-9999-9999-999999999999", { timeoutMs: 200, pollMs: 50 }),
+    /not found after 200ms/,
+  );
 });

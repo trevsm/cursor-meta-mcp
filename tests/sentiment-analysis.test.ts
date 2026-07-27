@@ -36,6 +36,32 @@ test("analyzeUserMessage flags terse still after claimed done", () => {
   assert.equal(scores.label, "frustrated");
 });
 
+test("analyzeUserMessage flags terse rejection", () => {
+  const scores = analyzeUserMessage("nope", {
+    afterClaimedDone: false,
+    userMsgIndex: 2,
+    raw: "nope",
+  });
+  assert.ok(scores.frustration >= 0.88);
+  assert.equal(scores.label, "frustrated");
+});
+
+test("analyzeUserMessage flags repeated failure loops", () => {
+  const sameError = analyzeUserMessage("same error again", {
+    afterClaimedDone: false,
+    userMsgIndex: 4,
+    raw: "same error again",
+  });
+  assert.ok(sameError.frustration >= 0.85);
+
+  const looping = analyzeUserMessage("we're going in circles", {
+    afterClaimedDone: false,
+    userMsgIndex: 5,
+    raw: "we're going in circles",
+  });
+  assert.ok(looping.frustration >= 0.85);
+});
+
 test("analyzeUserMessage dampens meta discussion after claimed done", () => {
   const scores = analyzeUserMessage("this is still low level though?", {
     afterClaimedDone: true,

@@ -8,6 +8,7 @@ import {
   type PulseSessionEntry,
 } from "./consciousness-pulse.js";
 import { interceptIdeChat } from "./ide-chat-control.js";
+import { assertBudgetAllowed, recordSpawn } from "./plan-budget.js";
 import { watchIdeChat } from "./watch-chat.js";
 
 export interface OrchestratePulseParams extends ConsciousnessPulseParams {
@@ -156,6 +157,15 @@ export async function executeOrchestrationPlay(
         if (!play.prompt) {
           return { ...base, error: "SPAWN_SPECIALIST play missing prompt." };
         }
+        try {
+          assertBudgetAllowed("orchestrate_spawn");
+          recordSpawn("orchestrate_spawn", `pulse-${entry.sessionIndex ?? entry.sessionId.slice(0, 8)}`);
+        } catch (error) {
+          return {
+            ...base,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
         return {
           ...base,
           result: await service.runLocalAgent({
@@ -196,14 +206,15 @@ export async function orchestratePulse(
 ): Promise<OrchestratePulseResult> {
   const pulse = runPulse(params);
   const matrix = filterOrchestrationMatrix(pulse.orchestrationMatrix, params);
+  const isExcluded = (entry: PulseSessionEntry) =>
+    Boolean(params.excludeSessionIds?.includes(entry.sessionId)) ||
+    (entry.sessionIndex != null && Boolean(params.excludeSessionIndexes?.includes(entry.sessionIndex)));
+
   const filteredPulse = {
     ...pulse,
     orchestrationMatrix: matrix,
-    live: pulse.live.filter(
-      (entry) =>
-        !params.excludeSessionIds?.includes(entry.sessionId) &&
-        !(entry.sessionIndex != null && params.excludeSessionIndexes?.includes(entry.sessionIndex)),
-    ),
+    live: pulse.live.filter((entry) => !isExcluded(entry)),
+    frustrationEvents: pulse.frustrationEvents.filter((entry) => !isExcluded(entry)),
   };
   const maxActions = params.maxActions ?? 3;
   const executed: ExecutedAction[] = [];

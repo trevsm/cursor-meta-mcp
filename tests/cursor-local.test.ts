@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { mock, test } from "node:test";
+
+const budgetDir = mkdtempSync(join(tmpdir(), "cursor-local-budget-"));
+process.env.CURSOR_META_BUDGET_PATH = join(budgetDir, "budget.json");
 
 const agentCreate = mock.fn();
 const agentResume = mock.fn();
