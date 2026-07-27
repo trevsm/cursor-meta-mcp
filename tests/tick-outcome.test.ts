@@ -38,10 +38,26 @@ test("parseShortstat extracts file and line counts", () => {
 test("parseNodeTestSummary reads node --test counters", () => {
   const output = "# tests 205\n# pass 204\n# fail 1\n";
   assert.deepEqual(parseNodeTestSummary(output), { total: 205, failed: 1 });
+  assert.deepEqual(parseNodeTestSummary("no summary here"), { total: undefined, failed: undefined });
 });
 
 test("describeTickOutcome summarizes repo changes", () => {
   assert.equal(describeTickOutcome(undefined), "no outcome recorded");
+  assert.equal(
+    describeTickOutcome({
+      headBefore: "abc",
+      headAfter: "abc",
+      committed: false,
+      pushed: false,
+      commits: 0,
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+      dirtyFiles: 0,
+      producedWork: false,
+    }),
+    "no repo change",
+  );
   assert.match(
     describeTickOutcome({
       headBefore: "abc",
