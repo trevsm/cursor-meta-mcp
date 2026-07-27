@@ -202,6 +202,36 @@ test("buildActiveSummary summarizes fleet and worker tails", () => {
   assert.ok(summary.lines.some((line) => /Worker A/i.test(line.text)));
 });
 
+test("buildActiveSummary uses friendly labels for worker-session experiments", () => {
+  const summary = buildActiveSummary({
+    fleetHealth: { total: 1, alive: 1, watcherAlive: false, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
+    manifest: null,
+    budget: { warnings: [] },
+    strategyStatus: { onTrack: true, recommendation: "Keep going" },
+    pulse: { at: new Date().toISOString(), scanned: 0, live: [], frustrationEvents: [], orchestrationMatrix: [], parallelWorkspaces: [] },
+    experiments: [
+      {
+        name: "worker-session-2",
+        displayName: "IDE worker #2",
+        pid: 1,
+        alive: true,
+        checkpoint: {
+          exists: true,
+          ticks: 1,
+          lastTick: {
+            tick: 1,
+            at: new Date().toISOString(),
+            watchedMs: 50,
+            error: "auth expired",
+          },
+        },
+      },
+    ],
+    spawnThoughts: [],
+  });
+  assert.ok(summary.lines.some((line) => /IDE worker #2: auth expired/.test(line.text)));
+});
+
 test("collectSpawnThoughts includes worker tails and live chats", () => {
   const thoughts = collectSpawnThoughts({
     experiments: [
