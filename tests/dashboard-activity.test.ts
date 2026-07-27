@@ -24,6 +24,14 @@ test("extractWorkSummary skips empty and markdown noise", () => {
   assert.equal(extractWorkSummary("Ground truth: npm test passed"), undefined);
 });
 
+test("extractWorkSummary strips list markers and markdown emphasis", () => {
+  assert.equal(
+    extractWorkSummary("- Tick 3 — added dashboard overview prose"),
+    "Tick 3 — added dashboard overview prose",
+  );
+  assert.equal(extractWorkSummary("* **Shipped** fleet metrics gate"), "Shipped fleet metrics gate");
+});
+
 test("buildWorkerActivity includes live sdk run events", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-live-"));
   const agentId = "agent-live-test";
