@@ -15,6 +15,7 @@ Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for
 | **Relentless loop** | Work → self-judge → retry until approved or max iterations |
 | **Sentiment analysis** | Multi-axis frustration/confusion scoring over chat history |
 | **Consciousness pulse** | Live scan for active chats, frustration risk, orchestration plays |
+| **Auto-orchestrate** | Execute pulse WATCH/CONTINUE/INTERCEPT/SPAWN recommendations |
 
 All history reads stay on disk. Model calls still go through Cursor's API (local runtime, not Cursor cloud VMs).
 
@@ -45,6 +46,7 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_relentless_loop` | Self-critique loop: work → judge → retry until approved |
 | `meta_sentiment_analysis` | Frustration/confusion/satisfaction scoring over chat history |
 | `meta_consciousness_pulse` | Live orchestration scan with WATCH/INTERCEPT/CONTINUE recommendations |
+| `meta_orchestrate_pulse` | Run pulse scan and auto-execute allowed orchestration plays |
 | `meta_whoami` | Verify auth (API key or CLI login) |
 
 ## Requirements

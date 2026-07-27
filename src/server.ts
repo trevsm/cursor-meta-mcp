@@ -27,6 +27,7 @@ import {
   showChat,
 } from "./history.js";
 import { runRelentlessLoop } from "./relentless-loop.js";
+import { orchestratePulse } from "./orchestrate-pulse.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import {
   resolveSentimentSessionIndex,
@@ -43,7 +44,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.3.2",
+  version: "0.3.3",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -658,6 +659,36 @@ export function createServer(
             sessionIndex: resolvedIndex,
           }),
         );
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_orchestrate_pulse",
+    {
+      title: "Run consciousness pulse actions",
+      description:
+        "Scan recent chats for orchestration opportunities and optionally execute WATCH/CONTINUE/INTERCEPT/SPAWN plays. CONTINUE and WATCH allowed by default; INTERCEPT and SPAWN require explicit opt-in.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        workspace: z.string().min(1).optional(),
+        dryRun: z.boolean().optional(),
+        allowWatch: z.boolean().optional(),
+        allowContinue: z.boolean().optional(),
+        allowIntercept: z.boolean().optional(),
+        allowSpawn: z.boolean().optional(),
+        maxActions: z.number().int().min(1).max(20).optional(),
+        pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
+        idleStableMs: z.number().int().min(500).max(120_000).optional(),
+        timeoutMs: z.number().int().min(5000).max(3_600_000).optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(await orchestratePulse(params, service));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
       }
