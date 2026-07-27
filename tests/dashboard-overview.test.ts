@@ -235,6 +235,50 @@ test("buildFleetOverview normalizes status stream text", () => {
   assert.match(overview.paragraph, /running tick 9/i);
 });
 
+test("buildFleetOverview normalizes assistant and error stream text", () => {
+  const assistantOverview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "active",
+        statusText: "assistant: summarizing tick",
+        ticksCompleted: 3,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+  assert.match(assistantOverview.headline, /tick 4 in progress/i);
+
+  const errorOverview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "active",
+        statusText: "error: transport dropped",
+        ticksCompleted: 3,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+  assert.match(errorOverview.headline, /tick 4 in progress/i);
+});
+
 test("buildFleetOverview reports productivity gate misses", () => {
   const overview = buildFleetOverview({
     fleetHealth: healthyFleet,
