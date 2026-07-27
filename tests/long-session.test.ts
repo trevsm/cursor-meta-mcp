@@ -46,6 +46,7 @@ const {
   buildLongSessionArgs,
   coerceStopReason,
   countsTowardConsecutiveErrors,
+  episodeOutcome,
   isTransientSessionMissing,
   nextTickWaitMs,
   parseDurationMs,
@@ -86,6 +87,68 @@ test("isTransientSessionMissing matches common not-found shapes", () => {
   );
   assert.equal(isTransientSessionMissing("Session #3 not found"), true);
   assert.equal(isTransientSessionMissing("CLI not logged in"), false);
+});
+
+test("episodeOutcome grades ticks by produced work and test results", () => {
+  assert.equal(episodeOutcome({ tick: 1, at: "t", watchedMs: 1, error: "auth" }), "failure");
+  assert.equal(episodeOutcome({ tick: 1, at: "t", watchedMs: 1, skipped: "busy" }), "partial");
+  assert.equal(
+    episodeOutcome({
+      tick: 1,
+      at: "t",
+      watchedMs: 1,
+      outcome: {
+        committed: false,
+        pushed: false,
+        commits: 0,
+        filesChanged: 0,
+        insertions: 0,
+        deletions: 0,
+        dirtyFiles: 0,
+        producedWork: false,
+        tests: { ran: true, passed: true, durationMs: 1, command: "npm run test:fast" },
+      },
+    }),
+    "partial",
+  );
+  assert.equal(
+    episodeOutcome({
+      tick: 1,
+      at: "t",
+      watchedMs: 1,
+      outcome: {
+        committed: true,
+        pushed: false,
+        commits: 1,
+        filesChanged: 1,
+        insertions: 1,
+        deletions: 0,
+        dirtyFiles: 0,
+        producedWork: true,
+        tests: { ran: true, passed: false, failed: 1, durationMs: 1, command: "npm run test:fast" },
+      },
+    }),
+    "failure",
+  );
+  assert.equal(
+    episodeOutcome({
+      tick: 1,
+      at: "t",
+      watchedMs: 1,
+      outcome: {
+        committed: true,
+        pushed: true,
+        commits: 1,
+        filesChanged: 1,
+        insertions: 1,
+        deletions: 0,
+        dirtyFiles: 0,
+        producedWork: true,
+        tests: { ran: true, passed: true, total: 10, durationMs: 1, command: "npm run test:fast" },
+      },
+    }),
+    "success",
+  );
 });
 
 test("parseDurationMs accepts human units", () => {
