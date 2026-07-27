@@ -97,3 +97,38 @@ test("buildFleetOverview handles budget block and idle fleet", () => {
   assert.equal(idle.status, "idle");
   assert.match(idle.paragraph, /No workers are running/i);
 });
+
+test("buildFleetOverview reports sdk worker errors and dead fleet", () => {
+  const errorOverview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "error",
+        statusText: "Agent transport dropped",
+        ticksCompleted: 5,
+        recentTicks: [{ tick: 5, error: "Agent transport dropped" }],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+  assert.equal(errorOverview.status, "bad");
+  assert.match(errorOverview.headline, /hit an error/i);
+  assert.match(errorOverview.paragraph, /Agent transport dropped/i);
+
+  const deadOverview = buildFleetOverview({
+    fleetHealth: { ...healthyFleet, alive: 0 },
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [],
+    productivity: null,
+  });
+  assert.equal(deadOverview.status, "bad");
+  assert.match(deadOverview.headline, /Fleet stopped/i);
+});
