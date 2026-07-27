@@ -249,3 +249,28 @@ test("buildFleetOverview headlines idle worker with latest shipped tick", () => 
   assert.match(overview.headline, /Tick 7 shipped · 2 commits · 380 tests passed/);
   assert.match(overview.paragraph, /idle between ticks \(7 completed\)/i);
 });
+
+test("buildFleetOverview uses tick summary lines as active headlines", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: { ...healthyFleet, total: 1, alive: 1 },
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "active",
+        statusText: "Tick 11 — hardened sdk-worker auth preflight",
+        ticksCompleted: 11,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.equal(overview.headline, "Tick 11 — hardened sdk-worker auth preflight");
+  assert.match(overview.paragraph, /The fleet worker is up and healthy/i);
+});
