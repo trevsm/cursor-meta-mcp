@@ -116,6 +116,7 @@ function summarizeCheckpoint(path) {
     commits: metrics.commits,
     errors: metrics.errors,
     softSkips: metrics.softSkips,
+    attemptedTicks: metrics.attemptedTicks,
     stoppedBecause: metrics.stoppedBecause ?? null,
     lastTickAt: metrics.lastTickAt ?? null,
     lastError: metrics.lastError ?? null,

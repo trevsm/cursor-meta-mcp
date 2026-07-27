@@ -44,6 +44,7 @@ export interface DashboardExperimentRow {
     ticks?: number;
     productiveTicks?: number;
     productiveRatio?: number;
+    attemptedTicks?: number;
     stoppedBecause?: string | null;
     lastTick?: LongSessionState["ticks"][number] | null;
     summary?: ReturnType<typeof summarizeLongSession>;
@@ -195,6 +196,7 @@ function summarizeCheckpoint(path?: string): DashboardExperimentRow["checkpoint"
       ticks: metrics?.ticks ?? state.ticks.length,
       productiveTicks: metrics?.productiveTicks,
       productiveRatio: metrics?.productiveRatio,
+      attemptedTicks: metrics?.attemptedTicks,
       stoppedBecause: metrics?.stoppedBecause ?? state.stoppedBecause ?? null,
       lastTick,
       metrics,
@@ -213,6 +215,7 @@ function summarizeCheckpoint(path?: string): DashboardExperimentRow["checkpoint"
       ticks: metrics.ticks,
       productiveTicks: metrics.productiveTicks,
       productiveRatio: metrics.productiveRatio,
+      attemptedTicks: metrics.attemptedTicks,
       stoppedBecause: metrics.stoppedBecause ?? null,
       lastTick: null,
       metrics,
@@ -245,6 +248,7 @@ export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]
     productiveRatio,
     meetsGate: meetsProductiveTickGate({
       ticks: totalTicks,
+      attemptedTicks: attempted,
       productiveTicks,
       productiveRatio,
       commits: 0,
