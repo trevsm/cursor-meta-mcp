@@ -333,3 +333,33 @@ test("buildFleetOverview uses fleet needs attention when degraded without sdk wo
   assert.equal(overview.status, "warn");
   assert.equal(overview.headline, "Fleet needs attention");
 });
+
+test("buildFleetOverview uses verified changes when shipped tick lacks metrics", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "idle",
+        statusText: "Tick 2 complete",
+        ticksCompleted: 2,
+        recentTicks: [
+          {
+            tick: 2,
+            producedWork: true,
+            workSummary: "Dashboard overview fallback headline",
+          },
+        ],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.match(overview.paragraph, /Latest work: Tick 2 shipped verified changes — Dashboard overview fallback headline/);
+});
