@@ -144,6 +144,8 @@ test("applyWorldRecord push_goal and add_belief", () => {
     "add_belief",
     { text: "Use Node 22 for tests", source: "npm test" },
     metaDir,
-  ) as { text: string };
+  ) as { text: string; id: string };
   assert.equal(belief.text, "Use Node 22 for tests");
+  const again = addBelief("  use   node 22 for tests ", metaDir, "retry");
+  assert.equal(again.id, belief.id);
 });

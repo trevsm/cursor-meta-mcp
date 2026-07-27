@@ -199,9 +199,13 @@ export function completeGoal(goalId: string, metaDir?: string): WorldGoal | null
 
 export function addBelief(text: string, metaDir?: string, source?: string): WorldBelief {
   const model = loadWorldModel(metaDir);
+  const trimmed = text.trim();
+  const key = normalizeGoalKey(trimmed);
+  const existing = model.beliefs.find((row) => normalizeGoalKey(row.text) === key);
+  if (existing) return existing;
   const belief: WorldBelief = {
     id: newId("belief"),
-    text: text.trim(),
+    text: trimmed,
     verifiedAt: new Date().toISOString(),
     source,
   };
