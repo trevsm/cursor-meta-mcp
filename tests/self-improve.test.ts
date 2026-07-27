@@ -82,6 +82,24 @@ mock.module("../src/git-sync.js", {
       "Each tick: one high-value improvement → npm test → git commit → git push to keep origin current.",
   },
 });
+const spawnSdkWorker = mock.fn((params: { checkpointPath?: string }) => ({
+  pid: 2001,
+  checkpointPath: params.checkpointPath ?? "/tmp/sdk-worker.json",
+  logPath: "/tmp/sdk-worker.log",
+  command: ["node", "scripts/sdk-worker.mjs"],
+}));
+const createWorkerWorktree = mock.fn(() => ({
+  path: "/tmp/worktree-1",
+  branch: "fleet/sdk-worker-1-1",
+  head: "abc123",
+}));
+
+mock.module("../src/sdk-worker.js", {
+  namedExports: { spawnSdkWorker },
+});
+mock.module("../src/git-worktree.js", {
+  namedExports: { createWorkerWorktree },
+});
 mock.module("../src/consciousness-pulse.js", {
   namedExports: {
     runConsciousnessPulse: mock.fn(() => ({
@@ -99,7 +117,7 @@ test("buildSelfImprovePrompt includes base rules", () => {
   const prompt = buildSelfImprovePrompt("/Users/me/Projects/cursor-meta-mcp", "Custom base");
   assert.match(prompt, /Custom base/);
   assert.match(prompt, /no user questions/);
-  assert.match(prompt, /npm test/);
+  assert.match(prompt, /Ground-truth/);
   assert.match(prompt, /git commit → git push/);
   assert.match(prompt, /Git state:/);
 });
@@ -108,10 +126,27 @@ test("buildSelfImprovePrompt uses SELF_IMPROVE_BASE_PROMPT when base omitted", (
   const prompt = buildSelfImprovePrompt("/Users/me/Projects/cursor-meta-mcp");
   assert.match(prompt, /Self-improve this codebase autonomously/);
   assert.match(prompt, /Rules:/);
-  assert.match(prompt, /npm test/);
+  assert.match(prompt, /Ground-truth/);
 });
 
-test("launchSelfImproveFleet waits for dedicated chat before spawning", async () => {
+test("launchSelfImproveFleet spawns one sdk worker by default", async () => {
+  spawnSdkWorker.mock.resetCalls();
+  createWorkerWorktree.mock.resetCalls();
+
+  const manifest = await launchSelfImproveFleet({
+    cwd: "/tmp/project",
+    metaDir: "/tmp/self-improve-sdk-test",
+    withOrchestrator: false,
+    withWatcher: false,
+    withStrategyReviewer: false,
+    stopExisting: false,
+  });
+
+  assert.equal(spawnSdkWorker.mock.callCount(), 1);
+  assert.ok(manifest.experiments.some((exp) => exp.name.startsWith("sdk-worker")));
+});
+
+test("launchSelfImproveFleet waits for dedicated chat when workerMode ide", async () => {
   createIdeChat.mock.resetCalls();
   waitForChatSession.mock.resetCalls();
   spawnLongSession.mock.resetCalls();
@@ -120,6 +155,7 @@ test("launchSelfImproveFleet waits for dedicated chat before spawning", async ()
   const manifest = await launchSelfImproveFleet({
     cwd: "/tmp/project",
     metaDir: "/tmp/self-improve-test",
+    workerMode: "ide",
     workerSessionIndexes: [2],
     withOrchestrator: false,
     withWatcher: false,

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { loadFleetManifest, type FleetManifest } from "./budget-supervisor.js";
+import { experimentsDir } from "./meta-home.js";
 
-function killPid(pid: number | undefined): boolean {
+export function killPid(pid: number | undefined): boolean {
   if (!pid || pid <= 0) return false;
   try {
     process.kill(pid, "SIGTERM");
@@ -30,7 +30,7 @@ export function collectFleetPids(manifest: FleetManifest): number[] {
 }
 
 export function stopFleetProcesses(metaDir?: string): { killed: number[]; manifest: FleetManifest | null } {
-  const dir = metaDir ?? join(homedir(), ".cursor-meta", "experiments");
+  const dir = metaDir ?? experimentsDir();
   const manifest = loadFleetManifest(dir);
   const killed: number[] = [];
 
@@ -49,6 +49,16 @@ export function stopFleetProcesses(metaDir?: string): { killed: number[]; manife
 export function stopKnownFleetProcesses(metaDir?: string): number[] {
   const { killed } = stopFleetProcesses(metaDir);
   return killed;
+}
+
+/** SIGTERM a manifest experiment by IDE session index (strategy `kill[]` actuation). */
+export function killExperimentBySessionIndex(
+  manifest: FleetManifest,
+  sessionIndex: number,
+): { killed: boolean; pid?: number; name?: string } {
+  const exp = manifest.experiments.find((row) => row.sessionIndex === sessionIndex);
+  if (!exp?.pid) return { killed: false };
+  return { killed: killPid(exp.pid), pid: exp.pid, name: exp.name };
 }
 
 export function readDedicatedWorker(metaDir: string): { sessionId?: string; sessionIndex?: number | null } | null {

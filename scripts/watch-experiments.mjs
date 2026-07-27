@@ -9,7 +9,6 @@
  *   node scripts/watch-experiments.mjs --interval 30s --no-relaunch
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -21,9 +20,12 @@ import {
   saveFleetManifest,
   shouldAllowRelaunch,
 } from "../src/budget-supervisor.js";
+import { experimentsDir } from "../src/meta-home.js";
+import { mergeWorkerBranch } from "../src/git-worktree.js";
 import { recordSpawn } from "../src/plan-budget.js";
+import { acquireLockWithCleanup } from "../src/process-lock.js";
 
-const META_DIR = join(homedir(), ".cursor-meta", "experiments");
+const META_DIR = experimentsDir();
 const ROOT = process.cwd();
 const STATUS_PATH = join(META_DIR, "watch-status.json");
 const WATCH_LOG = join(META_DIR, "watch.log");
@@ -94,6 +96,7 @@ function summarizeCheckpoint(path) {
           skipped: last.skipped,
           error: last.error,
           watchedMs: last.watchedMs,
+          outcome: last.outcome ?? undefined,
         }
       : null,
   };
@@ -214,6 +217,21 @@ async function watchOnce(manifest, relaunch) {
       checkpoint,
     };
 
+    const wtPath = join(META_DIR, `${exp.name}.worktree.json`);
+    const worktree = readJson(wtPath);
+    if (worktree && manifest?.root && checkpoint?.lastTick?.outcome?.committed) {
+      try {
+        entry.merge = mergeWorkerBranch(manifest.root, worktree);
+      } catch (error) {
+        entry.merge = {
+          ok: false,
+          merged: false,
+          branch: worktree.branch,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
     const staleError =
       checkpoint?.exists && checkpoint.stoppedBecause === "error" && checkpoint.lastTick?.at;
     const staleMs = staleError ? Date.now() - Date.parse(checkpoint.lastTick.at) : 0;
@@ -255,6 +273,16 @@ async function watchOnce(manifest, relaunch) {
   appendLog(JSON.stringify(snapshot));
   console.error(JSON.stringify(snapshot));
   return snapshot;
+}
+
+if (!flag("--no-lock")) {
+  const lock = acquireLockWithCleanup("watch-experiments", META_DIR);
+  if (!lock.acquired) {
+    appendLog(
+      `[${new Date().toISOString()}] watch-experiments already running (pid ${lock.heldBy?.pid}) — exiting`,
+    );
+    process.exit(0);
+  }
 }
 
 const intervalMs = parseDuration(argValue("--interval"), 30_000);

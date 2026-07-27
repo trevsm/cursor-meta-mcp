@@ -233,7 +233,18 @@ CLI: `npm run strategy-review -- --cwd . --once`
 
 ### Fleet operations research
 
-Prior art, pitfalls, and dead ends for autonomous self-improve fleets (local artifacts + industry postmortems): [`docs/autonomous-fleet-research.md`](docs/autonomous-fleet-research.md).
+Prior art, pitfalls, and dead ends: [`docs/autonomous-fleet-research.md`](docs/autonomous-fleet-research.md)
+
+### Honest loop fleet
+
+Phase-1 autonomous mode — one SDK worker in a git worktree, ground-truth verification, lessons feed-forward:
+
+```bash
+npm run honest-fleet -- .
+npm run dashboard
+```
+
+Ground-truth gate blocks false "tests pass" / "done" claims (see `src/ground-truth.ts`). Lessons land in `~/.cursor-meta/world/learnings.md`.
 
 ### Fleet dashboard
 

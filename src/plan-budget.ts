@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+import { metaPath } from "./meta-home.js";
 
 export type BudgetAction =
   | "spawn_sdk"
@@ -95,7 +96,6 @@ export interface BudgetGateResult {
   snapshot: BudgetSnapshot;
 }
 
-const DEFAULT_STATE_PATH = join(homedir(), ".cursor-meta", "plan-budget.json");
 const MAX_EVENTS = 200;
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -151,7 +151,7 @@ function defaultState(): BudgetState {
 }
 
 export function budgetStatePath(): string {
-  return process.env.CURSOR_META_BUDGET_PATH ?? DEFAULT_STATE_PATH;
+  return process.env.CURSOR_META_BUDGET_PATH ?? metaPath("plan-budget.json");
 }
 
 export function loadBudgetState(path = budgetStatePath()): BudgetState {

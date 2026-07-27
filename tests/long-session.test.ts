@@ -6,6 +6,10 @@ import { after, mock, test } from "node:test";
 
 const budgetDir = mkdtempSync(join(tmpdir(), "long-session-budget-"));
 process.env.CURSOR_META_BUDGET_PATH = join(budgetDir, "budget.json");
+process.env.CURSOR_META_HOME = mkdtempSync(join(tmpdir(), "long-session-meta-"));
+process.env.CURSOR_META_SKIP_TICK_TESTS = "1";
+
+const createIdeChat = mock.fn(async () => ({ sessionId: "cccccccc-cccc-cccc-cccc-cccccccccccc" }));
 
 const getIdeChatActivity = mock.fn(() => ({
   sessionId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -22,7 +26,7 @@ const waitForChatIdle = mock.fn(async () => ({
 const waitForChatSession = mock.fn(async () => undefined);
 
 mock.module("../src/ide-chat-control.js", {
-  namedExports: { getIdeChatActivity, sendToIdeChat },
+  namedExports: { getIdeChatActivity, sendToIdeChat, createIdeChat },
 });
 mock.module("../src/relentless-loop.js", { namedExports: { waitForChatIdle } });
 mock.module("../src/chat-activity.js", {

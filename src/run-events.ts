@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { metaHome } from "./meta-home.js";
 import type { RunProgressEvent } from "./cursor-local.js";
 
 export interface RunEventRecord extends RunProgressEvent {
@@ -18,7 +18,7 @@ export interface RunEventSource {
   bytes: number;
 }
 
-export function defaultRunsDir(metaDir = join(homedir(), ".cursor-meta")): string {
+export function defaultRunsDir(metaDir = metaHome()): string {
   return join(metaDir, "runs");
 }
 

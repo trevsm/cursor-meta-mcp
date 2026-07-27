@@ -1,5 +1,4 @@
 import { mkdirSync, openSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -7,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { waitForChatSession } from "./chat-activity.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { createIdeChat } from "./ide-chat-control.js";
+import { createWorkerWorktree, type WorktreeInfo } from "./git-worktree.js";
 import { getSessionIndexForId } from "./history-store.js";
 import { stopFleetProcesses } from "./fleet-control.js";
 import {
@@ -16,12 +16,16 @@ import {
   SELF_IMPROVE_GIT_RULES,
 } from "./git-sync.js";
 import { spawnLongSession, type LongSessionParams } from "./long-session.js";
+import { formatLearningsForPrompt } from "./learnings.js";
+import { spawnSdkWorker, type SdkWorkerParams } from "./sdk-worker.js";
+import { experimentsDir, metaHome } from "./meta-home.js";
 import {
   assertBudgetAllowed,
   defaultBudgetLimits,
   recordBudgetEvent,
   recordSpawn,
 } from "./plan-budget.js";
+import { acquireLock, pruneStaleLocks, releaseLock } from "./process-lock.js";
 import {
   DEFAULT_SELF_IMPROVE_GOAL,
 } from "./strategy-review.js";
@@ -34,6 +38,7 @@ export interface SelfImproveParams {
   /** Existing IDE tabs to attach workers to. */
   workerSessionIndexes?: number[];
   durationMs?: number;
+  /** Pulse orchestrator loop (default false — honest loop uses one self-propelling worker). */
   withOrchestrator?: boolean;
   withWatcher?: boolean;
   /** Dimension-4 strategy critic loop (default true). */
@@ -48,6 +53,10 @@ export interface SelfImproveParams {
   stopExisting?: boolean;
   /** Max wait for dedicated chat in SQLite after create (default 120s). */
   dedicatedChatWaitMs?: number;
+  /** Worker backend: IDE tabs, headless SDK, or both. Default sdk for honest loop. */
+  workerMode?: "ide" | "sdk" | "hybrid";
+  /** Headless SDK workers in isolated git worktrees. Default 1 for honest loop. */
+  parallelWorkers?: number;
 }
 
 export interface SelfImproveExperiment {
@@ -75,6 +84,14 @@ export interface SelfImproveManifest {
 const DEFAULT_WORKER_SESSIONS: number[] = [];
 const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 
+/** Singleton roles — only one of each may run per meta dir. */
+export const FLEET_LOCK_NAMES = [
+  "fleet-launch",
+  "orchestrator-loop",
+  "strategy-review-loop",
+  "watch-experiments",
+];
+
 export const SELF_IMPROVE_BASE_PROMPT = [
   "Keep going. Do not stop or ask the user for moves.",
   "Self-improve this codebase autonomously: fix bugs, add tests, tighten heuristics, verify with npm test.",
@@ -87,8 +104,10 @@ function packageRoot(): string {
 }
 
 /** Enrich worker prompt with live pulse signals so workers avoid duplicate/meta work. */
-export function buildSelfImprovePrompt(cwd: string, base?: string): string {
+export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: string): string {
   const lines = [base?.trim() || SELF_IMPROVE_BASE_PROMPT, ""];
+  const lessons = formatLearningsForPrompt(metaDir ?? metaHome());
+  if (lessons) lines.push(lessons);
   const gitStatus = getGitSyncStatus(cwd);
   lines.push(formatGitSyncStatusForPrompt(gitStatus), "");
 
@@ -120,7 +139,8 @@ export function buildSelfImprovePrompt(cwd: string, base?: string): string {
   }
 
   lines.push(
-    "Rules: no user questions, no architecture theater, npm test before claiming done.",
+    "Rules: no user questions, no architecture theater.",
+    "Ground-truth: never claim tests pass or done without npm run test:fast + git commit this tick.",
     SELF_IMPROVE_GIT_RULES,
   );
 
@@ -168,6 +188,7 @@ function longSessionParams(
     maxTicks: 500,
     checkpointPath,
     prompt,
+    metaDir: metaHome(),
   };
 }
 
@@ -179,13 +200,34 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
 
   gitFetch(cwd);
 
-  const metaDir = params.metaDir ?? join(homedir(), ".cursor-meta", "experiments");
+  const metaDir = params.metaDir ?? experimentsDir();
   mkdirSync(metaDir, { recursive: true });
 
   if (params.stopExisting ?? true) {
     stopFleetProcesses(metaDir);
+    pruneStaleLocks(FLEET_LOCK_NAMES, metaDir);
   }
 
+  // Serialize launches. Two fleets racing each other spawn untracked duplicate loops.
+  const launchLock = acquireLock("fleet-launch", metaDir);
+  if (!launchLock.acquired) {
+    throw new Error(
+      `Fleet launch already in progress (pid ${launchLock.heldBy?.pid}). Stop it first or remove ${launchLock.path}.`,
+    );
+  }
+
+  try {
+    return await launchFleetProcesses(params, cwd, metaDir);
+  } finally {
+    releaseLock("fleet-launch", metaDir);
+  }
+}
+
+async function launchFleetProcesses(
+  params: SelfImproveParams,
+  cwd: string,
+  metaDir: string,
+): Promise<SelfImproveManifest> {
   const durationMs = params.durationMs ?? DEFAULT_DURATION_MS;
   const exclude = params.excludeSessionIndex ?? 1;
   const limits = defaultBudgetLimits();
@@ -195,78 +237,173 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
   );
   assertBudgetAllowed("spawn_fleet_worker");
   recordBudgetEvent({ at: new Date().toISOString(), action: "fleet_start", source: "meta_self_improve" });
-  const prompt = buildSelfImprovePrompt(cwd, params.prompt);
-
-  const { sessionId } = await createIdeChat();
-  const dedicatedWaitMs = params.dedicatedChatWaitMs ?? 120_000;
-  try {
-    await waitForChatSession(sessionId, { timeoutMs: dedicatedWaitMs, pollMs: 1000 });
-  } catch {
-    // Fresh IDE chats often lag in SQLite; long-session soft-skips until they appear.
-  }
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  let dedicatedIndex = getSessionIndexForId(sessionId);
-  if (dedicatedIndex == null) {
-    try {
-      await waitForChatSession(sessionId, { timeoutMs: 30_000, pollMs: 1000 });
-      dedicatedIndex = getSessionIndexForId(sessionId);
-    } catch {
-      /* still proceed with sessionId only */
-    }
-  }
-
-  writeFileSync(
-    join(metaDir, "dedicated-worker.json"),
-    JSON.stringify({ sessionId, sessionIndex: dedicatedIndex, createdAt: new Date().toISOString() }, null, 2),
+  const prompt = buildSelfImprovePrompt(cwd, params.prompt, metaDir);
+  const workerMode = params.workerMode ?? "sdk";
+  const parallelWorkers = Math.min(
+    params.parallelWorkers ?? 1,
+    limits.maxConcurrentWorkers,
   );
+  const spawnIde = workerMode === "ide" || workerMode === "hybrid";
+  const spawnSdk = workerMode === "sdk" || workerMode === "hybrid" || parallelWorkers > 0;
+
+  let sessionId = "";
+  let dedicatedIndex: number | null = null;
+
+  if (spawnIde) {
+    ({ sessionId } = await createIdeChat());
+    const dedicatedWaitMs = params.dedicatedChatWaitMs ?? 120_000;
+    try {
+      await waitForChatSession(sessionId, { timeoutMs: dedicatedWaitMs, pollMs: 1000 });
+    } catch {
+      // Fresh IDE chats often lag in SQLite; long-session soft-skips until they appear.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    dedicatedIndex = getSessionIndexForId(sessionId) ?? null;
+    if (dedicatedIndex == null) {
+      try {
+        await waitForChatSession(sessionId, { timeoutMs: 30_000, pollMs: 1000 });
+        dedicatedIndex = getSessionIndexForId(sessionId) ?? null;
+      } catch {
+        /* still proceed with sessionId only */
+      }
+    }
+
+    writeFileSync(
+      join(metaDir, "dedicated-worker.json"),
+      JSON.stringify({ sessionId, sessionIndex: dedicatedIndex, createdAt: new Date().toISOString() }, null, 2),
+    );
+  }
 
   const experiments: SelfImproveExperiment[] = [];
+  const goal = params.goal?.trim() || DEFAULT_SELF_IMPROVE_GOAL;
+  const manifestPath = join(metaDir, "manifest.json");
+  const manifest: SelfImproveManifest = {
+    at: new Date().toISOString(),
+    root: cwd,
+    goal,
+    conductorExcluded: [exclude],
+    dedicatedWorker: { sessionId: sessionId || "headless", sessionIndex: dedicatedIndex },
+    experiments,
+    manifestPath,
+  };
 
-  for (const sessionIndex of workerIndexes) {
-    if (sessionIndex === exclude) continue;
-    const cfg = longSessionParams(
-      `worker-session-${sessionIndex}`,
+  // Persist after every spawn: a launch that dies midway must still leave a manifest
+  // that lists the pids it already created, or they become unkillable orphans.
+  const persistManifest = () => {
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  };
+  persistManifest();
+
+  const worktrees: WorktreeInfo[] = [];
+
+  if (spawnSdk && parallelWorkers > 0) {
+    for (let i = 0; i < parallelWorkers; i += 1) {
+      const name = `sdk-worker-${i + 1}`;
+      let workerCwd = cwd;
+      try {
+        const wt = createWorkerWorktree(cwd, name, i + 1);
+        worktrees.push(wt);
+        workerCwd = wt.path;
+        writeFileSync(
+          join(metaDir, `${name}.worktree.json`),
+          JSON.stringify(wt, null, 2),
+        );
+      } catch {
+        /* fall back to shared cwd if worktree creation fails */
+      }
+
+      const checkpointPath = join(metaDir, `${name}.json`);
+      const sdkCfg: SdkWorkerParams = {
+        cwd: workerCwd,
+        durationMs,
+        tickIntervalMs: 60_000,
+        maxTicks: 500,
+        checkpointPath,
+        prompt,
+        metaDir: metaHome(),
+      };
+      const spawned = spawnSdkWorker(sdkCfg);
+      recordSpawn("spawn_fleet_worker", name);
+      experiments.push({
+        name,
+        pid: spawned.pid,
+        checkpointPath: spawned.checkpointPath,
+        logPath: spawned.logPath,
+        command: spawned.command.join(" "),
+      });
+      persistManifest();
+    }
+  } else if (spawnSdk) {
+    const name = "sdk-worker-main";
+    const checkpointPath = join(metaDir, `${name}.json`);
+    const spawned = spawnSdkWorker({
       cwd,
-      metaDir,
-      prompt,
       durationMs,
-      { sessionIndex },
-    );
-    const spawned = spawnLongSession(cfg);
-    recordSpawn("spawn_fleet_worker", cfg.name);
+      tickIntervalMs: 60_000,
+      maxTicks: 500,
+      checkpointPath,
+      prompt,
+      metaDir: metaHome(),
+    });
+    recordSpawn("spawn_fleet_worker", name);
     experiments.push({
-      name: cfg.name,
-      sessionIndex,
+      name,
       pid: spawned.pid,
       checkpointPath: spawned.checkpointPath,
       logPath: spawned.logPath,
       command: spawned.command.join(" "),
     });
+    persistManifest();
   }
 
-  const dedicatedCfg = longSessionParams(
-    "worker-dedicated",
-    cwd,
-    metaDir,
-    prompt,
-    durationMs,
-    { sessionId },
-  );
-  const dedicated = spawnLongSession(dedicatedCfg);
-  recordSpawn("spawn_fleet_worker", dedicatedCfg.name);
-  experiments.push({
-    name: dedicatedCfg.name,
-    sessionId,
-    sessionIndex: dedicatedIndex ?? undefined,
-    pid: dedicated.pid,
-    checkpointPath: dedicated.checkpointPath,
-    logPath: dedicated.logPath,
-    command: dedicated.command.join(" "),
-  });
+  if (spawnIde) {
+    for (const sessionIndex of workerIndexes) {
+      if (sessionIndex === exclude) continue;
+      const cfg = longSessionParams(
+        `worker-session-${sessionIndex}`,
+        cwd,
+        metaDir,
+        prompt,
+        durationMs,
+        { sessionIndex },
+      );
+      const spawned = spawnLongSession(cfg);
+      recordSpawn("spawn_fleet_worker", cfg.name);
+      experiments.push({
+        name: cfg.name,
+        sessionIndex,
+        pid: spawned.pid,
+        checkpointPath: spawned.checkpointPath,
+        logPath: spawned.logPath,
+        command: spawned.command.join(" "),
+      });
+      persistManifest();
+    }
 
-  const goal = params.goal?.trim() || DEFAULT_SELF_IMPROVE_GOAL;
+    const dedicatedCfg = longSessionParams(
+      "worker-dedicated",
+      cwd,
+      metaDir,
+      prompt,
+      durationMs,
+      { sessionId },
+    );
+    const dedicated = spawnLongSession(dedicatedCfg);
+    recordSpawn("spawn_fleet_worker", dedicatedCfg.name);
+    experiments.push({
+      name: dedicatedCfg.name,
+      sessionId,
+      sessionIndex: dedicatedIndex ?? undefined,
+      pid: dedicated.pid,
+      checkpointPath: dedicated.checkpointPath,
+      logPath: dedicated.logPath,
+      command: dedicated.command.join(" "),
+    });
+    persistManifest();
+  }
+
   try {
-    const worldMeta = join(homedir(), ".cursor-meta");
+    const worldMeta = metaHome();
     setNorthStar("Build persistent autonomous intelligence", worldMeta);
     pushGoal(goal, worldMeta);
   } catch {
@@ -304,9 +441,11 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
       command: strategyReviewer.command,
     });
     strategyReviewerPid = strategyReviewer.pid;
+    manifest.strategyReviewerPid = strategyReviewerPid;
+    persistManifest();
   }
 
-  if (params.withOrchestrator ?? true) {
+  if (params.withOrchestrator ?? false) {
     const logPath = join(metaDir, "orchestrator.log");
     const orchestrator = spawnDetached(
       "orchestrator-loop",
@@ -338,20 +477,8 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
       logPath: orchestrator.logPath,
       command: orchestrator.command,
     });
+    persistManifest();
   }
-
-  const manifest: SelfImproveManifest = {
-    at: new Date().toISOString(),
-    root: cwd,
-    goal,
-    conductorExcluded: [exclude],
-    dedicatedWorker: { sessionId, sessionIndex: dedicatedIndex ?? null },
-    experiments,
-    manifestPath: join(metaDir, "manifest.json"),
-    strategyReviewerPid,
-  };
-
-  writeFileSync(manifest.manifestPath, JSON.stringify(manifest, null, 2));
 
   if (params.withWatcher ?? true) {
     const watchLog = join(metaDir, "watch.log");
@@ -365,7 +492,7 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
     });
     watcher.unref();
     manifest.watcherPid = watcher.pid ?? undefined;
-    writeFileSync(manifest.manifestPath, JSON.stringify(manifest, null, 2));
+    persistManifest();
   }
 
   return manifest;

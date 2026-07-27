@@ -6,8 +6,9 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { metaHome } from "./meta-home.js";
 
 export interface WorldGoal {
   id: string;
@@ -59,8 +60,8 @@ export interface WorldModel {
   failures: WorldFailure[];
 }
 
-export function defaultWorldDir(metaDir = join(homedir(), ".cursor-meta")): string {
-  return join(metaDir, "world");
+export function defaultWorldDir(metaDir?: string): string {
+  return join(metaDir ?? metaHome(), "world");
 }
 
 function goalsPath(metaDir?: string): string {

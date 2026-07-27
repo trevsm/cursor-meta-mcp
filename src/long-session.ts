@@ -1,13 +1,23 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { waitForChatSession } from "./chat-activity.js";
+import { auditGroundTruth, type GroundTruthAudit } from "./ground-truth.js";
+import { metaHome, metaPath } from "./meta-home.js";
+import { formatLearningsForPrompt, recordTickLesson } from "./learnings.js";
 import { recordBudgetEvent } from "./plan-budget.js";
-import { getIdeChatActivity, sendToIdeChat } from "./ide-chat-control.js";
+import { createIdeChat, getIdeChatActivity, sendToIdeChat } from "./ide-chat-control.js";
 import { waitForChatIdle } from "./relentless-loop.js";
+import {
+  captureRepoSnapshot,
+  describeTickOutcome,
+  runTests,
+  summarizeTickOutcome,
+  type TestOutcome,
+  type TickOutcome,
+} from "./tick-outcome.js";
 import { isChatActive, lastAssistantTail } from "./watch-chat.js";
 import { appendEpisode } from "./world-model.js";
 
@@ -33,6 +43,16 @@ export interface LongSessionParams {
   continueOnTimeout?: boolean;
   /** Stop after this many consecutive soft/hard tick errors. */
   maxConsecutiveErrors?: number;
+  /** Root for world-model and budget writes. Defaults to CURSOR_META_HOME or ~/.cursor-meta. */
+  metaDir?: string;
+  /** Recreate the IDE chat and rebind when the bound session disappears. Default true. */
+  rebindOnMissing?: boolean;
+  /** Consecutive `missing` ticks tolerated before attempting a rebind. Default 3. */
+  rebindAfterMissing?: number;
+  /** Hook used to obtain a replacement session. Injectable for tests. */
+  createSession?: () => Promise<{ sessionId: string }>;
+  /** Verifier run after a tick that changed the repo. Injectable for tests. */
+  verifyTests?: (cwd: string) => TestOutcome | undefined;
   /** Called after each tick for streaming progress. */
   onTick?: (tick: LongSessionTick, state: LongSessionState) => void;
 }
@@ -45,6 +65,14 @@ export interface LongSessionTick {
   lastAssistantTail?: string;
   error?: string;
   skipped?: "busy" | "timeout" | "missing";
+  /** Session this tick was rebound to after the previous one disappeared. */
+  reboundTo?: string;
+  /** Verified outcome of the work this tick produced. */
+  outcome?: TickOutcome;
+  /** Assistant claims vs git/test reality. */
+  groundTruth?: GroundTruthAudit;
+  /** Lesson appended when ground truth or tests failed. */
+  lessonRecorded?: string;
 }
 
 export interface LongSessionState {
@@ -58,6 +86,8 @@ export interface LongSessionState {
   ticks: LongSessionTick[];
   checkpointPath?: string;
   stoppedBecause?: LongSessionStopReason;
+  /** Number of times the worker recovered from a vanished session. */
+  rebinds?: number;
 }
 
 export type LongSessionStopReason = "duration" | "max_ticks" | "error" | "stopped" | "consecutive_errors";
@@ -86,7 +116,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function defaultCheckpointPath(sessionId?: string, sessionIndex?: number): string {
-  const dir = join(homedir(), ".cursor-meta", "long-sessions");
+  const dir = metaPath("long-sessions");
   mkdirSync(dir, { recursive: true });
   const slug = sessionId?.slice(0, 8) ?? `session-${sessionIndex ?? "unknown"}`;
   return join(dir, `${slug}.json`);
@@ -256,8 +286,19 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
   state.checkpointPath = checkpointPath;
   const tickIntervalMs = params.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const maxConsecutiveErrors = params.maxConsecutiveErrors ?? 8;
+  const metaDir = params.metaDir ?? metaHome();
+  const rebindOnMissing = params.rebindOnMissing ?? true;
+  const rebindAfterMissing = params.rebindAfterMissing ?? 3;
+  const createSession = params.createSession ?? createIdeChat;
+  // Guarded so a suite that drives the tick loop can never re-invoke itself.
+  const verifyTests =
+    params.verifyTests ??
+    (process.env.CURSOR_META_SKIP_TICK_TESTS === "1"
+      ? undefined
+      : (cwd: string) => runTests({ cwd }));
   let stoppedBecause: LongSessionStopReason = "duration";
   let consecutiveErrors = 0;
+  let consecutiveMissing = 0;
   let resolvedSessionId = params.sessionId;
 
   if (resolvedSessionId) {
@@ -280,6 +321,7 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
     }
 
     const tickStarted = Date.now();
+    const repoBefore = captureRepoSnapshot(state.cwd);
     let entry: LongSessionTick;
 
     try {
@@ -306,6 +348,64 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
         error: message,
         ...(isTransientSessionMissing(message) ? { skipped: "missing" as const } : {}),
       };
+    }
+
+    // A vanished chat is a recoverable environment fault, not a reason to end the run.
+    // Sessions disappear whenever the user closes a tab, so hard-stopping here used to
+    // kill workers within a tick or two of launch.
+    if (entry.skipped === "missing") {
+      consecutiveMissing += 1;
+      if (rebindOnMissing && consecutiveMissing >= rebindAfterMissing) {
+        try {
+          const replacement = await createSession();
+          resolvedSessionId = replacement.sessionId;
+          state.sessionId = replacement.sessionId;
+          state.rebinds = (state.rebinds ?? 0) + 1;
+          entry.reboundTo = replacement.sessionId;
+          consecutiveMissing = 0;
+          try {
+            await waitForChatSession(replacement.sessionId, { timeoutMs: 30_000, pollMs: 1000 });
+          } catch {
+            /* fresh chats lag in SQLite; next tick soft-skips until it appears */
+          }
+        } catch {
+          /* rebind is best-effort; keep skipping until the next attempt */
+        }
+      }
+    } else {
+      consecutiveMissing = 0;
+    }
+
+    if (entry.skipped == null && !entry.error) {
+      try {
+        entry.outcome = summarizeTickOutcome({
+          cwd: state.cwd,
+          before: repoBefore,
+          verify: verifyTests,
+        });
+        entry.groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
+        entry.lessonRecorded =
+          recordTickLesson({
+            audit: entry.groundTruth,
+            outcome: entry.outcome,
+            metaDir,
+          }) ?? undefined;
+
+        if (entry.groundTruth.blocked && entry.groundTruth.correctionPrompt && resolvedSessionId) {
+          try {
+            await sendToIdeChat({
+              sessionId: resolvedSessionId,
+              sessionIndex: params.sessionIndex,
+              prompt: entry.groundTruth.correctionPrompt,
+              cwd: state.cwd,
+            });
+          } catch {
+            /* correction nudge is best-effort */
+          }
+        }
+      } catch {
+        /* telemetry is best-effort */
+      }
     }
 
     // Soft failures are ticks that intentionally skipped (busy/timeout/missing).
@@ -343,11 +443,11 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
           actor: state.sessionId,
           observe: entry.wasAlreadyIdle ? "chat idle" : "chat active",
           action: entry.skipped ?? "tick complete",
-          verify: entry.lastAssistantTail?.slice(0, 200),
-          outcome: entry.error ? "failure" : entry.skipped ? "partial" : "success",
-          notes: entry.error,
+          verify: describeTickOutcome(entry.outcome),
+          outcome: episodeOutcome(entry),
+          notes: entry.error ?? entry.lastAssistantTail?.slice(0, 200),
         },
-        join(homedir(), ".cursor-meta"),
+        metaDir,
       );
     } catch {
       /* episode log is best-effort */
@@ -380,6 +480,19 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
   }
 
   return finalizeLongSession(state, startedAtMs, stoppedBecause, checkpointPath);
+}
+
+/**
+ * Grade a tick by what it produced, not by whether the loop survived it.
+ * A tick that ran cleanly but changed nothing is `partial` — otherwise the world
+ * model fills with "success" rows that taught it nothing.
+ */
+export function episodeOutcome(tick: LongSessionTick): "success" | "failure" | "partial" {
+  if (tick.error) return "failure";
+  if (tick.skipped) return "partial";
+  if (tick.outcome?.tests && !tick.outcome.tests.passed) return "failure";
+  if (tick.outcome && !tick.outcome.producedWork) return "partial";
+  return "success";
 }
 
 /** After a busy/missing skip, poll sooner so we resume promptly when the chat is ready. */
@@ -419,6 +532,11 @@ export function summarizeLongSession(result: LongSessionResult): {
   missingSkips: number;
   avgWatchMs: number;
   checkpointPath: string;
+  productiveTicks: number;
+  commits: number;
+  filesChanged: number;
+  testFailures: number;
+  rebinds: number;
 } {
   const errors = result.ticks.filter((tick) => tick.error && tick.skipped == null).length;
   const busySkips = result.ticks.filter((tick) => tick.skipped === "busy").length;
@@ -428,6 +546,7 @@ export function summarizeLongSession(result: LongSessionResult): {
     result.ticks.length === 0
       ? 0
       : Math.round(result.ticks.reduce((sum, tick) => sum + tick.watchedMs, 0) / result.ticks.length);
+  const outcomes = result.ticks.map((tick) => tick.outcome).filter((o): o is TickOutcome => o != null);
   return {
     ticks: result.ticks.length,
     errors,
@@ -437,6 +556,11 @@ export function summarizeLongSession(result: LongSessionResult): {
     avgWatchMs,
     checkpointPath:
       result.checkpointPath ?? defaultCheckpointPath(result.sessionId, result.sessionIndex),
+    productiveTicks: outcomes.filter((o) => o.producedWork).length,
+    commits: outcomes.reduce((sum, o) => sum + o.commits, 0),
+    filesChanged: outcomes.reduce((sum, o) => sum + o.filesChanged, 0),
+    testFailures: outcomes.filter((o) => o.tests && !o.tests.passed).length,
+    rebinds: result.rebinds ?? 0,
   };
 }
 
@@ -481,6 +605,11 @@ export function buildLongSessionArgs(params: LongSessionParams): string[] {
   if (params.continueOnTimeout === false) args.push("--no-continue-on-timeout");
   if (params.maxConsecutiveErrors != null) {
     args.push("--max-consecutive-errors", String(params.maxConsecutiveErrors));
+  }
+  if (params.metaDir) args.push("--meta-dir", params.metaDir);
+  if (params.rebindOnMissing === false) args.push("--no-rebind");
+  if (params.rebindAfterMissing != null) {
+    args.push("--rebind-after", String(params.rebindAfterMissing));
   }
   return args;
 }

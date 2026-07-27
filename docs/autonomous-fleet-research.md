@@ -111,6 +111,28 @@ Industry write-ups converge on three structural bottlenecks ([analysis](https://
 
 ---
 
+## Honest loop (implemented)
+
+Phase-1 operating mode — ship before scaling:
+
+```bash
+npm run honest-fleet -- /path/to/repo
+npm run dashboard
+```
+
+| Component | Role |
+|-----------|------|
+| `tick-outcome.ts` | git shortstat + `test:fast` per tick |
+| `ground-truth.ts` | Block false "tests pass" / "done" claims |
+| `learnings.md` | Lessons from verified failures → next-tick prompt |
+| `process-lock.ts` | Singleton fleet roles |
+| `git-worktree.ts` | One isolated SDK worker branch |
+| Strategy `kill[]` | SIGTERM stale worker PIDs + intercept |
+
+Default fleet params: `workerMode: sdk`, `parallelWorkers: 1`, `withOrchestrator: false`.
+
+---
+
 ## References
 
 - [Why Multi-Agent Orchestration Doesn't Work Well](https://ice-ice-bear.github.io/posts/2026-04-16-multiagent-orchestration/)

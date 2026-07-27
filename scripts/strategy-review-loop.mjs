@@ -7,18 +7,20 @@
  *   node scripts/strategy-review-loop.mjs --interval 5m --use-llm
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { CursorLocalService } from "../src/cursor-local.js";
 import { interceptIdeChat } from "../src/ide-chat-control.js";
+import { killExperimentBySessionIndex } from "../src/fleet-control.js";
+import { experimentsDir } from "../src/meta-home.js";
+import { acquireLockWithCleanup } from "../src/process-lock.js";
 import {
   DEFAULT_SELF_IMPROVE_CRITERIA,
   DEFAULT_SELF_IMPROVE_GOAL,
   runStrategyReview,
 } from "../src/strategy-review.js";
 
-const META_DIR = join(homedir(), ".cursor-meta", "experiments");
+const META_DIR = experimentsDir();
 const STATUS_PATH = join(META_DIR, "strategy-status.json");
 const LOG_PATH = join(META_DIR, "strategy-review.log");
 
@@ -100,6 +102,12 @@ async function applyVerdict(verdict, manifest, cwd, excludeSession) {
   for (const sessionIndex of verdict.kill ?? []) {
     if (sessionIndex === excludeSession) continue;
     const exp = (manifest?.experiments ?? []).find((row) => row.sessionIndex === sessionIndex);
+    if (manifest) {
+      const killed = killExperimentBySessionIndex(manifest, sessionIndex);
+      if (killed.killed) {
+        actions.push({ type: "kill_pid", sessionIndex, pid: killed.pid, name: killed.name });
+      }
+    }
     if (!exp?.sessionId) continue;
     try {
       await interceptIdeChat({
@@ -108,7 +116,7 @@ async function applyVerdict(verdict, manifest, cwd, excludeSession) {
           "Strategy review: this branch is stale. Stop current approach. Pick a fresh, small, test-verified improvement.",
         cwd,
       });
-      actions.push({ type: "kill", sessionIndex, sessionId: exp.sessionId });
+      actions.push({ type: "kill_intercept", sessionIndex, sessionId: exp.sessionId });
     } catch (error) {
       actions.push({
         type: "kill_error",
@@ -178,6 +186,16 @@ const params = { cwd, excludeSession, useLlm, goal, successCriteria, model: argV
 if (once) {
   await reviewOnce(params);
   process.exit(0);
+}
+
+if (!flag("--no-lock")) {
+  const lock = acquireLockWithCleanup("strategy-review-loop", META_DIR);
+  if (!lock.acquired) {
+    appendLog(
+      `[${new Date().toISOString()}] strategy-review-loop already running (pid ${lock.heldBy?.pid}) — exiting`,
+    );
+    process.exit(0);
+  }
 }
 
 while (true) {

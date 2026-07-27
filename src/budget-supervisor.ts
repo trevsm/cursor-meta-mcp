@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { experimentsDir } from "./meta-home.js";
 import {
   blockBudget,
   getBudgetSnapshot,
@@ -70,7 +70,7 @@ export function isWorkerExperiment(name: string): boolean {
 }
 
 export function loadFleetManifest(metaDir?: string): FleetManifest | null {
-  const dir = metaDir ?? join(homedir(), ".cursor-meta", "experiments");
+  const dir = metaDir ?? experimentsDir();
   const path = join(dir, "manifest.json");
   if (!existsSync(path)) return null;
   try {
@@ -81,7 +81,8 @@ export function loadFleetManifest(metaDir?: string): FleetManifest | null {
 }
 
 export function saveFleetManifest(manifest: FleetManifest, metaDir?: string): void {
-  const dir = metaDir ?? join(homedir(), ".cursor-meta", "experiments");
+  const dir = metaDir ?? experimentsDir();
+  mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
 }
 

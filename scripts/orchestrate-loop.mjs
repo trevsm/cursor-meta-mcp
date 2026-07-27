@@ -8,6 +8,7 @@
  */
 import { CursorLocalService } from "../src/cursor-local.js";
 import { orchestrateLoop, summarizeLoop } from "../src/orchestrate-loop.js";
+import { acquireLockWithCleanup } from "../src/process-lock.js";
 
 function flag(name) {
   return process.argv.includes(name);
@@ -16,6 +17,20 @@ function flag(name) {
 function argValue(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+if (!flag("--no-lock")) {
+  const lock = acquireLockWithCleanup("orchestrator-loop", argValue("--meta-dir"));
+  if (!lock.acquired) {
+    console.error(
+      JSON.stringify({
+        event: "orchestrator_loop_already_running",
+        heldByPid: lock.heldBy?.pid,
+        lockPath: lock.path,
+      }),
+    );
+    process.exit(0);
+  }
 }
 
 const excludeRaw = argValue("--exclude-session");

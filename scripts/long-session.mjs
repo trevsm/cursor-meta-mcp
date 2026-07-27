@@ -52,6 +52,9 @@ const params = {
   maxConsecutiveErrors: argValue("--max-consecutive-errors")
     ? Number(argValue("--max-consecutive-errors"))
     : undefined,
+  metaDir: argValue("--meta-dir"),
+  rebindOnMissing: flag("--no-rebind") ? false : undefined,
+  rebindAfterMissing: argValue("--rebind-after") ? Number(argValue("--rebind-after")) : undefined,
 };
 
 console.error(
@@ -74,6 +77,16 @@ params.onTick = (tick, state) => {
       wasAlreadyIdle: tick.wasAlreadyIdle,
       skipped: tick.skipped,
       error: tick.error,
+      reboundTo: tick.reboundTo,
+      outcome: tick.outcome
+        ? {
+            committed: tick.outcome.committed,
+            commits: tick.outcome.commits,
+            filesChanged: tick.outcome.filesChanged,
+            producedWork: tick.outcome.producedWork,
+            testsPassed: tick.outcome.tests?.passed,
+          }
+        : undefined,
       totalTicks: state.ticks.length,
     }),
   );
