@@ -1,4 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Verified result of one worker tick.
@@ -34,6 +37,11 @@ export interface TestOutcome {
 export interface RepoSnapshot {
   head?: string;
   dirtyFiles: number;
+  /**
+   * Fingerprint of dirty work: porcelain paths, tracked diff vs HEAD, and
+   * content hashes for untracked files (porcelain alone misses content edits).
+   */
+  dirtyFingerprint: string;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -53,12 +61,39 @@ function safeGit(cwd: string, args: string[]): string | undefined {
   }
 }
 
+function porcelainPath(line: string): string | undefined {
+  const trimmed = line.trimEnd();
+  if (!trimmed) return undefined;
+  const renamed = trimmed.includes(" -> ") ? trimmed.split(" -> ").at(-1) : undefined;
+  const raw = (renamed ?? trimmed.slice(3)).trim();
+  return raw.replace(/^"(.*)"$/, "$1") || undefined;
+}
+
+function untrackedContentFingerprint(cwd: string, porcelain: string): string {
+  const hashes: string[] = [];
+  for (const line of porcelain.split("\n")) {
+    if (!line.startsWith("??") && !line.startsWith("!!")) continue;
+    const rel = porcelainPath(line);
+    if (!rel) continue;
+    try {
+      const body = readFileSync(join(cwd, rel));
+      hashes.push(`${rel}:${createHash("sha1").update(body).digest("hex")}`);
+    } catch {
+      hashes.push(`${rel}:missing`);
+    }
+  }
+  return hashes.sort().join("\n");
+}
+
 export function captureRepoSnapshot(cwd: string): RepoSnapshot {
   const head = safeGit(cwd, ["rev-parse", "HEAD"]);
   const porcelain = safeGit(cwd, ["status", "--porcelain"]) ?? "";
+  const diff = safeGit(cwd, ["diff", "HEAD"]) ?? "";
+  const untracked = untrackedContentFingerprint(cwd, porcelain);
   return {
     head,
     dirtyFiles: porcelain.split("\n").filter((line) => line.trim().length > 0).length,
+    dirtyFingerprint: `${porcelain}\n${diff}\n${untracked}`,
   };
 }
 
@@ -151,7 +186,11 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
     stat = parseShortstat(safeGit(params.cwd, ["diff", "--shortstat", "HEAD"]) ?? "");
   }
 
-  const producedWork = committed || stat.filesChanged > 0 || after.dirtyFiles > params.before.dirtyFiles;
+  const producedWork =
+    committed ||
+    stat.filesChanged > 0 ||
+    after.dirtyFiles > params.before.dirtyFiles ||
+    after.dirtyFingerprint !== params.before.dirtyFingerprint;
 
   return {
     headBefore,
