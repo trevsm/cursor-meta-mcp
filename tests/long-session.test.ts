@@ -44,6 +44,7 @@ mock.module("../src/watch-chat.js", {
 const {
   DEFAULT_LONG_SESSION_PROMPT,
   buildLongSessionArgs,
+  coerceStopReason,
   countsTowardConsecutiveErrors,
   isTransientSessionMissing,
   nextTickWaitMs,
@@ -59,6 +60,13 @@ const {
 } = await import("../src/long-session.js");
 
 after(() => mock.restoreAll());
+
+test("coerceStopReason keeps known reasons and defaults unknown", () => {
+  assert.equal(coerceStopReason("error"), "error");
+  assert.equal(coerceStopReason("consecutive_errors"), "consecutive_errors");
+  assert.equal(coerceStopReason("bogus"), "duration");
+  assert.equal(coerceStopReason(undefined), "duration");
+});
 
 test("shouldStopLongSession respects duration and max ticks", () => {
   const startedAt = Date.now() - 1000;

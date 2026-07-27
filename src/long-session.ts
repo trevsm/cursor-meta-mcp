@@ -93,6 +93,19 @@ export interface LongSessionState {
 
 export type LongSessionStopReason = "duration" | "max_ticks" | "error" | "stopped" | "consecutive_errors";
 
+export function coerceStopReason(value: string | undefined | null): LongSessionStopReason {
+  switch (value) {
+    case "duration":
+    case "max_ticks":
+    case "error":
+    case "stopped":
+    case "consecutive_errors":
+      return value;
+    default:
+      return "duration";
+  }
+}
+
 export interface LongSessionResult extends LongSessionState {
   endedAt: string;
   elapsedMs: number;

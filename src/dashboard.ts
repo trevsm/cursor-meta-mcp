@@ -19,7 +19,7 @@ import {
 } from "./fleet-metrics.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
 import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
-import { readCheckpoint, summarizeLongSession, type LongSessionState } from "./long-session.js";
+import { readCheckpoint, summarizeLongSession, coerceStopReason, type LongSessionState } from "./long-session.js";
 import { recentRunThoughts, type RunEventRecord } from "./run-events.js";
 import { formatWorldModelForPrompt, listSkills, loadWorldModel, recentEpisodes, type WorldModel } from "./world-model.js";
 
@@ -205,7 +205,7 @@ function summarizeCheckpoint(path?: string): DashboardExperimentRow["checkpoint"
         endedAt: lastTick?.at ?? state.startedAt,
         elapsedMs: 0,
         checkpointPath: path,
-        stoppedBecause: metrics?.stoppedBecause ?? state.stoppedBecause ?? "duration",
+        stoppedBecause: coerceStopReason(metrics?.stoppedBecause ?? state.stoppedBecause),
       }),
     };
   } catch {
