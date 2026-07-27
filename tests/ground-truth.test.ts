@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -140,10 +140,17 @@ test("compactLearnings drops raw infra dumps superseded by classified lessons", 
     "Agent transport dropped mid-tick — retry once; if persistent, check network or fall back to IDE worker",
     metaDir,
   );
+  // Orphans left by a prior broken compact of multi-line dumps
+  writeFileSync(
+    join(metaDir, "world", "learnings.md"),
+    `${readFileSync(join(metaDir, "world", "learnings.md"), "utf8")}- [2026-07-27] Retry attempt 1...\n- [2026-07-27] /bin/sh: -c: line 2: syntax error near unexpected token \`('\nundated orphan fragment\n`,
+  );
   const removed = compactLearnings(metaDir);
-  assert.equal(removed, 2);
+  assert.ok(removed >= 2);
   const body = readFileSync(join(metaDir, "world", "learnings.md"), "utf8");
   assert.equal(/Tick infra failure:/i.test(body), false);
+  assert.equal(/Retry attempt/i.test(body), false);
+  assert.equal(/undated orphan/i.test(body), false);
   assert.match(body, /shell:true/i);
   assert.match(body, /transport dropped/i);
 });

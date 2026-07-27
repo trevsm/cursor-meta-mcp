@@ -42,7 +42,7 @@ function learningBody(line: string): string {
 
 /**
  * Drop raw "Tick infra failure:" dumps once a classified lesson covers the same class,
- * and dedupe identical lesson bodies.
+ * drop orphaned continuation fragments from multi-line dumps, and dedupe identical bodies.
  */
 export function compactLearnings(metaDir?: string): number {
   const path = learningsPath(metaDir);
@@ -59,25 +59,28 @@ export function compactLearnings(metaDir?: string): number {
   const seen = new Set<string>();
   const kept: string[] = [];
   for (const line of lines) {
+    // Multi-line infra dumps leave undated continuation rows — drop them.
+    if (!/^- \[\d{4}-\d{2}-\d{2}\]\s/.test(line)) continue;
+
     const body = learningBody(line);
     if (
       hasShellLesson &&
-      /^Tick infra failure:/i.test(body) &&
-      /\/bin\/sh:|syntax error near unexpected token/i.test(body)
+      !/shell:true/i.test(body) &&
+      /\/bin\/sh:|syntax error near unexpected token|Operating constitution/i.test(body)
     ) {
       continue;
     }
     if (
       hasTransportLesson &&
-      /^Tick infra failure:/i.test(body) &&
-      /connection lost|reconnect/i.test(body)
+      !/transport dropped/i.test(body) &&
+      (/connection lost|reconnect(?:ing|ed)? to https?:\/\/agent|^Retry attem/i.test(body))
     ) {
       continue;
     }
     const key = body.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    kept.push(line.startsWith("- ") ? line : `- [${new Date().toISOString().slice(0, 10)}] ${body}`);
+    kept.push(line);
   }
 
   const removed = lines.length - kept.length;
