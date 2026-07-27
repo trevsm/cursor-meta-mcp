@@ -434,6 +434,49 @@ test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
   assert.ok(live.worldModel);
 });
 
+test("collectDashboardLiveSnapshot reports sdk worker error despite recent live events", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-error-live-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  const checkpointPath = join(experimentsDir, "sdk-worker-1.json");
+  const agentId = "agent-error-live";
+  writeFileSync(
+    checkpointPath,
+    JSON.stringify({
+      startedAt: new Date().toISOString(),
+      agentId,
+      ticks: [{ tick: 3, at: new Date().toISOString(), watchedMs: 100, error: "Agent transport dropped" }],
+    }),
+  );
+  appendRunEvent(
+    "run-error-live",
+    { type: "thinking", message: "Still streaming after failure" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [
+        {
+          name: "sdk-worker-1",
+          pid: process.pid,
+          checkpointPath,
+          logPath: join(experimentsDir, "sdk-worker-1.log"),
+        },
+      ],
+      watcherPid: -1,
+      strategyReviewerPid: -1,
+    }),
+  );
+
+  const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 2 });
+  assert.equal(live.activeSummary.status, "bad");
+  assert.match(live.activeSummary.headline, /hit an error/i);
+  assert.match(live.activeSummary.overview, /Agent transport dropped/i);
+  assert.equal(live.workerActivity[0]?.status, "error");
+});
+
 test("buildActiveSummary warns when productive gate fails on attempted ticks", () => {
   const summary = buildActiveSummary({
     fleetHealth: { total: 1, alive: 1, watcherAlive: true, strategyReviewerAlive: false, manifestAt: null, staleManifest: false },
