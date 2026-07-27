@@ -54,6 +54,35 @@ test("buildWorkerActivity includes live sdk run events", () => {
   assert.match(rows[0]?.statusText ?? "", /Planning tick improvement/);
 });
 
+test("buildWorkerActivity marks sdk worker error and dead states", () => {
+  const errorRows = buildWorkerActivity([
+    {
+      name: "sdk-worker-1",
+      displayName: "Self-improve worker #1",
+      pid: 1,
+      alive: true,
+      checkpoint: {
+        exists: true,
+        ticks: 1,
+        lastTick: { tick: 1, error: "Agent transport dropped" },
+      },
+    },
+  ]);
+  assert.equal(errorRows[0]?.status, "error");
+  assert.match(errorRows[0]?.statusText ?? "", /Agent transport dropped/);
+
+  const deadRows = buildWorkerActivity([
+    {
+      name: "sdk-worker-2",
+      displayName: "Self-improve worker #2",
+      pid: 2,
+      alive: false,
+      checkpoint: { exists: true, ticks: 5 },
+    },
+  ]);
+  assert.equal(deadRows[0]?.status, "dead");
+});
+
 test("buildWorkerActivity maps sdk worker ticks and strategy status", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-"));
   const cpDir = join(metaDir, "experiments");
