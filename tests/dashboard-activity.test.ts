@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 const { extractWorkSummary, buildWorkerActivity } = await import("../src/dashboard-activity.js");
 import type { DashboardExperimentRow } from "../src/dashboard.js";
+import { appendRunEvent } from "../src/run-events.js";
 
 test("extractWorkSummary prefers tick summary lines", () => {
   const tail = [
@@ -20,6 +21,37 @@ test("extractWorkSummary prefers tick summary lines", () => {
 test("extractWorkSummary skips empty and markdown noise", () => {
   assert.equal(extractWorkSummary("  \n**bold**\n"), undefined);
   assert.equal(extractWorkSummary("Shipped fleet metrics gate"), "Shipped fleet metrics gate");
+  assert.equal(extractWorkSummary("Ground truth: npm test passed"), undefined);
+});
+
+test("buildWorkerActivity includes live sdk run events", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-live-"));
+  const agentId = "agent-live-test";
+  appendRunEvent(
+    "run-live",
+    { type: "thinking", message: "Planning tick improvement" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.status, "active");
+  assert.equal(rows[0]?.liveEvents.length, 1);
+  assert.equal(rows[0]?.liveEvents[0]?.kind, "thinking");
+  assert.match(rows[0]?.statusText ?? "", /Planning tick improvement/);
 });
 
 test("buildWorkerActivity maps sdk worker ticks and strategy status", () => {
