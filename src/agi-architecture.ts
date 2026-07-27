@@ -1,5 +1,8 @@
 import type { HumanGateMode } from "./human-gate.js";
 
+/** When true, auto AGI adaptations and new supervisor layers are frozen. Manual overrides still work. */
+export const SUPERVISOR_LAYERS_FROZEN = true;
+
 export type { HumanGateMode };
 
 /** Runtime orchestration topology for AGI mode on one project. */

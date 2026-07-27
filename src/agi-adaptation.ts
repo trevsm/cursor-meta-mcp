@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import {
   DEFAULT_AGI_ARCHITECTURE,
   mergeAgiArchitecture,
+  SUPERVISOR_LAYERS_FROZEN,
   type AgiAdaptationRecord,
   type AgiArchitecture,
 } from "./agi-architecture.js";
@@ -319,6 +320,25 @@ export async function adaptAgiMission(
   }
 
   const allProposals = proposeAgiAdaptations(session, diagnosed, architecture);
+  const manualOverride =
+    Boolean(params.architecture) ||
+    Boolean(params.missionPivot?.trim()) ||
+    Boolean(params.proposalIds?.length) ||
+    Boolean(params.reason?.trim());
+  if (SUPERVISOR_LAYERS_FROZEN && params.auto !== false && !manualOverride) {
+    return {
+      ok: true,
+      diagnosed,
+      proposals: allProposals,
+      applied: [],
+      session,
+      relaunched: false,
+      adaptationBudgetRemaining: Math.max(
+        0,
+        architecture.maxAdaptationsPerHour - adaptationsInLastHour(session.cwd),
+      ),
+    };
+  }
   const toApply = pickProposals(allProposals, params);
 
   const adaptationsThisHour = adaptationsInLastHour(session.cwd);

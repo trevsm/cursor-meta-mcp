@@ -126,7 +126,7 @@ test("buildSelfImprovePrompt includes base rules", () => {
   const prompt = buildSelfImprovePrompt("/Users/me/Projects/cursor-meta-mcp", "Custom base");
   assert.match(prompt, /Custom base/);
   assert.match(prompt, /no user questions/);
-  assert.match(prompt, /Ground-truth/);
+  assert.match(prompt, /Tick report/);
   assert.match(prompt, /git commit → git push/);
   assert.match(prompt, /Git state:/);
 });
@@ -135,7 +135,7 @@ test("buildSelfImprovePrompt uses SELF_IMPROVE_BASE_PROMPT when base omitted", (
   const prompt = buildSelfImprovePrompt("/Users/me/Projects/cursor-meta-mcp");
   assert.match(prompt, /Self-improve this codebase autonomously/);
   assert.match(prompt, /Rules:/);
-  assert.match(prompt, /Ground-truth/);
+  assert.match(prompt, /Tick report/);
 });
 
 test("launchSelfImproveFleet spawns one sdk worker by default", async () => {

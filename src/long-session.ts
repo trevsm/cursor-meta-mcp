@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { waitForChatSession } from "./chat-activity.js";
 import { auditGroundTruth, type GroundTruthAudit } from "./ground-truth.js";
+import { markTickProductivity } from "./fleet-metrics.js";
 import { metaHome, metaPath } from "./meta-home.js";
 import { formatLearningsForPrompt, recordTickLesson } from "./learnings.js";
 import { recordBudgetEvent } from "./plan-budget.js";
@@ -13,8 +14,8 @@ import { createIdeChat, getIdeChatActivity, sendToIdeChat } from "./ide-chat-con
 import { waitForChatIdle } from "./relentless-loop.js";
 import {
   captureRepoSnapshot,
+  createDefaultVerifyTests,
   describeTickOutcome,
-  runTests,
   summarizeTickOutcome,
   type TestOutcome,
   type TickOutcome,
@@ -307,9 +308,7 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
   // Guarded so a suite that drives the tick loop can never re-invoke itself.
   const verifyTests =
     params.verifyTests ??
-    (process.env.CURSOR_META_SKIP_TICK_TESTS === "1"
-      ? undefined
-      : (cwd: string) => runTests({ cwd }));
+    (process.env.CURSOR_META_SKIP_TICK_TESTS === "1" ? undefined : createDefaultVerifyTests());
   let stoppedBecause: LongSessionStopReason = "duration";
   let consecutiveErrors = 0;
   let consecutiveMissing = 0;
@@ -397,6 +396,10 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
           before: repoBefore,
           verify: verifyTests,
         });
+        const priorOutcomes = state.ticks
+          .map((t) => t.outcome)
+          .filter((o): o is TickOutcome => o != null);
+        if (entry.outcome) markTickProductivity(entry.outcome, priorOutcomes);
         entry.groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
         entry.lessonRecorded =
           recordTickLesson({

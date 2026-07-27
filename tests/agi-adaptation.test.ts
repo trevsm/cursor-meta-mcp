@@ -89,7 +89,7 @@ test("diagnoseAgiSnags reads strategy and watcher signals", () => {
   assert.ok(report.infraSignals.includes("budget_cap"));
 });
 
-test("adaptAgiMission applies auto proposals and relaunches", async () => {
+test("adaptAgiMission freezes auto adaptations while supervisor layers are frozen", async () => {
   process.env.CURSOR_META_HOME = join("/tmp", `agi-adapt-run-${Date.now()}`);
   const projectMetaDir = join(process.env.CURSOR_META_HOME, "projects", "app-y");
   const experimentsDir = join(projectMetaDir, "experiments");
@@ -117,9 +117,38 @@ test("adaptAgiMission applies auto proposals and relaunches", async () => {
   });
 
   launchSelfImproveFleet.mock.resetCalls();
-  const result = await adaptAgiMission({ auto: true }, launchSelfImproveFleet);
+  const frozen = await adaptAgiMission({ auto: true }, launchSelfImproveFleet);
+  assert.equal(frozen.ok, true);
+  assert.equal(frozen.applied.length, 0);
+  assert.equal(frozen.relaunched, false);
+  assert.equal(launchSelfImproveFleet.mock.callCount(), 0);
+});
+
+test("adaptAgiMission applies manual architecture overrides when frozen", async () => {
+  process.env.CURSOR_META_HOME = join("/tmp", `agi-adapt-manual-${Date.now()}`);
+  const projectMetaDir = join(process.env.CURSOR_META_HOME, "projects", "app-z");
+  const experimentsDir = join(projectMetaDir, "experiments");
+  mkdirSync(experimentsDir, { recursive: true });
+
+  writeActiveAgiSession({
+    cwd: "/Users/me/Projects/app",
+    task: "Build API",
+    projectSlug: "app-z",
+    projectMetaDir,
+    experimentsDir,
+    workspace: "app",
+    startedAt: new Date().toISOString(),
+    sessionId: "00000000-0000-4000-8000-000000000030",
+    runId: "00000000-0000-4000-8000-000000000031",
+    architecture: DEFAULT_AGI_ARCHITECTURE,
+  });
+
+  launchSelfImproveFleet.mock.resetCalls();
+  const result = await adaptAgiMission(
+    { architecture: { withOrchestrator: false }, missionPivot: "Ship one test" },
+    launchSelfImproveFleet,
+  );
   assert.equal(result.ok, true);
-  assert.ok(result.applied.length > 0);
   assert.equal(result.relaunched, true);
   assert.equal(launchSelfImproveFleet.mock.callCount(), 1);
   const arch = sessionArchitecture(result.session);

@@ -2,12 +2,21 @@
 /**
  * Honest loop fleet — one locked SDK worker in an isolated worktree.
  * Requires CURSOR_API_KEY; exits before spawn when the key is missing.
+ *
+ * Prefer an external repo: export CURSOR_META_FLEET_CWD=/path/to/your-app
  */
+import { fleetTargetWarning, resolveFleetTargetCwd } from "../src/fleet-target.js";
 import { launchSelfImproveFleet } from "../src/self-improve.js";
 import { runFleetPreflight } from "../src/fleet-preflight.js";
 import { resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
 
-const cwd = process.argv[2] ?? process.cwd();
+const cwd = resolveFleetTargetCwd(process.argv[2]);
+const goal =
+  process.env.CURSOR_META_FLEET_GOAL?.trim() ||
+  process.argv.slice(3).join(" ").trim() ||
+  "One verified diff per tick: verify → commit → push. Structured tick report required.";
+const targetWarning = fleetTargetWarning(cwd);
+if (targetWarning) console.error(`[honest-fleet] warn: ${targetWarning}`);
 
 const preflight = await runFleetPreflight({ cwd, skipSmokeTest: true });
 for (const warning of preflight.warnings) console.error(`[honest-fleet] warn: ${warning}`);
@@ -19,6 +28,7 @@ if (!preflight.ok) {
 const auth = preflight.auth;
 const mode = await resolveHonestWorkerMode("sdk");
 console.error(`[honest-fleet] preflight auth=${JSON.stringify(auth)} resolvedMode=${mode}`);
+console.error(`[honest-fleet] target=${cwd}`);
 console.error(`[honest-fleet] ${workerAuthHint(auth)}`);
 if (!auth.apiKey) {
   console.error(
@@ -35,7 +45,7 @@ const manifest = await launchSelfImproveFleet({
   workerMode: "sdk",
   parallelWorkers: 1,
   durationMs: 2 * 60 * 60 * 1000,
-  goal: "One verified diff per tick: npm run test:fast → commit → push. No false completion claims.",
+  goal,
   withOrchestrator: false,
   withWatcher: true,
   withStrategyReviewer: true,

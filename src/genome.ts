@@ -10,8 +10,11 @@ export const DEFAULT_GENOME = [
   "1. One small verified improvement only — minimize scope.",
   "2. Run `npm run test:fast` on touched areas before claiming success.",
   "3. Git commit verified work; push when ahead of origin.",
-  "4. Never claim tests pass or done without ground truth (git + tests this tick).",
+  "4. End with a structured tick report (JSON footer) — prose claims are ignored.",
   "5. No architecture theater, meta-discussion, or user questions.",
+  "",
+  "Product vs meta: prefer src/, dashboard/, docs/ over tests-only diffs.",
+  "Test-only ticks count at most 1 per 3 feature ticks (mechanical cap).",
   "",
   "Do not scale parallelism until ≥30% of recent ticks show real repo changes.",
 ].join("\n");

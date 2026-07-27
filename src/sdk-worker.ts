@@ -7,14 +7,15 @@ import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 
 import { archiveWorkerCheckpointIfNeeded } from "./checkpoint-archive.js";
 import { CursorLocalService, type LocalAgentService } from "./cursor-local.js";
-import { auditGroundTruth, type GroundTruthAudit } from "./ground-truth.js";
+import { auditGroundTruth, TICK_REPORT_INSTRUCTION, type GroundTruthAudit } from "./ground-truth.js";
+import { markTickProductivity } from "./fleet-metrics.js";
 import { metaHome, metaPath } from "./meta-home.js";
 import { recordTickLesson } from "./learnings.js";
 import { recordBudgetEvent } from "./plan-budget.js";
 import {
   captureRepoSnapshot,
+  createDefaultVerifyTests,
   describeTickOutcome,
-  runTests,
   summarizeTickOutcome,
   type TestOutcome,
   type TickOutcome,
@@ -94,9 +95,10 @@ export function writeSdkCheckpoint(state: SdkWorkerState, path?: string): string
 
 export const DEFAULT_SDK_WORKER_PROMPT = [
   "Autonomous headless worker. Do not ask the user questions.",
-  "Each tick: one small verified improvement → npm run test:fast → git commit → report outcome.",
-  "Minimize scope. No architecture theater.",
-].join(" ");
+  "Each tick: one small verified improvement → npm run test:fast → git commit → structured tick report.",
+  "Minimize scope. No architecture theater. Prefer src/ and docs/ over tests-only diffs.",
+  TICK_REPORT_INSTRUCTION,
+].join("\n");
 
 export const SDK_FLEET_AGENT_NAME = "self-improve-fleet";
 
@@ -199,7 +201,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
   const service = params.service ?? new CursorLocalService({ apiKey: workerEnv.CURSOR_API_KEY });
   const verifyTests =
     params.verifyTests ??
-    (process.env.CURSOR_META_SKIP_TICK_TESTS === "1" ? undefined : (cwd: string) => runTests({ cwd }));
+    (process.env.CURSOR_META_SKIP_TICK_TESTS === "1" ? undefined : createDefaultVerifyTests());
 
   let agentId: string | undefined = state.agentId;
   let stoppedBecause: SdkWorkerStopReason = "duration";
@@ -223,6 +225,10 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     if (!entry.error) {
       try {
         entry.outcome = summarizeTickOutcome({ cwd: state.cwd, before: repoBefore, verify: verifyTests });
+        const priorOutcomes = state.ticks
+          .map((t) => t.outcome)
+          .filter((o): o is TickOutcome => o != null);
+        if (entry.outcome) markTickProductivity(entry.outcome, priorOutcomes);
         entry.groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
         entry.lessonRecorded =
           recordTickLesson({

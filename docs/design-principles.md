@@ -45,7 +45,9 @@ From `src/genome.ts` — non-negotiable for SDK workers:
 - **No new supervisor type** until the previous one's actuators are wired (strategy `kill[]` → real SIGTERM, etc.).
 - **No new log stream** without rotation and a single-line compact format; full state lives in `*-status.json`.
 - **No regex sprawl** in ground truth without a structured tick report alternative on the roadmap.
-- **Test-only ticks** capped: at most one narrow regression test per three feature ticks unless fixing a red gate.
+- **Structured tick reports** — workers end ticks with `Tick report:` + JSON; prose claims are ignored.
+- **Test-only ticks** capped mechanically: at most 1 counted productive tick per 3 feature ticks.
+- **Supervisor layers frozen** — no new orchestration abstractions until honest-fleet proves value on external repos (`SUPERVISOR_LAYERS_FROZEN`).
 
 ## Session lifecycle
 

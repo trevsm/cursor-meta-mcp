@@ -1,11 +1,22 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 
+import {
+  allowedTestOnlyProductiveTicks,
+  type TickOutcome,
+} from "./tick-outcome.js";
+
 export interface FleetTickMetrics {
   ticks: number;
   /** ticks minus soft skips — used by productivity gates. Present on analyzed metrics. */
   attemptedTicks?: number;
   productiveTicks: number;
   productiveRatio: number;
+  /** Feature (non-test-only) ticks that counted toward productivity. */
+  featureTicks?: number;
+  /** Test-only ticks that counted toward productivity (capped). */
+  countedTestOnlyTicks?: number;
+  /** Test-only ticks blocked by the 1:3 cap. */
+  cappedTestOnlyTicks?: number;
   commits: number;
   filesChanged: number;
   errors: number;
@@ -25,7 +36,7 @@ export interface WorkerCheckpointState {
     at?: string;
     error?: string;
     skipped?: string;
-    outcome?: {
+    outcome?: TickOutcome & {
       producedWork?: boolean;
       committed?: boolean;
       pushed?: boolean;
@@ -36,6 +47,57 @@ export interface WorkerCheckpointState {
   }>;
   stoppedBecause?: string;
   startedAt?: string;
+}
+
+/** Mark whether a tick counts toward productivity metrics (test-only cap). */
+export function markTickProductivity(outcome: TickOutcome, priorOutcomes: TickOutcome[]): void {
+  let featureTicks = 0;
+  let countedTestOnly = 0;
+  for (const prior of priorOutcomes) {
+    if (!prior.producedWork || prior.countsAsProductive === false) continue;
+    if (prior.testOnly) countedTestOnly += 1;
+    else featureTicks += 1;
+  }
+
+  if (!outcome.producedWork) {
+    outcome.countsAsProductive = false;
+    return;
+  }
+  if (outcome.testOnly) {
+    outcome.countsAsProductive =
+      countedTestOnly < allowedTestOnlyProductiveTicks(featureTicks);
+  } else {
+    outcome.countsAsProductive = true;
+  }
+}
+
+export function productivityBreakdown(outcomes: TickOutcome[]): {
+  productiveTicks: number;
+  featureTicks: number;
+  countedTestOnlyTicks: number;
+  cappedTestOnlyTicks: number;
+} {
+  let featureTicks = 0;
+  let countedTestOnlyTicks = 0;
+  let cappedTestOnlyTicks = 0;
+  let productiveTicks = 0;
+
+  for (const outcome of outcomes) {
+    if (!outcome.producedWork) continue;
+    if (outcome.testOnly) {
+      if (countedTestOnlyTicks < allowedTestOnlyProductiveTicks(featureTicks)) {
+        productiveTicks += 1;
+        countedTestOnlyTicks += 1;
+      } else {
+        cappedTestOnlyTicks += 1;
+      }
+    } else {
+      productiveTicks += 1;
+      featureTicks += 1;
+    }
+  }
+
+  return { productiveTicks, featureTicks, countedTestOnlyTicks, cappedTestOnlyTicks };
 }
 
 export function analyzeWorkerCheckpoint(
@@ -57,7 +119,8 @@ export function analyzeWorkerCheckpoint(
     const outcomes = ticks
       .map((tick) => tick.outcome)
       .filter((outcome): outcome is NonNullable<typeof outcome> => outcome != null);
-    const productiveTicks = outcomes.filter((outcome) => outcome.producedWork).length;
+    const productivity = productivityBreakdown(outcomes);
+    const productiveTicks = productivity.productiveTicks;
     const errors = ticks.filter((tick) => tick.error && tick.skipped == null).length;
     const softSkips = ticks.filter((tick) => tick.skipped != null).length;
     // Soft skips (busy/missing/timeout) are waits, not failed attempts — exclude from ratio.
@@ -70,6 +133,9 @@ export function analyzeWorkerCheckpoint(
       attemptedTicks: Math.max(0, attemptedTicks),
       productiveTicks,
       productiveRatio: attemptedTicks > 0 ? productiveTicks / attemptedTicks : 0,
+      featureTicks: productivity.featureTicks,
+      countedTestOnlyTicks: productivity.countedTestOnlyTicks,
+      cappedTestOnlyTicks: productivity.cappedTestOnlyTicks,
       commits: outcomes.reduce((sum, outcome) => sum + (outcome.commits ?? 0), 0),
       filesChanged: outcomes.reduce((sum, outcome) => sum + (outcome.filesChanged ?? 0), 0),
       errors,

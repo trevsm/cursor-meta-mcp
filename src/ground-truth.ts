@@ -1,5 +1,13 @@
 import type { TickOutcome } from "./tick-outcome.js";
 
+/** Structured footer workers append at the end of every tick. */
+export interface TickReport {
+  done?: boolean;
+  testsPass?: boolean;
+  committed?: boolean;
+  pushed?: boolean;
+}
+
 export interface CompletionClaims {
   claimedDone: boolean;
   claimedTestsPass: boolean;
@@ -12,52 +20,102 @@ export interface GroundTruthAudit extends CompletionClaims {
   /** True when assistant claims outran verified repo/test state. */
   blocked: boolean;
   correctionPrompt?: string;
+  /** Parsed tick report when present. */
+  tickReport?: TickReport;
+  /** True when produced work but no parseable tick report footer. */
+  missingTickReport?: boolean;
 }
 
-const DONE_CLAIM =
-  /\b(?:all done|task (?:is )?complete|ready to merge|this is done|work is finished)(?!\s+(?:once|when|if|after|until|before|for)\b)|should work now(?! that)|(?<!\b(?:almost|nearly|still) )finished(?:\.|!|$)/i;
-const TESTS_PASS_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout (?:claiming )?)(?<!\bdo not say )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\bensure )(?<!\bmake )(?<!\bneed )(?<!\bhelp )\b(?:all tests pass(?:ed)?(?!\s+(?:in|locally)\b)|(?<!\ball )tests pass(?:ed)?(?!\s+(?:in|locally)\b)|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?(?!\s+(?:in|locally)\b)|tests are passing(?!\s+(?:in|locally)\b))\b/i;
-const COMMIT_CLAIM =
-  /(?<!\bnot yet )(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bhave )(?<!\bthen )(?<!\bbe )(?<!\bHEAD )\bcommitted(?!\s+(?:earlier|locally|already|yesterday)\b)\b/i;
-const PUSH_CLAIM =
-  /(?<!\bnot yet )(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bgot )\b(?:pushed to origin|(?<!\bthen committed and )pushed(?!\s+earlier\b))\b/i;
+export const TICK_REPORT_LABEL = "Tick report:";
 
-/** Strip procedural ground-truth footer lines before scanning assistant claims. */
-function assistantClaimText(text: string | undefined): string {
+const TICK_REPORT_LINE = /^\s*tick\s+report\s*:/i;
+
+/** Extract JSON tick report from assistant tail. Prose claims are ignored. */
+export function parseTickReport(text: string | undefined): TickReport | null {
   const tail = text?.trim() ?? "";
-  const lines: string[] = [];
-  for (const line of tail.split(/\r?\n/)) {
-    if (/^ground[- ]truth:/i.test(line.trim())) break;
-    lines.push(line);
+  if (!tail) return null;
+
+  const lines = tail.split(/\r?\n/);
+  let jsonStart = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (TICK_REPORT_LINE.test(lines[i]!.trim())) {
+      jsonStart = i;
+      break;
+    }
   }
-  return lines.join("\n").trim();
+  if (jsonStart < 0) return null;
+
+  const payload = lines
+    .slice(jsonStart)
+    .join("\n")
+    .replace(TICK_REPORT_LINE, "")
+    .trim();
+
+  const brace = payload.indexOf("{");
+  if (brace < 0) return null;
+  const candidate = payload.slice(brace);
+  try {
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return {
+      done: parsed.done === true,
+      testsPass: parsed.testsPass === true,
+      committed: parsed.committed === true,
+      pushed: parsed.pushed === true,
+    };
+  } catch {
+    return null;
+  }
 }
 
-/** Extract completion claims from the assistant tail of a tick. */
+/** Map structured tick report fields to completion claims. */
 export function detectCompletionClaims(text: string | undefined): CompletionClaims {
-  const tail = assistantClaimText(text);
+  const report = parseTickReport(text);
+  if (!report) {
+    return {
+      claimedDone: false,
+      claimedTestsPass: false,
+      claimedCommitted: false,
+      claimedPushed: false,
+    };
+  }
   return {
-    claimedDone: DONE_CLAIM.test(tail),
-    claimedTestsPass: TESTS_PASS_CLAIM.test(tail),
-    claimedCommitted: COMMIT_CLAIM.test(tail),
-    claimedPushed: PUSH_CLAIM.test(tail),
+    claimedDone: report.done === true,
+    claimedTestsPass: report.testsPass === true,
+    claimedCommitted: report.committed === true,
+    claimedPushed: report.pushed === true,
   };
 }
 
+export function formatTickReportFooter(report: TickReport): string {
+  return `${TICK_REPORT_LABEL}\n${JSON.stringify(report)}`;
+}
+
+export const TICK_REPORT_INSTRUCTION = [
+  "End every tick with a structured report (required):",
+  `${TICK_REPORT_LABEL}`,
+  '{"done":false,"testsPass":true,"committed":true,"pushed":false}',
+  "Set booleans from verified git + npm run test:fast this tick only. Prose claims are ignored.",
+].join("\n");
+
 /**
- * Compare assistant claims against measured tick outcome (git + test:fast).
- * Inspired by Groundtruth-style Stop hooks — deterministic, no LLM judge.
+ * Compare structured tick report against measured tick outcome (git + test:fast).
+ * Missing or unparseable reports block ticks that produced repo changes.
  */
 export function auditGroundTruth(
   assistantTail: string | undefined,
   outcome: TickOutcome | undefined,
 ): GroundTruthAudit {
+  const tickReport = parseTickReport(assistantTail);
   const claims = detectCompletionClaims(assistantTail);
   const violations: string[] = [];
+  const missingTickReport = Boolean(outcome?.producedWork && !tickReport);
 
+  if (missingTickReport) {
+    violations.push("missing structured tick report footer");
+  }
   if (claims.claimedTestsPass && (!outcome?.tests?.ran || !outcome.tests.passed)) {
-    violations.push("claimed tests pass but test:fast did not pass this tick");
+    violations.push(`claimed testsPass but ${outcome?.tests?.command ?? "verification"} did not pass this tick`);
   }
   if (claims.claimedCommitted && !outcome?.committed) {
     violations.push("claimed commit but HEAD unchanged this tick");
@@ -76,11 +134,12 @@ export function auditGroundTruth(
   const blocked = violations.length > 0;
   const correctionPrompt = blocked
     ? [
-        "[Ground-truth gate] Your last message claimed success but verification failed:",
+        "[Ground-truth gate] Verification failed:",
         ...violations.map((v) => `- ${v}`),
-        "Run npm run test:fast on your changes, fix failures, commit verified work, then report honestly.",
+        TICK_REPORT_INSTRUCTION,
+        "Run verification, commit verified work, then resubmit an honest tick report.",
       ].join("\n")
     : undefined;
 
-  return { ...claims, violations, blocked, correctionPrompt };
+  return { ...claims, violations, blocked, correctionPrompt, tickReport: tickReport ?? undefined, missingTickReport };
 }

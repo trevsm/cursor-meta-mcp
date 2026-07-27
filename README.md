@@ -240,11 +240,13 @@ Prior art, pitfalls, and dead ends: [`docs/autonomous-fleet-research.md`](docs/a
 Phase-1 autonomous mode — one SDK worker in a git worktree, ground-truth verification, lessons feed-forward:
 
 ```bash
-npm run honest-fleet -- .
+# Prefer an external repo (avoids meta-churn on cursor-meta-mcp itself)
+export CURSOR_META_FLEET_CWD=/path/to/your-app
+npm run honest-fleet
 npm run dashboard
 ```
 
-Ground-truth gate blocks false "tests pass" / "done" claims (see `src/ground-truth.ts`). Lessons land in `~/.cursor-meta/world/learnings.md`.
+Ground-truth gate compares structured tick reports (`Tick report:` JSON footer) against git + `npm run test:fast`. Prose claims are ignored. Test-only ticks count at most 1 per 3 feature ticks. Lessons land in `~/.cursor-meta/world/learnings.md`.
 
 ### Fleet dashboard
 

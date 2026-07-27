@@ -4,179 +4,75 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-const { auditGroundTruth, detectCompletionClaims } = await import("../src/ground-truth.js");
+const {
+  auditGroundTruth,
+  detectCompletionClaims,
+  formatTickReportFooter,
+  parseTickReport,
+  TICK_REPORT_LABEL,
+} = await import("../src/ground-truth.js");
 const { appendLearning, compactLearnings, formatLearningsForPrompt, recordTickLesson } = await import("../src/learnings.js");
 
-test("detectCompletionClaims finds tests-pass and commit language", () => {
+test("parseTickReport reads JSON footer", () => {
+  const tail = [
+    "Shipped dashboard fix.",
+    TICK_REPORT_LABEL,
+    '{"done":false,"testsPass":true,"committed":true,"pushed":false}',
+  ].join("\n");
+  assert.deepEqual(parseTickReport(tail), {
+    done: false,
+    testsPass: true,
+    committed: true,
+    pushed: false,
+  });
+});
+
+test("detectCompletionClaims ignores prose without tick report", () => {
   const claims = detectCompletionClaims("All tests pass. Committed and pushed.");
+  assert.deepEqual(claims, {
+    claimedDone: false,
+    claimedTestsPass: false,
+    claimedCommitted: false,
+    claimedPushed: false,
+  });
+});
+
+test("detectCompletionClaims maps structured report booleans", () => {
+  const tail = formatTickReportFooter({
+    done: true,
+    testsPass: true,
+    committed: true,
+    pushed: true,
+  });
+  const claims = detectCompletionClaims(tail);
+  assert.equal(claims.claimedDone, true);
   assert.equal(claims.claimedTestsPass, true);
   assert.equal(claims.claimedCommitted, true);
   assert.equal(claims.claimedPushed, true);
 });
 
-test("detectCompletionClaims ignores negated commit language", () => {
-  const claims = detectCompletionClaims("Not committed yet; npm run test:fast passed.");
-  assert.equal(claims.claimedCommitted, false);
-  assert.equal(claims.claimedPushed, false);
-  assert.equal(claims.claimedTestsPass, true);
-});
-
-test("detectCompletionClaims ignores negated push language", () => {
-  assert.equal(detectCompletionClaims("I haven't pushed yet.").claimedPushed, false);
-  assert.equal(detectCompletionClaims("Not pushed to origin.").claimedPushed, false);
-  assert.equal(detectCompletionClaims("I didn't push.").claimedPushed, false);
-  assert.equal(detectCompletionClaims("Committed and pushed to origin.").claimedPushed, true);
-});
-
-test("detectCompletionClaims ignores conditional commit and push phrasing", () => {
-  assert.equal(detectCompletionClaims("until committed do not claim done").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("once committed we push").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("when committed verify push").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("before pushed verify remote").claimedPushed, false);
-  assert.equal(detectCompletionClaims("until pushed do not claim").claimedPushed, false);
-  assert.equal(detectCompletionClaims("Committed and pushed to origin.").claimedCommitted, true);
-  assert.equal(detectCompletionClaims("Committed and pushed to origin.").claimedPushed, true);
-  assert.equal(detectCompletionClaims("without committed changes").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("never claim committed").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("Do not say committed yet").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("never claim pushed").claimedPushed, false);
-  assert.equal(detectCompletionClaims("Do not say pushed yet").claimedPushed, false);
-  assert.equal(detectCompletionClaims("without pushed changes").claimedPushed, false);
-  assert.equal(detectCompletionClaims("committed locally but not pushed").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("already committed earlier").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("previously committed").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("pushed earlier today").claimedPushed, false);
-  assert.equal(detectCompletionClaims("to be committed").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("HEAD committed this tick").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("then committed and pushed").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("then committed and pushed").claimedPushed, false);
-  assert.equal(detectCompletionClaims("was pushed to origin").claimedPushed, false);
-  assert.equal(detectCompletionClaims("got pushed to origin").claimedPushed, false);
-  assert.equal(detectCompletionClaims("not yet committed").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("not yet pushed").claimedPushed, false);
-  assert.equal(detectCompletionClaims("not yet pushed to origin").claimedPushed, false);
-});
-
-test("detectCompletionClaims ignores negated tests-pass language", () => {
-  assert.equal(detectCompletionClaims("Tests didn't pass.").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("npm test did not pass.").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("tests do not pass yet.").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("All tests pass.").claimedTestsPass, true);
-  assert.equal(detectCompletionClaims("npm run test:fast passed.").claimedTestsPass, true);
-});
-
-test("detectCompletionClaims ignores conditional tests-pass phrasing", () => {
-  assert.equal(detectCompletionClaims("once tests are passing we ship").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("when all tests pass we merge").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("if tests pass then commit").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("Will commit after tests pass.").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("Wait until tests pass before claiming success.").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("before tests pass we should not commit").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("ensure tests pass before merge").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("tests pass in CI only").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("test suite passes in CI").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("tests pass locally only").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("make tests pass before claiming").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("tests are passing now").claimedTestsPass, true);
-});
-
-test("detectCompletionClaims ignores procedural git language in prompts", () => {
-  const constitution =
-    "Ground-truth: never claim tests pass without npm run test:fast + git commit this tick.";
-  const claims = detectCompletionClaims(constitution);
-  assert.equal(claims.claimedTestsPass, false);
-  assert.equal(claims.claimedCommitted, false);
-  assert.equal(claims.claimedPushed, false);
-  assert.equal(detectCompletionClaims("Each tick: git commit → git push.").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("Each tick: git commit → git push.").claimedPushed, false);
-  assert.equal(detectCompletionClaims("without claiming tests pass").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("Do not say tests pass yet").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("Ground-truth: npm test passed").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("Shipped fix.\nGround-truth: npm test passed").claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("All tests pass.\nGround truth: npm test passed").claimedTestsPass, true);
-});
-
-test("auditGroundTruth ignores procedural ground-truth footer-only tails", () => {
-  const audit = auditGroundTruth("Ground-truth: npm test passed", {
-    producedWork: true,
-    committed: true,
-    pushed: true,
-    tests: { ran: true, passed: true, total: 390 },
-  });
-  assert.equal(audit.blocked, false);
-  assert.equal(audit.claimedTestsPass, false);
-});
-
-test("detectCompletionClaims ignores speculative should-work-now phrasing", () => {
-  const claims = detectCompletionClaims("This should work now that tests pass.");
-  assert.equal(claims.claimedDone, false);
-  assert.equal(claims.claimedTestsPass, false);
-  assert.equal(detectCompletionClaims("Should work now.").claimedDone, true);
-});
-
-test("detectCompletionClaims ignores conditional done phrasing", () => {
-  assert.equal(detectCompletionClaims("Task complete once tests pass").claimedDone, false);
-  assert.equal(detectCompletionClaims("Task complete when verified").claimedDone, false);
-  assert.equal(detectCompletionClaims("ready to merge after review").claimedDone, false);
-  assert.equal(detectCompletionClaims("all done for now").claimedDone, false);
-  assert.equal(detectCompletionClaims("task complete for this PR").claimedDone, false);
-  assert.equal(detectCompletionClaims("this is done for today").claimedDone, false);
-  assert.equal(detectCompletionClaims("The task is complete.").claimedDone, true);
-});
-
-test("detectCompletionClaims ignores haven't/didn't commit and imperative complete", () => {
-  assert.equal(detectCompletionClaims("I haven't committed these changes.").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("I didn't commit yet.").claimedCommitted, false);
-  assert.equal(detectCompletionClaims("Next: complete the helper and add tests.").claimedDone, false);
-  assert.equal(detectCompletionClaims("All done. Task is complete.").claimedDone, true);
-});
-
-test("detectCompletionClaims ignores in-progress finished phrasing", () => {
-  assert.equal(detectCompletionClaims("Finished refactoring the helper.").claimedDone, false);
-  assert.equal(detectCompletionClaims("almost finished").claimedDone, false);
-  assert.equal(detectCompletionClaims("nearly finished").claimedDone, false);
-  assert.equal(detectCompletionClaims("finished").claimedDone, true);
-  assert.equal(detectCompletionClaims("just finished.").claimedDone, true);
-});
-
-test("auditGroundTruth blocks should-work-now claims without recorded outcome", () => {
-  const audit = auditGroundTruth("Should work now.", undefined);
-  assert.equal(audit.blocked, true);
-  assert.equal(audit.claimedDone, true);
-});
-
-test("auditGroundTruth blocks ready-to-merge claims without recorded outcome", () => {
-  const audit = auditGroundTruth("Ready to merge.", undefined);
-  assert.equal(audit.blocked, true);
-  assert.equal(audit.claimedDone, true);
-  assert.ok(audit.violations.some((v) => /no tick outcome recorded/i.test(v)));
-});
-
-test("auditGroundTruth blocks done claims without recorded outcome", () => {
-  const audit = auditGroundTruth("All done. Task is complete.", undefined);
-  assert.equal(audit.blocked, true);
-  assert.ok(audit.violations.some((v) => /no tick outcome recorded/i.test(v)));
-});
-
-test("auditGroundTruth blocks done claims with no repo change", () => {
-  const audit = auditGroundTruth("All done.", {
+test("auditGroundTruth blocks missing tick report when work was produced", () => {
+  const audit = auditGroundTruth("All tests pass.", {
     headBefore: "a",
-    headAfter: "a",
-    committed: false,
+    headAfter: "b",
+    committed: true,
     pushed: false,
-    commits: 0,
-    filesChanged: 0,
-    insertions: 0,
+    commits: 1,
+    filesChanged: 1,
+    insertions: 2,
     deletions: 0,
     dirtyFiles: 0,
-    producedWork: false,
+    producedWork: true,
+    tests: { ran: true, passed: true, total: 10, durationMs: 50, command: "npm run test:fast" },
   });
   assert.equal(audit.blocked, true);
-  assert.ok(audit.violations.some((v) => /no repo change detected/i.test(v)));
+  assert.equal(audit.missingTickReport, true);
+  assert.ok(audit.violations.some((v) => /missing structured tick report/i.test(v)));
 });
 
-test("auditGroundTruth blocks false tests-pass claims", () => {
-  const audit = auditGroundTruth("All tests pass now.", {
+test("auditGroundTruth blocks false tests-pass in structured report", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: false, pushed: false, done: false });
+  const audit = auditGroundTruth(tail, {
     headBefore: "a",
     headAfter: "a",
     committed: false,
@@ -190,12 +86,12 @@ test("auditGroundTruth blocks false tests-pass claims", () => {
     tests: { ran: true, passed: false, failed: 3, durationMs: 100, command: "npm run test:fast" },
   });
   assert.equal(audit.blocked, true);
-  assert.ok(audit.violations.some((v) => v.includes("test:fast")));
-  assert.ok(audit.correctionPrompt?.includes("Ground-truth"));
+  assert.ok(audit.violations.some((v) => /verification|test:fast/i.test(v)));
 });
 
-test("auditGroundTruth passes when claims match outcome", () => {
-  const audit = auditGroundTruth("All tests pass.", {
+test("auditGroundTruth passes when structured report matches outcome", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: true, pushed: false, done: false });
+  const audit = auditGroundTruth(tail, {
     headBefore: "a",
     headAfter: "b",
     committed: true,
@@ -212,8 +108,9 @@ test("auditGroundTruth passes when claims match outcome", () => {
   assert.equal(audit.violations.length, 0);
 });
 
-test("auditGroundTruth blocks false push claims", () => {
-  const audit = auditGroundTruth("Committed and pushed to origin.", {
+test("auditGroundTruth blocks false push in structured report", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: true, pushed: true, done: false });
+  const audit = auditGroundTruth(tail, {
     headBefore: "a",
     headAfter: "b",
     committed: true,
@@ -228,8 +125,6 @@ test("auditGroundTruth blocks false push claims", () => {
   });
   assert.equal(audit.blocked, true);
   assert.ok(audit.violations.some((v) => /claimed push/i.test(v)));
-  assert.equal(audit.claimedPushed, true);
-  assert.equal(audit.claimedCommitted, true);
 });
 
 test("learnings append and inject into prompt", () => {
@@ -365,7 +260,6 @@ test("compactLearnings drops raw infra dumps superseded by classified lessons", 
     "Install Cursor Agent CLI at ~/.local/bin/agent before CLI fleet workers — ENOENT means the binary is missing",
     metaDir,
   );
-  // Orphans left by a prior broken compact of multi-line dumps
   writeFileSync(
     join(metaDir, "world", "learnings.md"),
     `${readFileSync(join(metaDir, "world", "learnings.md"), "utf8")}- [2026-07-27] Retry attempt 1...\n- [2026-07-27] /bin/sh: -c: line 2: syntax error near unexpected token \`('\nundated orphan fragment\n`,

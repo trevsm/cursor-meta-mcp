@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { resolveVerifyCommand } from "./fleet-target.js";
+
 /**
  * Verified result of one worker tick.
  *
@@ -24,6 +26,12 @@ export interface TickOutcome {
   tests?: TestOutcome;
   /** True when the tick changed tracked files or produced a commit. */
   producedWork: boolean;
+  /** Paths touched this tick (committed diff or dirty vs HEAD). */
+  changedPaths?: string[];
+  /** True when every changed path is under tests/ or ends with .test.ts */
+  testOnly?: boolean;
+  /** False when testOnly tick exceeds the feature:test ratio cap for productivity metrics. */
+  countsAsProductive?: boolean;
 }
 
 export interface TestOutcome {
@@ -112,6 +120,41 @@ export function captureRepoSnapshot(cwd: string): RepoSnapshot {
 }
 
 /** Parse `git diff --shortstat` output, e.g. "3 files changed, 40 insertions(+), 2 deletions(-)". */
+/** One test-only tick allowed per this many feature ticks (mechanical fleet gate). */
+export const TEST_ONLY_FEATURE_RATIO = 3;
+
+export function listTickChangedPaths(
+  cwd: string,
+  params: { headBefore?: string; headAfter?: string; committed: boolean },
+): string[] {
+  let raw: string | undefined;
+  if (params.committed && params.headBefore && params.headAfter) {
+    raw = safeGit(cwd, ["diff", "--name-only", params.headBefore, params.headAfter]);
+  } else {
+    const tracked = safeGit(cwd, ["diff", "--name-only", "HEAD"]) ?? "";
+    const untracked = safeGit(cwd, ["ls-files", "--others", "--exclude-standard"]) ?? "";
+    raw = [tracked, untracked].filter(Boolean).join("\n");
+  }
+  return (raw ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function isTestOnlyPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.startsWith("tests/") || normalized.endsWith(".test.ts");
+}
+
+export function isTestOnlyChange(paths: string[]): boolean {
+  if (paths.length === 0) return false;
+  return paths.every(isTestOnlyPath);
+}
+
+export function allowedTestOnlyProductiveTicks(featureTickCount: number): number {
+  return Math.floor(featureTickCount / TEST_ONLY_FEATURE_RATIO);
+}
+
 export function parseShortstat(raw: string): {
   filesChanged: number;
   insertions: number;
@@ -151,6 +194,14 @@ export const FAST_TEST_ARGS = ["run", "--silent", "test:fast"];
  * Run the fast (no-coverage) suite for inner-loop verification. The full coverage
  * gate stays in `npm test` for pre-commit and CI.
  */
+/** Default per-tick verifier: uses test:fast on cursor-meta-mcp, best script on external repos. */
+export function createDefaultVerifyTests(): (cwd: string) => TestOutcome | undefined {
+  return (cwd: string) => {
+    const resolved = resolveVerifyCommand(cwd);
+    return runTests({ cwd, command: resolved.command, args: resolved.args });
+  };
+}
+
 export function runTests(params: RunTestsParams): TestOutcome {
   const command = params.command ?? FAST_TEST_COMMAND;
   const args = params.args ?? FAST_TEST_ARGS;
@@ -214,6 +265,11 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
     ((typeof aheadBefore === "number" && aheadBefore > 0) ||
       (committed && typeof aheadBefore === "number"));
 
+  const changedPaths = producedWork
+    ? listTickChangedPaths(params.cwd, { headBefore, headAfter, committed })
+    : [];
+  const testOnly = producedWork ? isTestOnlyChange(changedPaths) : false;
+
   return {
     headBefore,
     headAfter,
@@ -225,6 +281,8 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
     deletions: stat.deletions,
     dirtyFiles: after.dirtyFiles,
     producedWork,
+    changedPaths,
+    testOnly,
     tests: producedWork && params.verify ? params.verify(params.cwd) : undefined,
   };
 }
