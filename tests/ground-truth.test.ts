@@ -89,6 +89,17 @@ test("detectCompletionClaims ignores procedural git language in prompts", () => 
   assert.equal(detectCompletionClaims("All tests pass.\nGround truth: npm test passed").claimedTestsPass, true);
 });
 
+test("auditGroundTruth ignores procedural ground-truth footer-only tails", () => {
+  const audit = auditGroundTruth("Ground-truth: npm test passed", {
+    producedWork: true,
+    committed: true,
+    pushed: true,
+    tests: { ran: true, passed: true, total: 390 },
+  });
+  assert.equal(audit.blocked, false);
+  assert.equal(audit.claimedTestsPass, false);
+});
+
 test("detectCompletionClaims ignores speculative should-work-now phrasing", () => {
   const claims = detectCompletionClaims("This should work now that tests pass.");
   assert.equal(claims.claimedDone, false);
