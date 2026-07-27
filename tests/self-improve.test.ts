@@ -100,9 +100,10 @@ mock.module("../src/sdk-worker.js", {
 mock.module("../src/git-worktree.js", {
   namedExports: { createWorkerWorktree },
 });
+const probeWorkerAuth = mock.fn(async () => ({ apiKey: true, cli: true, sdk: true }));
 mock.module("../src/worker-auth.js", {
   namedExports: {
-    probeWorkerAuth: async () => ({ apiKey: true, cli: true, sdk: true }),
+    probeWorkerAuth,
     resolveHonestWorkerMode: async (mode?: string) => (mode === "ide" ? "ide" : "sdk"),
     workerAuthHint: () => "mock auth ok",
   },
@@ -139,6 +140,7 @@ test("buildSelfImprovePrompt uses SELF_IMPROVE_BASE_PROMPT when base omitted", (
 test("launchSelfImproveFleet spawns one sdk worker by default", async () => {
   spawnSdkWorker.mock.resetCalls();
   createWorkerWorktree.mock.resetCalls();
+  probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: true, cli: true, sdk: true }));
 
   const manifest = await launchSelfImproveFleet({
     cwd: "/tmp/project",
@@ -151,6 +153,24 @@ test("launchSelfImproveFleet spawns one sdk worker by default", async () => {
 
   assert.equal(spawnSdkWorker.mock.callCount(), 1);
   assert.ok(manifest.experiments.some((exp) => exp.name.startsWith("sdk-worker")));
+});
+
+test("launchSelfImproveFleet rejects SDK mode without CURSOR_API_KEY", async () => {
+  probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: false, cli: true, sdk: true }));
+  await assert.rejects(
+    () =>
+      launchSelfImproveFleet({
+        cwd: "/tmp/project",
+        metaDir: "/tmp/self-improve-no-key",
+        withOrchestrator: false,
+        withWatcher: false,
+        withStrategyReviewer: false,
+        stopExisting: false,
+        workerMode: "sdk",
+      }),
+    /CURSOR_API_KEY/,
+  );
+  probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: true, cli: true, sdk: true }));
 });
 
 test("fleetSpawnPlan does not spawn sdk when mode is ide", () => {
