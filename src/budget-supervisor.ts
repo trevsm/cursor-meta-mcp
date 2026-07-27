@@ -6,6 +6,7 @@ import {
   blockBudget,
   getBudgetSnapshot,
   loadBudgetState,
+  resolveFleetStartedAt,
   type BudgetSnapshot,
   writeBudgetStatus,
 } from "./plan-budget.js";
@@ -96,7 +97,7 @@ export function countActiveWorkers(manifest: FleetManifest | null): number {
 export function evaluateFleetSupervisor(manifest: FleetManifest | null): SupervisorDecision {
   const state = loadBudgetState();
   const activeWorkers = countActiveWorkers(manifest);
-  const fleetStartedAt = manifest?.at ?? state.fleetStartedAt;
+  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
   const snapshot = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
 
   const reasons: string[] = [...snapshot.warnings];

@@ -234,6 +234,14 @@ function usagePercent(state: BudgetState): { percent: number; basis: "plan" | "b
   return { percent: 0, basis: "none" };
 }
 
+/** Stable fleet launch time from budget state; manifest.at is last watcher write, not fleet start. */
+export function resolveFleetStartedAt(
+  manifest: { at?: string } | null | undefined,
+  state: { fleetStartedAt?: string },
+): string | undefined {
+  return state.fleetStartedAt ?? manifest?.at;
+}
+
 export function getBudgetSnapshot(
   state: BudgetState,
   fleet?: { activeWorkers: number; fleetStartedAt?: string },

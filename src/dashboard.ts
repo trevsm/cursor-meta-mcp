@@ -26,7 +26,7 @@ import {
 import { buildWorkerActivity, type WorkerActivityBreakdown } from "./dashboard-activity.js";
 import { buildFleetOverview } from "./dashboard-overview.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
-import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
+import { getBudgetSnapshot, loadBudgetState, resolveFleetStartedAt } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, coerceStopReason, type LongSessionState } from "./long-session.js";
 import { recentRunThoughts, type RunEventRecord } from "./run-events.js";
 import { formatWorldModelForPrompt, listSkills, loadWorldModel, recentEpisodes, type WorldModel } from "./world-model.js";
@@ -626,7 +626,7 @@ export function collectDashboardLiveSnapshot(options?: {
   const manifest = loadFleetManifest(experimentsDir);
   const state = loadBudgetState(join(metaDir, "plan-budget.json"));
   const activeWorkers = countActiveWorkers(manifest);
-  const fleetStartedAt = manifest?.at ?? state.fleetStartedAt;
+  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
   const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
   const watchStatus = readJsonSafe(join(experimentsDir, "watch-status.json"));
   const strategyStatus = readJsonSafe(join(experimentsDir, "strategy-status.json"));
@@ -700,7 +700,7 @@ export function collectDashboardSnapshot(options?: {
   const manifest = loadFleetManifest(experimentsDir);
   const state = loadBudgetState(join(metaDir, "plan-budget.json"));
   const activeWorkers = countActiveWorkers(manifest);
-  const fleetStartedAt = manifest?.at ?? state.fleetStartedAt;
+  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
   const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
   const supervisor = evaluateFleetSupervisor(manifest);
   const watchStatus = readJsonSafe(join(experimentsDir, "watch-status.json"));

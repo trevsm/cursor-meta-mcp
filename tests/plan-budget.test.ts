@@ -16,6 +16,7 @@ import {
   saveBudgetState,
   setPlanUsage,
   resetFleetBudgetClock,
+  resolveFleetStartedAt,
 } from "../src/plan-budget.js";
 
 function tempBudgetPath(): string {
@@ -111,6 +112,14 @@ test("run_complete accumulates duration and estimated cents", () => {
   assert.equal(snapshot.local.sdkDurationMs, 12_000);
   assert.equal(snapshot.local.estimatedCents, 7);
   rmSync(join(path, ".."), { recursive: true, force: true });
+});
+
+test("resolveFleetStartedAt prefers budget fleet clock over manifest refresh time", () => {
+  const started = "2026-07-27T10:00:00.000Z";
+  const refreshed = "2026-07-27T17:14:18.796Z";
+  assert.equal(resolveFleetStartedAt({ at: refreshed }, { fleetStartedAt: started }), started);
+  assert.equal(resolveFleetStartedAt({ at: refreshed }, {}), refreshed);
+  assert.equal(resolveFleetStartedAt(null, { fleetStartedAt: started }), started);
 });
 
 test("resetFleetBudgetClock clears fleet clock and block flags", () => {

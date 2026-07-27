@@ -17,6 +17,7 @@ import {
   summarizeFleetProductivity,
   tailFile,
 } from "../src/dashboard.js";
+import { loadBudgetState, saveBudgetState } from "../src/plan-budget.js";
 import { appendRunEvent } from "../src/run-events.js";
 
 test("readJsonSafe returns null for missing files", () => {
@@ -136,6 +137,29 @@ test("collectDashboardSnapshot reads experiment dir when present", () => {
   assert.equal(snapshot.dedicatedWorker?.sessionIndex, 4);
   assert.ok(snapshot.gitSync);
   assert.ok(snapshot.gitSync.summary);
+});
+
+test("collectDashboardSnapshot fleetRuntime uses budget fleetStartedAt not manifest refresh", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-runtime-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  const budgetPath = join(metaDir, "plan-budget.json");
+  const fleetStartedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [],
+      watcherPid: -1,
+      strategyReviewerPid: -1,
+    }),
+  );
+  saveBudgetState({ ...loadBudgetState(budgetPath), fleetStartedAt }, budgetPath);
+
+  const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
+  assert.ok(snapshot.fleetRuntime);
+  assert.ok(snapshot.fleetRuntime!.elapsedMs >= 59 * 60_000);
+  assert.ok(snapshot.fleetRuntime!.elapsedMs < 65 * 60_000);
 });
 
 test("collectDashboardSnapshot marks staleManifest when fleet dead and manifest old", () => {
