@@ -183,3 +183,35 @@ test("buildFleetOverview normalizes raw sdk stream status text", () => {
   assert.match(overview.headline, /tick 3 in progress/i);
   assert.match(overview.paragraph, /running tick 3/i);
 });
+
+test("buildFleetOverview reports productivity gate misses", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "idle",
+        statusText: "Tick 8 complete, awaiting next interval",
+        ticksCompleted: 8,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: {
+      workerCount: 1,
+      totalTicks: 8,
+      attemptedTicks: 8,
+      productiveTicks: 1,
+      productiveRatio: 0.125,
+      meetsGate: false,
+      gatePercent: 30,
+    },
+  });
+
+  assert.match(overview.paragraph, /Only 1 of 8 attempted ticks were productive \(13%, below the 30% gate\)/);
+});
