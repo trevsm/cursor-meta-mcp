@@ -172,6 +172,37 @@ test("buildWorkerActivity maps assistant and status live event kinds", () => {
   assert.ok(kinds.includes("status"));
 });
 
+test("buildWorkerActivity ignores live events from other agent ids", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-other-"));
+  appendRunEvent(
+    "run-shared",
+    { type: "thinking", message: "Other worker thought" },
+    { metaDir, agentId: "agent-other", label: "self-improve-fleet" },
+  );
+  appendRunEvent(
+    "run-shared",
+    { type: "thinking", message: "My worker thought" },
+    { metaDir, agentId: "agent-mine", label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId: "agent-mine",
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.liveEvents.length, 1);
+  assert.match(rows[0]?.liveEvents[0]?.text ?? "", /My worker thought/);
+});
+
 test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const errorRows = buildWorkerActivity([
     {
