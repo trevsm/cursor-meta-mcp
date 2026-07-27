@@ -8,7 +8,14 @@ import { waitForChatSession } from "./chat-activity.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { createIdeChat } from "./ide-chat-control.js";
 import { getSessionIndexForId } from "./history-store.js";
-import { DEFAULT_LONG_SESSION_PROMPT, spawnLongSession, type LongSessionParams } from "./long-session.js";
+import { stopFleetProcesses } from "./fleet-control.js";
+import {
+  formatGitSyncStatusForPrompt,
+  getGitSyncStatus,
+  gitFetch,
+  SELF_IMPROVE_GIT_RULES,
+} from "./git-sync.js";
+import { spawnLongSession, type LongSessionParams } from "./long-session.js";
 import {
   assertBudgetAllowed,
   defaultBudgetLimits,
@@ -36,6 +43,10 @@ export interface SelfImproveParams {
   goal?: string;
   metaDir?: string;
   prompt?: string;
+  /** Stop any prior fleet from manifest before launching (default true). */
+  stopExisting?: boolean;
+  /** Max wait for dedicated chat in SQLite after create (default 120s). */
+  dedicatedChatWaitMs?: number;
 }
 
 export interface SelfImproveExperiment {
@@ -63,13 +74,22 @@ export interface SelfImproveManifest {
 const DEFAULT_WORKER_SESSIONS: number[] = [];
 const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 
+export const SELF_IMPROVE_BASE_PROMPT = [
+  "Keep going. Do not stop or ask the user for moves.",
+  "Self-improve this codebase autonomously: fix bugs, add tests, tighten heuristics, verify with npm test.",
+  "Minimize scope per tick; ship small verified improvements.",
+  "When idle, pick the highest-value next improvement and execute it.",
+].join(" ");
+
 function packageRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
 /** Enrich worker prompt with live pulse signals so workers avoid duplicate/meta work. */
 export function buildSelfImprovePrompt(cwd: string, base?: string): string {
-  const lines = [base?.trim() || DEFAULT_LONG_SESSION_PROMPT, ""];
+  const lines = [base?.trim() || SELF_IMPROVE_BASE_PROMPT, ""];
+  const gitStatus = getGitSyncStatus(cwd);
+  lines.push(formatGitSyncStatusForPrompt(gitStatus), "");
 
   try {
     const workspaceHint = basename(cwd.trim()) || cwd;
@@ -100,7 +120,7 @@ export function buildSelfImprovePrompt(cwd: string, base?: string): string {
 
   lines.push(
     "Rules: no user questions, no architecture theater, npm test before claiming done.",
-    "Each tick: one high-value improvement → verify with npm test. Do not commit unless asked.",
+    SELF_IMPROVE_GIT_RULES,
   );
 
   return lines.join("\n");
@@ -156,8 +176,14 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
     throw new Error("cwd is required.");
   }
 
+  gitFetch(cwd);
+
   const metaDir = params.metaDir ?? join(homedir(), ".cursor-meta", "experiments");
   mkdirSync(metaDir, { recursive: true });
+
+  if (params.stopExisting ?? true) {
+    stopFleetProcesses(metaDir);
+  }
 
   const durationMs = params.durationMs ?? DEFAULT_DURATION_MS;
   const exclude = params.excludeSessionIndex ?? 1;
@@ -171,9 +197,22 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
   const prompt = buildSelfImprovePrompt(cwd, params.prompt);
 
   const { sessionId } = await createIdeChat();
-  await waitForChatSession(sessionId, { timeoutMs: 45_000 });
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  const dedicatedIndex = getSessionIndexForId(sessionId);
+  const dedicatedWaitMs = params.dedicatedChatWaitMs ?? 120_000;
+  try {
+    await waitForChatSession(sessionId, { timeoutMs: dedicatedWaitMs, pollMs: 1000 });
+  } catch {
+    // Fresh IDE chats often lag in SQLite; long-session soft-skips until they appear.
+  }
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  let dedicatedIndex = getSessionIndexForId(sessionId);
+  if (dedicatedIndex == null) {
+    try {
+      await waitForChatSession(sessionId, { timeoutMs: 30_000, pollMs: 1000 });
+      dedicatedIndex = getSessionIndexForId(sessionId);
+    } catch {
+      /* still proceed with sessionId only */
+    }
+  }
 
   writeFileSync(
     join(metaDir, "dedicated-worker.json"),

@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import type {
@@ -80,6 +84,7 @@ const baseContext: StrategyContext = {
   successCriteria: DEFAULT_SELF_IMPROVE_CRITERIA,
   cwd: "/tmp/project",
   gitDiffStat: "(no uncommitted changes)",
+  gitSyncSummary: "Git state: branch=main — clean and synced with origin.",
   transcriptTail: "Let's discuss the mental model and architecture vision.",
   pulseSummary: "live=2 frustration=0 matrix=1",
   workerSummary: "worker-session-2 #2: ticks=3 errors=0 stopped=running last=ok",
@@ -100,6 +105,7 @@ test("buildStrategyReviewPrompt includes mission and git diff", () => {
   assert.match(prompt, /strategy critic/i);
   assert.match(prompt, /Autonomously improve/);
   assert.match(prompt, /transcript tail/);
+  assert.match(prompt, /Git sync/);
   assert.match(prompt, /"onTrack"/);
 });
 
@@ -177,4 +183,32 @@ test("runStrategyReview merges heuristic and llm verdicts", async () => {
   assert.equal(result.source, "heuristic+llm");
   assert.equal(result.verdict.onTrack, false);
   assert.ok(result.verdict.kill.includes(9));
+});
+
+function initRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-review-"));
+  execFileSync("git", ["init", "-b", "main"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "Test User"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "hello\n");
+  execFileSync("git", ["add", "README.md"], { cwd: dir });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: dir });
+  return dir;
+}
+
+test("heuristicStrategyReview flags uncommitted work after concrete progress", () => {
+  const cwd = initRepo();
+  writeFileSync(join(cwd, "change.txt"), "done\n");
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      cwd,
+      gitDiffStat: " change.txt | 1 +",
+      gitSyncSummary: "dirty",
+    },
+    "Implemented fix and npm test passes.",
+  );
+  assert.equal(verdict.onTrack, false);
+  assert.ok(verdict.issues.includes("uncommitted_work"));
+  assert.match(verdict.pivot ?? "", /commit/i);
 });

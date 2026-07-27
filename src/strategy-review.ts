@@ -8,6 +8,7 @@ import { getChatById, getChatByIndex } from "./history-store.js";
 import { loadSessionSummary, loadSessionSummaryById } from "./history.js";
 import { isMetaDiscussion, isStrategySessionTitle } from "./meta-discussion.js";
 import { defaultSuccessCriteria } from "./mission.js";
+import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
 
 export interface StrategySpawnPlan {
   role: string;
@@ -45,6 +46,7 @@ export interface StrategyContext {
   successCriteria: string[];
   cwd: string;
   gitDiffStat: string;
+  gitSyncSummary: string;
   transcriptTail: string;
   pulseSummary: string;
   workerSummary: string;
@@ -158,6 +160,7 @@ export function gatherStrategyContext(params: StrategyReviewParams): StrategyCon
     successCriteria,
     cwd,
     gitDiffStat: gitDiffStat(cwd),
+    gitSyncSummary: formatGitSyncStatusForPrompt(getGitSyncStatus(cwd)),
     transcriptTail: "", // filled async in runStrategyReview
     pulseSummary: summarizePulse(workspaceHint),
     workerSummary: summarizeWorkers(params.workerCheckpoints),
@@ -177,6 +180,9 @@ export function buildStrategyReviewPrompt(context: StrategyContext, transcriptTa
     "",
     "## Git diff stat",
     context.gitDiffStat,
+    "",
+    "## Git sync",
+    context.gitSyncSummary,
     "",
     "## Recent transcript",
     transcriptTail,
@@ -295,6 +301,23 @@ export function heuristicStrategyReview(
     issues.push("no_code_progress");
   }
 
+  const gitStatus = getGitSyncStatus(context.cwd);
+  if (gitStatus.available && gitStatus.dirty && CONCRETE_PROGRESS.test(transcriptTail)) {
+    score -= 15;
+    issues.push("uncommitted_work");
+    pivot =
+      pivot ??
+      "Tests passed but work is uncommitted. Stage only your changes (skip .env and .tmp-*), commit with a clear message, then push.";
+  }
+
+  if (gitStatus.available && gitStatus.unpushed) {
+    score -= 10;
+    issues.push("unpushed_commits");
+    pivot =
+      pivot ??
+      `Push ${gitStatus.ahead} local commit(s) to origin/${gitStatus.branch} before starting new features.`;
+  }
+
   if (/parallel .+: [3-9]\d* tabs/.test(context.pulseSummary)) {
     score -= 15;
     issues.push("fragmented_parallel_tabs");
@@ -329,7 +352,11 @@ export function heuristicStrategyReview(
         ? "Pivot from architecture to one small verified diff."
         : issues.includes("no_code_progress")
           ? "Force a code change with npm test verification this tick."
-          : "Adjust fleet topology or worker prompts.";
+          : issues.includes("uncommitted_work")
+            ? "Commit verified changes before starting new work."
+            : issues.includes("unpushed_commits")
+              ? "Push local commits to origin before starting new work."
+              : "Adjust fleet topology or worker prompts.";
 
   return {
     onTrack,
@@ -404,6 +431,7 @@ export const DEFAULT_SELF_IMPROVE_GOAL =
 
 export const DEFAULT_SELF_IMPROVE_CRITERIA = [
   "Each worker ships small verified diffs — npm test passes before claiming done.",
+  "Verified diffs are committed and pushed — origin stays current.",
   "No architecture theater or meta-discussion loops.",
   "Workers avoid duplicating the same stuck task across parallel tabs.",
   "Orchestrator keeps fleet moving without touching the conductor session.",

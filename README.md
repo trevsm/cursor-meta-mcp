@@ -231,6 +231,17 @@ Heuristics always run (no API key needed). When `CURSOR_API_KEY` is set, an LLM 
 
 CLI: `npm run strategy-review -- --cwd . --once`
 
+### Fleet dashboard
+
+Local web UI for fleet visibility — budget, processes, live pulse, strategy review, and log tails:
+
+```bash
+npm run dashboard
+# → http://127.0.0.1:3847
+```
+
+Reads `~/.cursor-meta/experiments/` and refreshes every 4 seconds. Options: `--port 3847`, `--workspace cursor-meta-mcp`, `--meta-dir ~/.cursor-meta`.
+
 CLI: `npm run experiments` (uses `tsx` so source changes apply without rebuilding `dist/`).
 
 ### Session indexes

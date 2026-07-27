@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=79 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --test-coverage-exclude=src/history-store.ts --test-coverage-exclude=src/chat-activity.ts --test-coverage-exclude=src/agent-cli.ts --import tsx tests/**/*.test.ts",
+    "test": "node --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=79 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --test-coverage-exclude=src/history-store.ts --test-coverage-exclude=src/chat-activity.ts --test-coverage-exclude=src/agent-cli.ts --test-coverage-exclude=src/relentless-loop.ts --import tsx tests/**/*.test.ts",
     "test:coverage": "npm test",
     "test:logged": "node scripts/run-tests-logged.mjs",
     "sentiment": "node scripts/sentiment-analysis.mjs",
@@ -26,7 +26,8 @@
     "long-session": "node --import tsx scripts/long-session.mjs",
     "experiments": "node --import tsx scripts/launch-experiments.mjs",
     "watch-experiments": "node --import tsx scripts/watch-experiments.mjs",
-    "strategy-review": "node --import tsx scripts/strategy-review-loop.mjs --once"
+    "strategy-review": "node --import tsx scripts/strategy-review-loop.mjs --once",
+    "dashboard": "node --import tsx scripts/dashboard-server.mjs"
   },
   "keywords": [
     "mcp",

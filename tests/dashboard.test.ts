@@ -1,0 +1,117 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+import {
+  buildExperimentRows,
+  collectDashboardSnapshot,
+  defaultExperimentsDir,
+  listLogSources,
+  pidAlive,
+  readJsonSafe,
+  tailFile,
+} from "../src/dashboard.js";
+
+test("readJsonSafe returns null for missing files", () => {
+  assert.equal(readJsonSafe("/tmp/does-not-exist-dashboard.json"), null);
+});
+
+test("tailFile returns last lines", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dashboard-tail-"));
+  const path = join(dir, "sample.log");
+  writeFileSync(path, "a\nb\nc\nd\n");
+  assert.equal(tailFile(path, 2), "c\nd");
+});
+
+test("listLogSources finds experiment logs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dashboard-logs-"));
+  writeFileSync(join(dir, "orchestrator.log"), "hello\n");
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  const logs = listLogSources(dir);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0]?.name, "orchestrator");
+});
+
+test("buildExperimentRows merges watch checkpoint data", () => {
+  const rows = buildExperimentRows(
+    [{ name: "worker-dedicated", pid: 42, checkpointPath: "/tmp/x.json" }],
+    {
+      experiments: [
+        {
+          name: "worker-dedicated",
+          alive: false,
+          checkpoint: { exists: true, ticks: 2, stoppedBecause: "error" },
+        },
+      ],
+    },
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.alive, false);
+  assert.equal(rows[0]?.checkpoint?.ticks, 2);
+});
+
+test("pidAlive detects current process", () => {
+  assert.equal(pidAlive(process.pid), true);
+  assert.equal(pidAlive(-1), false);
+});
+
+test("collectDashboardSnapshot reads experiment dir when present", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-meta-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [],
+      watcherPid: -1,
+      strategyReviewerPid: -1,
+    }),
+  );
+  writeFileSync(
+    join(experimentsDir, "dedicated-worker.json"),
+    JSON.stringify({ sessionId: "dddddddd-dddd-dddd-dddd-dddddddddddd", sessionIndex: 4 }),
+  );
+  const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
+  assert.equal(snapshot.metaDir, metaDir);
+  assert.ok(snapshot.budget);
+  assert.ok(snapshot.fleetHealth);
+  assert.equal(snapshot.fleetHealth.watcherAlive, false);
+  assert.equal(snapshot.fleetHealth.strategyReviewerAlive, false);
+  assert.equal(snapshot.dedicatedWorker?.sessionIndex, 4);
+});
+
+test("collectDashboardSnapshot marks staleManifest when fleet dead and manifest old", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-stale-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  const staleAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: staleAt,
+      experiments: [{ name: "worker-dedicated", pid: 99_999_999 }],
+    }),
+  );
+  const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
+  assert.equal(snapshot.fleetHealth.alive, 0);
+  assert.equal(snapshot.fleetHealth.staleManifest, true);
+});
+
+test("collectDashboardSnapshot does not mark staleManifest for fresh dead fleet", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-fresh-dead-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [{ name: "worker-dedicated", pid: 99_999_999 }],
+    }),
+  );
+  const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
+  assert.equal(snapshot.fleetHealth.alive, 0);
+  assert.equal(snapshot.fleetHealth.staleManifest, false);
+});

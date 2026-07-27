@@ -27,6 +27,8 @@ export interface FleetManifest {
   goal?: string;
   experiments: FleetExperiment[];
   watcherPid?: number;
+  /** Top-level strategy reviewer pid (also listed under experiments). */
+  strategyReviewerPid?: number;
   budgetBlocked?: boolean;
   budgetBlockedAt?: string;
   budgetBlockedReason?: string;
