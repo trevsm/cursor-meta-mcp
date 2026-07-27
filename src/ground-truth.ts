@@ -17,7 +17,7 @@ export interface GroundTruthAudit extends CompletionClaims {
 const DONE_CLAIM =
   /\b(all done|task (?:is )?complete|ready to merge|should work now(?! that)|this is done|finished(?:\.|!|$)|work is finished)\b/i;
 const TESTS_PASS_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )\b(?:all tests pass(?:ed)?|(?<!\ball )tests pass(?:ed)?|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )\b(?:all tests pass(?:ed)?|(?<!\ball )tests pass(?:ed)?|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
 const COMMIT_CLAIM =
   /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\bcommitted\b/i;
 const PUSH_CLAIM =
