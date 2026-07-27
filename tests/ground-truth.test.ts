@@ -47,6 +47,13 @@ test("detectCompletionClaims ignores procedural git language in prompts", () => 
   assert.equal(detectCompletionClaims("Each tick: git commit → git push.").claimedPushed, false);
 });
 
+test("detectCompletionClaims ignores speculative should-work-now phrasing", () => {
+  const claims = detectCompletionClaims("This should work now that tests pass.");
+  assert.equal(claims.claimedDone, false);
+  assert.equal(claims.claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("Should work now.").claimedDone, true);
+});
+
 test("detectCompletionClaims ignores haven't/didn't commit and imperative complete", () => {
   assert.equal(detectCompletionClaims("I haven't committed these changes.").claimedCommitted, false);
   assert.equal(detectCompletionClaims("I didn't commit yet.").claimedCommitted, false);
