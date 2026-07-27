@@ -17,6 +17,7 @@ import {
   summarizeFleetProductivity,
   tailFile,
 } from "../src/dashboard.js";
+import { appendRunEvent } from "../src/run-events.js";
 
 test("readJsonSafe returns null for missing files", () => {
   assert.equal(readJsonSafe("/tmp/does-not-exist-dashboard.json"), null);
@@ -228,6 +229,47 @@ test("collectSpawnThoughts includes worker tails and live chats", () => {
   });
   assert.ok(thoughts.some((thought) => thought.source === "worker" && thought.text.includes("Refactoring")));
   assert.ok(thoughts.some((thought) => thought.source === "chat" && thought.text.includes("styles.css")));
+});
+
+test("collectSpawnThoughts labels sdk runs from worker agent index", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-sdk-thoughts-"));
+  const agentId = "agent-aa63128c-95ef-443b-8b99-a8e80203316a";
+  appendRunEvent(
+    "run-fleet-1",
+    { type: "assistant", message: "Committed ground-truth fix." },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const thoughts = collectSpawnThoughts({
+    metaDir,
+    experiments: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: {
+          exists: true,
+          ticks: 3,
+          lastTick: { tick: 3, at: new Date().toISOString(), agentId },
+        },
+      },
+    ],
+    pulse: {
+      at: new Date().toISOString(),
+      scanned: 0,
+      live: [],
+      frustrationEvents: [],
+      orchestrationMatrix: [],
+      parallelWorkspaces: [],
+    },
+  });
+
+  const sdkThought = thoughts.find((thought) => thought.source === "sdk-run");
+  assert.ok(sdkThought);
+  assert.match(sdkThought?.label ?? "", /Self-improve worker #1 · tick 3/);
+  assert.match(sdkThought?.text ?? "", /Committed ground-truth fix/);
 });
 
 test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
