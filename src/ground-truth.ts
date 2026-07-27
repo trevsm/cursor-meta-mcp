@@ -17,11 +17,11 @@ export interface GroundTruthAudit extends CompletionClaims {
 const DONE_CLAIM =
   /\b(all done|task (?:is )?complete|ready to merge|should work now|this is done|finished(?:\.|!|$)|work is finished)\b/i;
 const TESTS_PASS_CLAIM =
-  /\b(tests pass(?:ed)?|all tests pass|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )\b(tests pass(?:ed)?|all tests pass|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
 const COMMIT_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(committed|git commit)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\bcommitted\b/i;
 const PUSH_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(pushed to origin|git push(?:ed)?|pushed)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(pushed to origin|pushed)\b/i;
 
 /** Extract completion claims from the assistant tail of a tick. */
 export function detectCompletionClaims(text: string | undefined): CompletionClaims {
