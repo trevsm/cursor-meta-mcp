@@ -463,6 +463,22 @@ test("buildWorkerActivity maps orchestrator role and stopped strategy reviewer",
   assert.equal(strategy?.statusText, "Stopped");
 });
 
+test("buildWorkerActivity marks stopped orchestrator as dead", () => {
+  const rows = buildWorkerActivity([
+    {
+      name: "orchestrator-loop",
+      displayName: "Pulse orchestrator",
+      pid: 13,
+      alive: false,
+      checkpoint: { exists: false },
+    },
+  ]);
+
+  assert.equal(rows[0]?.status, "dead");
+  assert.equal(rows[0]?.statusText, "Stopped");
+  assert.match(rows[0]?.role ?? "", /Pulse orchestrator/i);
+});
+
 test("buildWorkerActivity marks stopped fleet watcher as dead", () => {
   const rows = buildWorkerActivity([
     {
