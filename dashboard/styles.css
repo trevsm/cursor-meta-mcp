@@ -105,6 +105,26 @@ main {
 
 .live-meta { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 
+.fleet-overview {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #dce3ee;
+  max-width: 72ch;
+}
+
+.summary-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 10px;
+  user-select: none;
+}
+
+.summary-details[open] summary {
+  margin-bottom: 12px;
+}
+
 .live-indicator {
   display: inline-flex;
   align-items: center;
@@ -227,11 +247,58 @@ main {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-2);
-  padding: 14px;
+  overflow: hidden;
 }
 
 .worker-card.active { border-color: rgba(61, 214, 140, 0.35); }
 .worker-card.error { border-color: rgba(240, 113, 120, 0.35); }
+
+.worker-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px;
+  user-select: none;
+}
+
+.worker-summary::-webkit-details-marker { display: none; }
+
+.worker-summary:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.worker-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.worker-chevron {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.worker-card[open] > .worker-summary .worker-chevron {
+  transform: rotate(45deg);
+  margin-top: 3px;
+}
+
+.worker-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.worker-expand-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
 
 .worker-head {
   display: flex;
@@ -255,7 +322,7 @@ main {
 .worker-status {
   font-size: 13px;
   line-height: 1.5;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   color: #d8dee9;
 }
 
@@ -263,7 +330,8 @@ main {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  margin-top: 10px;
+  margin-bottom: 0;
 }
 
 .stat-chip {
@@ -278,6 +346,7 @@ main {
 .tick-list {
   display: grid;
   gap: 8px;
+  padding-top: 12px;
 }
 
 .tick-row {

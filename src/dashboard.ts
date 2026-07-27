@@ -24,6 +24,7 @@ import {
   type FleetTickMetrics,
 } from "./fleet-metrics.js";
 import { buildWorkerActivity, type WorkerActivityBreakdown } from "./dashboard-activity.js";
+import { buildFleetOverview } from "./dashboard-overview.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
 import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, coerceStopReason, type LongSessionState } from "./long-session.js";
@@ -91,6 +92,8 @@ export interface ActiveSummaryLine {
 export interface ActiveSummary {
   at: string;
   headline: string;
+  overview: string;
+  status: "ok" | "warn" | "bad" | "idle";
   lines: ActiveSummaryLine[];
 }
 
@@ -498,7 +501,7 @@ export function buildActiveSummary(input: {
   else if (pulse?.live.length) headline = `${pulse.live.length} live chat${pulse.live.length === 1 ? "" : "s"}`;
   else headline = "Fleet running smoothly";
 
-  return { at: new Date().toISOString(), headline, lines: lines.slice(0, 12) };
+  return { at: new Date().toISOString(), headline, overview: "", status: "idle" as const, lines: lines.slice(0, 12) };
 }
 
 export function collectSpawnThoughts(input: {
@@ -645,7 +648,7 @@ export function collectDashboardLiveSnapshot(options?: {
   const workerActivity = buildWorkerActivity(experiments, { metaDir, strategyStatus });
   const worldModel = loadWorldModel(metaDir);
   const episodes = recentEpisodes(metaDir, 8);
-  const activeSummary = buildActiveSummary({
+  const activeSummaryBase = buildActiveSummary({
     fleetHealth,
     manifest,
     budget,
@@ -656,6 +659,19 @@ export function collectDashboardLiveSnapshot(options?: {
     worldModel,
     recentEpisodes: episodes,
   });
+  const overview = buildFleetOverview({
+    fleetHealth,
+    manifest,
+    strategyStatus,
+    workerActivity,
+    productivity: summarizeFleetProductivity(experiments),
+  });
+  const activeSummary: ActiveSummary = {
+    ...activeSummaryBase,
+    headline: overview.headline,
+    overview: overview.paragraph,
+    status: overview.status,
+  };
 
   return {
     at: new Date().toISOString(),

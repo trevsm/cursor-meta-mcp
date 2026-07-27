@@ -28,6 +28,7 @@ const badge = (kind) => `<span class="badge ${kind}">${kind}</span>`;
 
 let fullData = null;
 let lastLiveAt = null;
+const workerCardOpen = new Map();
 
 async function loadLog(name) {
   if (!name) return;
@@ -44,6 +45,9 @@ function fleetState(fh) {
 
 function renderWorkerActivity(rows) {
   const el = document.getElementById("worker-activity");
+  for (const detail of el.querySelectorAll("details.worker-card")) {
+    if (detail.dataset.worker) workerCardOpen.set(detail.dataset.worker, detail.open);
+  }
   if (!rows?.length) {
     el.innerHTML = '<div class="empty">No workers in manifest</div>';
     return;
@@ -80,19 +84,42 @@ function renderWorkerActivity(rows) {
         .filter(Boolean)
         .map((s) => `<span class="stat-chip">${escapeHtml(s)}</span>`)
         .join("");
-      return `<article class="worker-card ${worker.status}">
-        <div class="worker-head">
-          <div>
-            <div class="worker-title">${escapeHtml(worker.displayName)}</div>
-            <div class="worker-role">${escapeHtml(worker.role)}</div>
+      const tickCount = worker.recentTicks?.length ?? 0;
+      const detailHint =
+        tickCount > 0
+          ? `${tickCount} recent tick${tickCount === 1 ? "" : "s"}${events ? " · live stream" : ""}`
+          : events
+            ? "Live stream"
+            : "";
+      const defaultOpen = false;
+      const open = workerCardOpen.has(worker.name) ? workerCardOpen.get(worker.name) : defaultOpen;
+      const body =
+        ticks || events
+          ? `<div class="worker-body">
+              ${ticks ? `<div class="tick-list">${ticks}</div>` : ""}
+              ${events ? `<div class="live-events"><h4>Live stream</h4>${events}</div>` : ""}
+            </div>`
+          : "";
+      return `<details class="worker-card ${worker.status}" data-worker="${escapeHtml(worker.name)}"${
+        open ? " open" : ""
+      }>
+        <summary class="worker-summary">
+          <div class="worker-head">
+            <div class="worker-head-main">
+              <span class="worker-chevron" aria-hidden="true"></span>
+              <div>
+                <div class="worker-title">${escapeHtml(worker.displayName)}</div>
+                <div class="worker-role">${escapeHtml(worker.role)}</div>
+              </div>
+            </div>
+            ${pill(worker.status === "active" ? "alive" : worker.status === "error" ? "bad" : worker.alive ? "ok" : "dead")}
           </div>
-          ${pill(worker.status === "active" ? "alive" : worker.status === "error" ? "bad" : worker.alive ? "ok" : "dead")}
-        </div>
-        <div class="worker-status">${escapeHtml(worker.statusText)}</div>
-        ${stats ? `<div class="worker-stats">${stats}</div>` : ""}
-        ${ticks ? `<div class="tick-list">${ticks}</div>` : ""}
-        ${events ? `<div class="live-events"><h4>Live stream</h4>${events}</div>` : ""}
-      </article>`;
+          <div class="worker-status">${escapeHtml(worker.statusText)}</div>
+          ${stats ? `<div class="worker-stats">${stats}</div>` : ""}
+          ${detailHint ? `<div class="worker-expand-hint">${escapeHtml(detailHint)}</div>` : ""}
+        </summary>
+        ${body}
+      </details>`;
     })
     .join("");
 }
@@ -101,6 +128,8 @@ function renderLive(data) {
   lastLiveAt = data.at;
   const summary = data.activeSummary ?? {};
   document.getElementById("summary-headline").textContent = summary.headline ?? "Standing by";
+  document.getElementById("fleet-overview").textContent =
+    summary.overview ?? "Waiting for fleet status…";
   document.getElementById("summary-meta").textContent =
     `Updated ${fmtTime(summary.at ?? data.at)} · ${data.liveChatCount ?? 0} live chats`;
 
@@ -138,7 +167,8 @@ function renderLive(data) {
     : '<div class="empty">No spawn thoughts yet — workers and SDK runs will appear here</div>';
 
   const state = fleetState(data.fleetHealth);
-  document.getElementById("brand-dot").className = `brand-dot ${state}`;
+  const overviewStatus = summary.status ?? state;
+  document.getElementById("brand-dot").className = `brand-dot ${overviewStatus === "idle" ? state : overviewStatus}`;
 }
 
 function renderFull(data) {
