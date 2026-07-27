@@ -33,11 +33,22 @@ export interface WorkerCheckpointState {
   startedAt?: string;
 }
 
-export function analyzeWorkerCheckpoint(path: string | undefined): FleetTickMetrics | null {
+export function analyzeWorkerCheckpoint(
+  path: string | undefined,
+  options?: { sessionStartedAt?: string },
+): FleetTickMetrics | null {
   if (!path || !existsSync(path)) return null;
   try {
     const state = JSON.parse(readFileSync(path, "utf8")) as WorkerCheckpointState;
-    const ticks = state.ticks ?? [];
+    const sessionStartMs = options?.sessionStartedAt
+      ? Date.parse(options.sessionStartedAt)
+      : state.startedAt
+        ? Date.parse(state.startedAt)
+        : NaN;
+    let ticks = state.ticks ?? [];
+    if (Number.isFinite(sessionStartMs)) {
+      ticks = ticks.filter((tick) => !tick.at || Date.parse(tick.at) >= sessionStartMs);
+    }
     const outcomes = ticks
       .map((tick) => tick.outcome)
       .filter((outcome): outcome is NonNullable<typeof outcome> => outcome != null);
@@ -45,6 +56,8 @@ export function analyzeWorkerCheckpoint(path: string | undefined): FleetTickMetr
     const errors = ticks.filter((tick) => tick.error && tick.skipped == null).length;
     const softSkips = ticks.filter((tick) => tick.skipped != null).length;
     const last = ticks.at(-1);
+    const stoppedBecause =
+      ticks.length === 0 && state.stoppedBecause ? undefined : state.stoppedBecause;
     return {
       ticks: ticks.length,
       productiveTicks,
@@ -54,7 +67,7 @@ export function analyzeWorkerCheckpoint(path: string | undefined): FleetTickMetr
       errors,
       softSkips,
       testFailures: outcomes.filter((outcome) => outcome.tests && outcome.tests.passed === false).length,
-      stoppedBecause: state.stoppedBecause,
+      stoppedBecause,
       lastTickAt: last?.at,
       lastError: last?.error,
       lastCommitted: last?.outcome?.committed === true,
@@ -80,12 +93,26 @@ export function isWorkerStalled(params: {
   if (!params.pidAlive || !params.checkpointPath || !existsSync(params.checkpointPath)) {
     return false;
   }
-  const metrics = analyzeWorkerCheckpoint(params.checkpointPath);
+  let sessionStartedAt: string | undefined;
+  try {
+    const state = JSON.parse(readFileSync(params.checkpointPath, "utf8")) as WorkerCheckpointState;
+    sessionStartedAt = state.startedAt;
+  } catch {
+    /* fall through */
+  }
+  const metrics = analyzeWorkerCheckpoint(params.checkpointPath, { sessionStartedAt });
   const stallMs = params.stallMs ?? 90 * 60_000;
   const mtime = statSync(params.checkpointPath).mtimeMs;
   const lastTickMs = metrics?.lastTickAt ? Date.parse(metrics.lastTickAt) : NaN;
-  const silentMs = Date.now() - Math.max(mtime, Number.isFinite(lastTickMs) ? lastTickMs : 0);
+  const sessionStartMs = sessionStartedAt ? Date.parse(sessionStartedAt) : NaN;
+  const baselineMs = Math.max(
+    mtime,
+    Number.isFinite(lastTickMs) ? lastTickMs : 0,
+    Number.isFinite(sessionStartMs) ? sessionStartMs : 0,
+  );
+  const silentMs = Date.now() - baselineMs;
   if (silentMs < stallMs) return false;
+  if ((metrics?.ticks ?? 0) === 0) return false;
   return !metrics || metrics.productiveRatio === 0;
 }
 

@@ -156,3 +156,39 @@ test("isWorkerStalled detects silent zero-productivity workers", () => {
   assert.equal(isWorkerStalled({ pidAlive: true, checkpointPath: path, stallMs: 60_000 }), true);
   assert.equal(isWorkerStalled({ pidAlive: true, checkpointPath: path, stallMs: 10 * 60 * 60_000 }), false);
 });
+
+test("analyzeWorkerCheckpoint ignores ticks before session start", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fleet-metrics-session-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      startedAt: "2026-07-27T15:00:00.000Z",
+      stoppedBecause: "duration",
+      ticks: [
+        { at: "2026-07-27T11:00:00.000Z", error: "stale" },
+        {
+          at: "2026-07-27T15:01:00.000Z",
+          outcome: { producedWork: true, committed: true, commits: 1, filesChanged: 1 },
+        },
+      ],
+    }),
+  );
+  const metrics = analyzeWorkerCheckpoint(path);
+  assert.equal(metrics?.ticks, 1);
+  assert.equal(metrics?.productiveTicks, 1);
+  assert.equal(metrics?.stoppedBecause, "duration");
+});
+
+test("isWorkerStalled ignores fresh workers with no session ticks yet", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fleet-metrics-fresh-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      startedAt: new Date().toISOString(),
+      ticks: [],
+    }),
+  );
+  assert.equal(isWorkerStalled({ pidAlive: true, checkpointPath: path, stallMs: 60_000 }), false);
+});

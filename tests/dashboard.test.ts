@@ -14,6 +14,7 @@ import {
   listLogSources,
   pidAlive,
   readJsonSafe,
+  summarizeFleetProductivity,
   tailFile,
 } from "../src/dashboard.js";
 
@@ -213,4 +214,41 @@ test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
   assert.ok(Array.isArray(live.spawnThoughts));
   assert.ok(live.fleetHealth);
   assert.ok(live.worldModel);
+});
+
+test("summarizeFleetProductivity aggregates worker checkpoints", () => {
+  const productivity = summarizeFleetProductivity([
+    {
+      name: "sdk-worker-1",
+      pid: 1,
+      alive: true,
+      checkpoint: {
+        exists: true,
+        ticks: 2,
+        productiveTicks: 1,
+        productiveRatio: 0.5,
+        metrics: {
+          ticks: 2,
+          productiveTicks: 1,
+          productiveRatio: 0.5,
+          commits: 1,
+          filesChanged: 1,
+          errors: 0,
+          softSkips: 0,
+          testFailures: 0,
+          lastCommitted: true,
+        },
+      },
+    },
+    {
+      name: "strategy-review-loop",
+      pid: 2,
+      alive: true,
+    },
+  ]);
+  assert.ok(productivity);
+  assert.equal(productivity?.totalTicks, 2);
+  assert.equal(productivity?.productiveTicks, 1);
+  assert.equal(productivity?.productiveRatio, 0.5);
+  assert.equal(productivity?.meetsGate, false);
 });

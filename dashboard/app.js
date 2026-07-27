@@ -128,11 +128,17 @@ function renderFull(data) {
   const ticks = data.budget?.local?.ideTicks ?? 0;
   const planPct = data.budget?.plan?.percent;
   const fleetPct = data.budget?.fleet?.percentOfMaxDuration;
+  const prod = data.fleetProductivity;
+  const prodLabel =
+    prod && prod.totalTicks > 0
+      ? `${(prod.productiveRatio * 100).toFixed(0)}% (${prod.productiveTicks}/${prod.totalTicks})`
+      : "—";
 
   document.getElementById("metrics").innerHTML = [
     metric("Spend", `$${(cents / 100).toFixed(2)}`, data.budget?.warnings?.[0] ?? ""),
     metric("Spawns/hr", String(spawns), `cap ${data.budget?.limits?.maxSpawnsPerHour ?? "?"}`),
     metric("IDE ticks", String(ticks)),
+    metric("Productive", prodLabel, prod ? `gate ${prod.gatePercent}%` : ""),
     metric("Git", gs.dirty ? "dirty" : gs.unpushed ? "unpushed" : "clean", gs.branch || "?"),
     metric("Plan", planPct != null ? `${planPct.toFixed(1)}%` : "—"),
     metric("Blocked", blocked, data.manifest?.budgetBlockedReason ?? ""),
@@ -147,6 +153,9 @@ function renderFull(data) {
         const notes = [
           exp.relaunchCount ? `relaunch ×${exp.relaunchCount}` : "",
           cp.stoppedBecause ? `stopped: ${cp.stoppedBecause}` : "",
+          cp.productiveRatio != null && cp.ticks
+            ? `productive ${(cp.productiveRatio * 100).toFixed(0)}%`
+            : "",
         ]
           .filter(Boolean)
           .join(" · ");

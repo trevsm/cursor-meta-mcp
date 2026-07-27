@@ -10,6 +10,12 @@ import {
 } from "./budget-supervisor.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
+import {
+  analyzeWorkerCheckpoint,
+  meetsProductiveTickGate,
+  PRODUCTIVE_TICK_GATE,
+  type FleetTickMetrics,
+} from "./fleet-metrics.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
 import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, type LongSessionState } from "./long-session.js";
@@ -35,10 +41,22 @@ export interface DashboardExperimentRow {
   checkpoint?: {
     exists: boolean;
     ticks?: number;
+    productiveTicks?: number;
+    productiveRatio?: number;
     stoppedBecause?: string | null;
     lastTick?: LongSessionState["ticks"][number] | null;
     summary?: ReturnType<typeof summarizeLongSession>;
+    metrics?: FleetTickMetrics | null;
   };
+}
+
+export interface FleetProductivitySummary {
+  workerCount: number;
+  totalTicks: number;
+  productiveTicks: number;
+  productiveRatio: number;
+  meetsGate: boolean;
+  gatePercent: number;
 }
 
 export interface SpawnThought {
@@ -106,6 +124,7 @@ export interface DashboardSnapshot {
     percent: number;
     remainingMs: number;
   } | null;
+  fleetProductivity: FleetProductivitySummary | null;
 }
 
 export function defaultMetaDir(): string {
@@ -165,25 +184,72 @@ export function listLogSources(experimentsDir: string): DashboardLogSource[] {
 
 function summarizeCheckpoint(path?: string): DashboardExperimentRow["checkpoint"] {
   if (!path || !existsSync(path)) return { exists: false };
+  const metrics = analyzeWorkerCheckpoint(path);
+  if (!metrics) return { exists: false };
   try {
     const state = readCheckpoint(path);
     const lastTick = state.ticks.at(-1) ?? null;
     return {
       exists: true,
-      ticks: state.ticks.length,
-      stoppedBecause: state.stoppedBecause ?? null,
+      ticks: metrics.ticks,
+      productiveTicks: metrics.productiveTicks,
+      productiveRatio: metrics.productiveRatio,
+      stoppedBecause: metrics.stoppedBecause ?? null,
       lastTick,
+      metrics,
       summary: summarizeLongSession({
         ...state,
         endedAt: lastTick?.at ?? state.startedAt,
         elapsedMs: 0,
         checkpointPath: path,
-        stoppedBecause: state.stoppedBecause ?? "duration",
+        stoppedBecause: metrics.stoppedBecause ?? state.stoppedBecause ?? "duration",
       }),
     };
   } catch {
-    return { exists: true, ticks: 0, stoppedBecause: null, lastTick: null };
+    return {
+      exists: true,
+      ticks: metrics.ticks,
+      productiveTicks: metrics.productiveTicks,
+      productiveRatio: metrics.productiveRatio,
+      stoppedBecause: metrics.stoppedBecause ?? null,
+      lastTick: null,
+      metrics,
+    };
   }
+}
+
+export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]): FleetProductivitySummary | null {
+  const workers = experiments.filter(
+    (row) => row.name.startsWith("worker") || row.name.startsWith("sdk-worker"),
+  );
+  if (workers.length === 0) return null;
+  let totalTicks = 0;
+  let productiveTicks = 0;
+  for (const worker of workers) {
+    const metrics = worker.checkpoint?.metrics ?? analyzeWorkerCheckpoint(worker.checkpointPath);
+    if (!metrics) continue;
+    totalTicks += metrics.ticks;
+    productiveTicks += metrics.productiveTicks;
+  }
+  const productiveRatio = totalTicks > 0 ? productiveTicks / totalTicks : 0;
+  return {
+    workerCount: workers.length,
+    totalTicks,
+    productiveTicks,
+    productiveRatio,
+    meetsGate: meetsProductiveTickGate({
+      ticks: totalTicks,
+      productiveTicks,
+      productiveRatio,
+      commits: 0,
+      filesChanged: 0,
+      errors: 0,
+      softSkips: 0,
+      testFailures: 0,
+      lastCommitted: false,
+    }),
+    gatePercent: PRODUCTIVE_TICK_GATE * 100,
+  };
 }
 
 export function buildExperimentRows(
@@ -314,6 +380,15 @@ export function buildActiveSummary(input: {
     lines.push({ level: "warn", text: warning });
   }
 
+  const productivity = summarizeFleetProductivity(input.experiments);
+  if (productivity && productivity.totalTicks > 0) {
+    const pct = (productivity.productiveRatio * 100).toFixed(0);
+    lines.push({
+      level: productivity.meetsGate ? "ok" : "warn",
+      text: `Productive ticks: ${productivity.productiveTicks}/${productivity.totalTicks} (${pct}%, gate ${productivity.gatePercent}%).`,
+    });
+  }
+
   const strat = input.strategyStatus;
   if (strat && typeof strat.recommendation === "string" && strat.recommendation.trim()) {
     const onTrack = strat.onTrack === true;
@@ -341,14 +416,36 @@ export function buildActiveSummary(input: {
     const last = exp.checkpoint?.lastTick;
     const tail = last?.lastAssistantTail?.trim();
     const err = last?.error?.trim();
+    const ratio = exp.checkpoint?.productiveRatio;
+    const ticks = exp.checkpoint?.ticks ?? 0;
+    if (
+      ratio != null &&
+      ticks >= 3 &&
+      !meetsProductiveTickGate({
+        ticks,
+        productiveTicks: exp.checkpoint?.productiveTicks ?? 0,
+        productiveRatio: ratio,
+        commits: 0,
+        filesChanged: 0,
+        errors: 0,
+        softSkips: 0,
+        testFailures: 0,
+        lastCommitted: exp.checkpoint?.metrics?.lastCommitted === true,
+      })
+    ) {
+      lines.push({
+        level: "warn",
+        text: `${exp.name}: productive ${(ratio * 100).toFixed(0)}% below ${PRODUCTIVE_TICK_GATE * 100}% gate (${exp.checkpoint?.productiveTicks ?? 0}/${ticks}).`,
+      });
+    }
     if (err) {
       lines.push({ level: "bad", text: `${exp.name}: ${err.slice(0, 120)}${err.length > 120 ? "…" : ""}` });
     } else if (last?.skipped === "busy") {
       lines.push({ level: "info", text: `${exp.name}: waiting for chat to finish generating.` });
     } else if (tail) {
       lines.push({ level: "info", text: `${exp.name}: ${tail.slice(0, 120)}${tail.length > 120 ? "…" : ""}` });
-    } else if ((exp.checkpoint?.ticks ?? 0) > 0) {
-      lines.push({ level: "ok", text: `${exp.name}: tick ${exp.checkpoint?.ticks} complete, idle.` });
+    } else if (ticks > 0) {
+      lines.push({ level: "ok", text: `${exp.name}: tick ${ticks} complete, idle.` });
     }
   }
 
@@ -599,5 +696,6 @@ export function collectDashboardSnapshot(options?: {
     dedicatedWorker,
     gitSync: { ...gitStatus, summary: formatGitSyncStatusForPrompt(gitStatus) },
     fleetRuntime,
+    fleetProductivity: summarizeFleetProductivity(experiments),
   };
 }

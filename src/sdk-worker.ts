@@ -143,6 +143,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
 
   const checkpointPath = params.checkpointPath ?? defaultSdkCheckpointPath();
   state.checkpointPath = checkpointPath;
+  writeSdkCheckpoint(state, checkpointPath);
   const tickIntervalMs = params.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const metaDir = params.metaDir ?? metaHome();
   const workerEnv = envForWorkers();
