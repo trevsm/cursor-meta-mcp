@@ -125,3 +125,16 @@ test("runSdkWorkerTick tags SDK runs with fleet agent name", async () => {
   assert.equal(service.lastFollowUpParams?.name, SDK_FLEET_AGENT_NAME);
   assert.equal(followUp.agentId, "agent-test-1");
 });
+
+test("runSdkWorkerTick preserves agentId on transport errors", async () => {
+  const service = new FakeLocalAgentService();
+  service.followUpError = new Error("Connection lost");
+  const entry = await runSdkWorkerTick(
+    service,
+    { cwd: "/repo", agentId: "agent-test-1" },
+    2,
+    "continue",
+  );
+  assert.match(entry.error ?? "", /Connection lost/);
+  assert.equal(entry.agentId, "agent-test-1");
+});
