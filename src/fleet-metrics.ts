@@ -55,13 +55,15 @@ export function analyzeWorkerCheckpoint(
     const productiveTicks = outcomes.filter((outcome) => outcome.producedWork).length;
     const errors = ticks.filter((tick) => tick.error && tick.skipped == null).length;
     const softSkips = ticks.filter((tick) => tick.skipped != null).length;
+    // Soft skips (busy/missing/timeout) are waits, not failed attempts — exclude from ratio.
+    const attemptedTicks = ticks.length - softSkips;
     const last = ticks.at(-1);
     const stoppedBecause =
       ticks.length === 0 && state.stoppedBecause ? undefined : state.stoppedBecause;
     return {
       ticks: ticks.length,
       productiveTicks,
-      productiveRatio: ticks.length > 0 ? productiveTicks / ticks.length : 0,
+      productiveRatio: attemptedTicks > 0 ? productiveTicks / attemptedTicks : 0,
       commits: outcomes.reduce((sum, outcome) => sum + (outcome.commits ?? 0), 0),
       filesChanged: outcomes.reduce((sum, outcome) => sum + (outcome.filesChanged ?? 0), 0),
       errors,
@@ -80,8 +82,12 @@ export function analyzeWorkerCheckpoint(
 /** Minimum productive tick ratio before scaling or aggressive relaunch (honest loop gate). */
 export const PRODUCTIVE_TICK_GATE = 0.3;
 
+export function attemptedTickCount(metrics: FleetTickMetrics): number {
+  return Math.max(0, metrics.ticks - metrics.softSkips);
+}
+
 export function meetsProductiveTickGate(metrics: FleetTickMetrics | null, minTicks = 3): boolean {
-  if (!metrics || metrics.ticks < minTicks) return false;
+  if (!metrics || attemptedTickCount(metrics) < minTicks) return false;
   return metrics.productiveRatio >= PRODUCTIVE_TICK_GATE;
 }
 
@@ -112,16 +118,17 @@ export function isWorkerStalled(params: {
   );
   const silentMs = Date.now() - baselineMs;
   if (silentMs < stallMs) return false;
-  if ((metrics?.ticks ?? 0) === 0) return false;
-  return !metrics || metrics.productiveRatio === 0;
+  if (!metrics || attemptedTickCount(metrics) === 0) return false;
+  return metrics.productiveRatio === 0;
 }
 
 export function relaunchBlockedReason(metrics: FleetTickMetrics | null, relaunchCount = 0): string | null {
   if (!metrics) return null;
-  if (relaunchCount >= 2 && metrics.ticks >= 2 && metrics.productiveRatio === 0) {
+  const attempted = attemptedTickCount(metrics);
+  if (relaunchCount >= 2 && attempted >= 2 && metrics.productiveRatio === 0) {
     return "Zero productive ticks after repeated relaunches — fix auth/infra before relaunch";
   }
-  if (metrics.ticks >= 5 && !meetsProductiveTickGate(metrics)) {
+  if (attempted >= 5 && !meetsProductiveTickGate(metrics)) {
     return `Productive tick ratio ${(metrics.productiveRatio * 100).toFixed(0)}% below ${PRODUCTIVE_TICK_GATE * 100}% gate`;
   }
   return null;

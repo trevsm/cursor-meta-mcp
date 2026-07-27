@@ -225,13 +225,16 @@ export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]
   if (workers.length === 0) return null;
   let totalTicks = 0;
   let productiveTicks = 0;
+  let softSkips = 0;
   for (const worker of workers) {
     const metrics = worker.checkpoint?.metrics ?? analyzeWorkerCheckpoint(worker.checkpointPath);
     if (!metrics) continue;
     totalTicks += metrics.ticks;
     productiveTicks += metrics.productiveTicks;
+    softSkips += metrics.softSkips;
   }
-  const productiveRatio = totalTicks > 0 ? productiveTicks / totalTicks : 0;
+  const attempted = Math.max(0, totalTicks - softSkips);
+  const productiveRatio = attempted > 0 ? productiveTicks / attempted : 0;
   return {
     workerCount: workers.length,
     totalTicks,
@@ -244,7 +247,7 @@ export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]
       commits: 0,
       filesChanged: 0,
       errors: 0,
-      softSkips: 0,
+      softSkips,
       testFailures: 0,
       lastCommitted: false,
     }),

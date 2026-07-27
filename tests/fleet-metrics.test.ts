@@ -33,10 +33,33 @@ test("analyzeWorkerCheckpoint computes productive ratio", () => {
   assert.ok(metrics);
   assert.equal(metrics.ticks, 3);
   assert.equal(metrics.productiveTicks, 1);
-  assert.equal(metrics.productiveRatio, 1 / 3);
+  assert.equal(metrics.productiveRatio, 1 / 2);
   assert.equal(metrics.errors, 1);
   assert.equal(metrics.softSkips, 1);
   assert.equal(metrics.lastCommitted, false);
+});
+
+test("productive ratio ignores soft-skip-only sessions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fleet-metrics-soft-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      ticks: [
+        { at: "2026-07-27T00:00:00.000Z", skipped: "busy" },
+        { at: "2026-07-27T00:01:00.000Z", skipped: "missing" },
+      ],
+    }),
+  );
+  const metrics = analyzeWorkerCheckpoint(path);
+  assert.equal(metrics?.ticks, 2);
+  assert.equal(metrics?.softSkips, 2);
+  assert.equal(metrics?.productiveRatio, 0);
+  assert.equal(meetsProductiveTickGate(metrics), false);
+  const past = (Date.now() - 2 * 60 * 60_000) / 1000;
+  utimesSync(path, past, past);
+  // Soft-skip-only workers are waiting, not stalled zero-productivity loops.
+  assert.equal(isWorkerStalled({ pidAlive: true, checkpointPath: path, stallMs: 60_000 }), false);
 });
 
 test("analyzeWorkerCheckpoint sets lastCommitted from latest tick", () => {
@@ -112,6 +135,21 @@ test("meetsProductiveTickGate requires enough ticks", () => {
       lastCommitted: false,
     }),
     true,
+  );
+  // Soft skips don't count toward minTicks — 2 attempts + 5 busy waits is still too few.
+  assert.equal(
+    meetsProductiveTickGate({
+      ticks: 7,
+      productiveTicks: 2,
+      productiveRatio: 1,
+      commits: 2,
+      filesChanged: 2,
+      errors: 0,
+      softSkips: 5,
+      testFailures: 0,
+      lastCommitted: true,
+    }),
+    false,
   );
   assert.equal(PRODUCTIVE_TICK_GATE, 0.3);
 });
