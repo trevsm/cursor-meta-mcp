@@ -185,6 +185,12 @@ test("fleetSpawnPlan spawns sdk only for sdk/hybrid modes", () => {
   assert.equal(fleetSpawnPlan("hybrid", 2).spawnSdk, true);
 });
 
+test("fleetSpawnPlan hybrid with zero parallel workers keeps ide only", () => {
+  const plan = fleetSpawnPlan("hybrid", 0);
+  assert.equal(plan.spawnIde, true);
+  assert.equal(plan.spawnSdk, false);
+});
+
 test("launchSelfImproveFleet waits for dedicated chat when workerMode ide", async () => {
   createIdeChat.mock.resetCalls();
   waitForChatSession.mock.resetCalls();
