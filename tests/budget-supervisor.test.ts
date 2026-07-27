@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   countActiveWorkers,
   evaluateFleetSupervisor,
+  isWorkerExperiment,
   shouldAllowRelaunch,
   type FleetManifest,
 } from "../src/budget-supervisor.js";
@@ -15,6 +16,13 @@ import { loadBudgetState, saveBudgetState } from "../src/plan-budget.js";
 function tempMetaDir(): string {
   return mkdtempSync(join(tmpdir(), "budget-supervisor-"));
 }
+
+test("isWorkerExperiment recognizes worker and sdk-worker names", () => {
+  assert.equal(isWorkerExperiment("worker-session-2"), true);
+  assert.equal(isWorkerExperiment("sdk-worker-1"), true);
+  assert.equal(isWorkerExperiment("strategy-review-loop"), false);
+  assert.equal(isWorkerExperiment("watch-experiments"), false);
+});
 
 test("countActiveWorkers includes sdk-worker experiments", () => {
   const manifest: FleetManifest = {
