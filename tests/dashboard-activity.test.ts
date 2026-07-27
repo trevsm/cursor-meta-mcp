@@ -88,6 +88,23 @@ test("buildWorkerActivity ignores stale sdk run events for active status", () =>
   assert.equal(rows[0]?.liveEvents.length, 1);
 });
 
+test("buildWorkerActivity marks busy-skipped sdk worker as active", () => {
+  const rows = buildWorkerActivity([
+    {
+      name: "sdk-worker-1",
+      displayName: "Self-improve worker #1",
+      pid: 1,
+      alive: true,
+      checkpoint: {
+        exists: true,
+        ticks: 1,
+        lastTick: { tick: 1, skipped: "busy" },
+      },
+    },
+  ]);
+  assert.equal(rows[0]?.status, "active");
+});
+
 test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const errorRows = buildWorkerActivity([
     {
