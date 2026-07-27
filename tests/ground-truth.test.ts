@@ -13,6 +13,12 @@ test("detectCompletionClaims finds tests-pass and commit language", () => {
   assert.equal(claims.claimedCommitted, true);
 });
 
+test("detectCompletionClaims ignores negated commit language", () => {
+  const claims = detectCompletionClaims("Not committed yet; npm run test:fast passed.");
+  assert.equal(claims.claimedCommitted, false);
+  assert.equal(claims.claimedTestsPass, true);
+});
+
 test("auditGroundTruth blocks false tests-pass claims", () => {
   const audit = auditGroundTruth("All tests pass now.", {
     headBefore: "a",
