@@ -129,16 +129,17 @@ function renderFull(data) {
   const planPct = data.budget?.plan?.percent;
   const fleetPct = data.budget?.fleet?.percentOfMaxDuration;
   const prod = data.fleetProductivity;
+  const attempted = prod?.attemptedTicks ?? prod?.totalTicks ?? 0;
   const prodLabel =
-    prod && prod.totalTicks > 0
-      ? `${(prod.productiveRatio * 100).toFixed(0)}% (${prod.productiveTicks}/${prod.totalTicks})`
+    prod && attempted > 0
+      ? `${(prod.productiveRatio * 100).toFixed(0)}% (${prod.productiveTicks}/${attempted})`
       : "—";
 
   document.getElementById("metrics").innerHTML = [
     metric("Spend", `$${(cents / 100).toFixed(2)}`, data.budget?.warnings?.[0] ?? ""),
     metric("Spawns/hr", String(spawns), `cap ${data.budget?.limits?.maxSpawnsPerHour ?? "?"}`),
     metric("IDE ticks", String(ticks)),
-    metric("Productive", prodLabel, prod ? `gate ${prod.gatePercent}%` : ""),
+    metric("Productive", prodLabel, prod ? `gate ${prod.gatePercent}% · attempted` : ""),
     metric("Git", gs.dirty ? "dirty" : gs.unpushed ? "unpushed" : "clean", gs.branch || "?"),
     metric("Plan", planPct != null ? `${planPct.toFixed(1)}%` : "—"),
     metric("Blocked", blocked, data.manifest?.budgetBlockedReason ?? ""),
@@ -150,11 +151,15 @@ function renderFull(data) {
       .map((exp) => {
         const cp = exp.checkpoint ?? {};
         const last = cp.lastTick;
+        const attempted =
+          cp.metrics != null
+            ? Math.max(0, (cp.metrics.ticks ?? 0) - (cp.metrics.softSkips ?? 0))
+            : cp.ticks;
         const notes = [
           exp.relaunchCount ? `relaunch ×${exp.relaunchCount}` : "",
           cp.stoppedBecause ? `stopped: ${cp.stoppedBecause}` : "",
-          cp.productiveRatio != null && cp.ticks
-            ? `productive ${(cp.productiveRatio * 100).toFixed(0)}%`
+          cp.productiveRatio != null && attempted
+            ? `productive ${(cp.productiveRatio * 100).toFixed(0)}% (${cp.productiveTicks ?? 0}/${attempted})`
             : "",
         ]
           .filter(Boolean)

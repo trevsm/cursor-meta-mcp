@@ -174,7 +174,7 @@ test("heuristicStrategyReview killExperiments targets stale sdk-workers", () => 
       gitDiffStat: " src/foo.ts | 4 ++",
       transcriptTail: "Implemented fix and npm test passes.",
       workerSummary:
-        "sdk-worker-a #?: ticks=4 productive=0 ratio=0% errors=4 soft=0 stopped=error last=auth",
+        "sdk-worker-a #?: ticks=4 attempted=4 productive=0 ratio=0% errors=4 soft=0 stopped=error last=auth",
     },
     "Implemented fix and npm test passes.",
   );

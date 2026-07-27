@@ -121,7 +121,7 @@ function summarizeWorkers(
       continue;
     }
     lines.push(
-      `${worker.name} #${worker.sessionIndex ?? "?"}: ticks=${metrics.ticks} productive=${metrics.productiveTicks} ratio=${(metrics.productiveRatio * 100).toFixed(0)}% errors=${metrics.errors} soft=${metrics.softSkips} stopped=${metrics.stoppedBecause ?? "running"} last=${metrics.lastError ?? "ok"}`,
+      `${worker.name} #${worker.sessionIndex ?? "?"}: ticks=${metrics.ticks} attempted=${metrics.ticks - metrics.softSkips} productive=${metrics.productiveTicks} ratio=${(metrics.productiveRatio * 100).toFixed(0)}% errors=${metrics.errors} soft=${metrics.softSkips} stopped=${metrics.stoppedBecause ?? "running"} last=${metrics.lastError ?? "ok"}`,
     );
   }
   return lines.join("\n");

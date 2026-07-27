@@ -365,6 +365,7 @@ test("summarizeFleetProductivity aggregates worker checkpoints", () => {
   ]);
   assert.ok(productivity);
   assert.equal(productivity?.totalTicks, 2);
+  assert.equal(productivity?.attemptedTicks, 2);
   assert.equal(productivity?.productiveTicks, 1);
   assert.equal(productivity?.productiveRatio, 0.5);
   assert.equal(productivity?.meetsGate, false);
