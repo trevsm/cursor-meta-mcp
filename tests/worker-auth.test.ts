@@ -26,3 +26,8 @@ test("resolveHonestWorkerMode hybrid requires api key not CLI alone", async () =
   const mode = await resolveHonestWorkerMode("hybrid", {});
   assert.equal(mode, "ide");
 });
+
+test("resolveHonestWorkerMode defaults to sdk when api key present", async () => {
+  const mode = await resolveHonestWorkerMode(undefined, { CURSOR_API_KEY: "test-key" });
+  assert.equal(mode, "sdk");
+});
