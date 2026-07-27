@@ -36,6 +36,56 @@ export function appendLearning(lesson: string, metaDir?: string): boolean {
   return true;
 }
 
+function learningBody(line: string): string {
+  return line.replace(/^- \[\d{4}-\d{2}-\d{2}\]\s*/, "").trim();
+}
+
+/**
+ * Drop raw "Tick infra failure:" dumps once a classified lesson covers the same class,
+ * and dedupe identical lesson bodies.
+ */
+export function compactLearnings(metaDir?: string): number {
+  const path = learningsPath(metaDir);
+  if (!existsSync(path)) return 0;
+  const lines = readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return 0;
+
+  const bodies = lines.map(learningBody);
+  const hasShellLesson = bodies.some((body) => /shell:true/i.test(body));
+  const hasTransportLesson = bodies.some((body) => /transport dropped/i.test(body));
+
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const line of lines) {
+    const body = learningBody(line);
+    if (
+      hasShellLesson &&
+      /^Tick infra failure:/i.test(body) &&
+      /\/bin\/sh:|syntax error near unexpected token/i.test(body)
+    ) {
+      continue;
+    }
+    if (
+      hasTransportLesson &&
+      /^Tick infra failure:/i.test(body) &&
+      /connection lost|reconnect/i.test(body)
+    ) {
+      continue;
+    }
+    const key = body.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(line.startsWith("- ") ? line : `- [${new Date().toISOString().slice(0, 10)}] ${body}`);
+  }
+
+  const removed = lines.length - kept.length;
+  if (removed === 0) return 0;
+  writeFileSync(path, `${kept.join("\n")}\n`);
+  return removed;
+}
+
 export function lessonFromGroundTruth(audit: GroundTruthAudit): string | null {
   if (audit.violations.length === 0) return null;
   return `Never claim success without ground truth: ${audit.violations.join("; ")}`;
@@ -83,6 +133,10 @@ export function recordTickLesson(params: {
   const fromError = params.error ? lessonFromTickError(params.error) : null;
   const lesson = fromTruth ?? fromTests ?? fromError;
   if (!lesson) return null;
-  if (!appendLearning(lesson, params.metaDir)) return null;
+  if (!appendLearning(lesson, params.metaDir)) {
+    compactLearnings(params.metaDir);
+    return null;
+  }
+  compactLearnings(params.metaDir);
   return lesson;
 }

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const { auditGroundTruth, detectCompletionClaims } = await import("../src/ground-truth.js");
-const { appendLearning, formatLearningsForPrompt, recordTickLesson } = await import("../src/learnings.js");
+const { appendLearning, compactLearnings, formatLearningsForPrompt, recordTickLesson } = await import("../src/learnings.js");
 
 test("detectCompletionClaims finds tests-pass and commit language", () => {
   const claims = detectCompletionClaims("All tests pass. Committed and pushed.");
@@ -120,4 +120,30 @@ test("recordTickLesson maps agent transport drops", () => {
   });
   assert.ok(lesson);
   assert.match(lesson, /transport dropped/i);
+});
+
+test("compactLearnings drops raw infra dumps superseded by classified lessons", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-compact-"));
+  appendLearning(
+    "Tick infra failure: /bin/sh: ship: command not found\nsyntax error near unexpected token",
+    metaDir,
+  );
+  appendLearning(
+    "Tick infra failure: Connection lost, reconnecting to https://agentn.global.api5.cursor.sh",
+    metaDir,
+  );
+  appendLearning(
+    "Never spawn Agent CLI with shell:true — prompts with ;/`()` are executed by sh; pass argv without a shell",
+    metaDir,
+  );
+  appendLearning(
+    "Agent transport dropped mid-tick — retry once; if persistent, check network or fall back to IDE worker",
+    metaDir,
+  );
+  const removed = compactLearnings(metaDir);
+  assert.equal(removed, 2);
+  const body = readFileSync(join(metaDir, "world", "learnings.md"), "utf8");
+  assert.equal(/Tick infra failure:/i.test(body), false);
+  assert.match(body, /shell:true/i);
+  assert.match(body, /transport dropped/i);
 });
