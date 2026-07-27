@@ -20,6 +20,8 @@ export interface OrchestratePulseParams extends ConsciousnessPulseParams {
   pollIntervalMs?: number;
   idleStableMs?: number;
   timeoutMs?: number;
+  excludeSessionIds?: string[];
+  excludeSessionIndexes?: number[];
 }
 
 export interface ExecutedAction {
@@ -174,17 +176,40 @@ export async function executeOrchestrationPlay(
   }
 }
 
+export function filterOrchestrationMatrix(
+  matrix: Array<PulseSessionEntry & { plays: OrchestrationPlay[] }>,
+  params: Pick<OrchestratePulseParams, "excludeSessionIds" | "excludeSessionIndexes">,
+): Array<PulseSessionEntry & { plays: OrchestrationPlay[] }> {
+  const excludedIds = new Set(params.excludeSessionIds ?? []);
+  const excludedIndexes = new Set(params.excludeSessionIndexes ?? []);
+  return matrix.filter((entry) => {
+    if (excludedIds.has(entry.sessionId)) return false;
+    if (entry.sessionIndex != null && excludedIndexes.has(entry.sessionIndex)) return false;
+    return true;
+  });
+}
+
 export async function orchestratePulse(
   params: OrchestratePulseParams = {},
   service?: LocalAgentService,
 ): Promise<OrchestratePulseResult> {
   const pulse = runConsciousnessPulse(params);
+  const matrix = filterOrchestrationMatrix(pulse.orchestrationMatrix, params);
+  const filteredPulse = {
+    ...pulse,
+    orchestrationMatrix: matrix,
+    live: pulse.live.filter(
+      (entry) =>
+        !params.excludeSessionIds?.includes(entry.sessionId) &&
+        !(entry.sessionIndex != null && params.excludeSessionIndexes?.includes(entry.sessionIndex)),
+    ),
+  };
   const maxActions = params.maxActions ?? 3;
   const executed: ExecutedAction[] = [];
   const skipped: OrchestratePulseResult["skipped"] = [];
   let planned = 0;
 
-  for (const entry of pulse.orchestrationMatrix) {
+  for (const entry of matrix) {
     const candidates = selectPlaysForSession(entry, params);
     if (candidates.length === 0) {
       for (const play of entry.plays) {
@@ -213,5 +238,5 @@ export async function orchestratePulse(
     executed.push(await executeOrchestrationPlay(entry, play, params, service));
   }
 
-  return { pulse, planned, executed, skipped };
+  return { pulse: filteredPulse, planned, executed, skipped };
 }

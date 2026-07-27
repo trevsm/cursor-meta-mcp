@@ -37,9 +37,33 @@ const interceptIdeChat = mock.fn(async () => ({ result: "steered" }));
 mock.module("../src/watch-chat.js", { namedExports: { watchIdeChat } });
 mock.module("../src/ide-chat-control.js", { namedExports: { interceptIdeChat } });
 
-const { executeOrchestrationPlay, selectPlaysForSession } = await import(
-  "../src/orchestrate-pulse.js"
-);
+const { executeOrchestrationPlay, filterOrchestrationMatrix, selectPlaysForSession } =
+  await import("../src/orchestrate-pulse.js");
+
+test("filterOrchestrationMatrix excludes session ids and indexes", () => {
+  const matrix = [
+    {
+      sessionId: "aaaa",
+      sessionIndex: 1,
+      title: "A",
+      workspace: "/p",
+      signals: [],
+      frustrationRisk: { score: 0, reason: null },
+      plays: [{ action: "WATCH" as const, tool: "meta_watch_chat", why: "w" }],
+    },
+    {
+      sessionId: "bbbb",
+      sessionIndex: 2,
+      title: "B",
+      workspace: "/p",
+      signals: [],
+      frustrationRisk: { score: 0, reason: null },
+      plays: [{ action: "WATCH" as const, tool: "meta_watch_chat", why: "w" }],
+    },
+  ];
+  assert.equal(filterOrchestrationMatrix(matrix, { excludeSessionIndexes: [1] }).length, 1);
+  assert.equal(filterOrchestrationMatrix(matrix, { excludeSessionIds: ["bbbb"] }).length, 1);
+});
 
 test("selectPlaysForSession prioritizes intercept over watch", () => {
   const selected = selectPlaysForSession(entry, { allowIntercept: true, allowWatch: true });

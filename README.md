@@ -47,6 +47,7 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_sentiment_analysis` | Frustration/confusion/satisfaction scoring over chat history |
 | `meta_consciousness_pulse` | Live orchestration scan with WATCH/INTERCEPT/CONTINUE recommendations |
 | `meta_orchestrate_pulse` | Run pulse scan and auto-execute allowed orchestration plays |
+| `meta_orchestrate_loop` | Repeat orchestrate pulse until idle or maxCycles |
 | `meta_whoami` | Verify auth (API key or CLI login) |
 
 ## Requirements

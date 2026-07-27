@@ -28,6 +28,7 @@ import {
 } from "./history.js";
 import { runRelentlessLoop } from "./relentless-loop.js";
 import { orchestratePulse } from "./orchestrate-pulse.js";
+import { orchestrateLoop } from "./orchestrate-loop.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import {
   resolveSentimentSessionIndex,
@@ -44,7 +45,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.3.3",
+  version: "0.3.4",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -666,6 +667,41 @@ export function createServer(
   );
 
   server.registerTool(
+    "meta_orchestrate_loop",
+    {
+      title: "Continuous orchestration loop",
+      description:
+        "Repeatedly scan and execute pulse orchestration plays until idle, maxCycles, or errors. Pass excludeSessionIndex to skip the conductor chat.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        workspace: z.string().min(1).optional(),
+        dryRun: z.boolean().optional(),
+        allowWatch: z.boolean().optional(),
+        allowContinue: z.boolean().optional(),
+        allowIntercept: z.boolean().optional(),
+        allowSpawn: z.boolean().optional(),
+        maxActions: z.number().int().min(1).max(20).optional(),
+        excludeSessionIds: z.array(z.string().uuid()).optional(),
+        excludeSessionIndexes: z.array(z.number().int().min(1)).optional(),
+        maxCycles: z.number().int().min(1).max(50).optional(),
+        intervalMs: z.number().int().min(5000).max(600_000).optional(),
+        stopWhenIdle: z.boolean().optional(),
+        pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
+        idleStableMs: z.number().int().min(500).max(120_000).optional(),
+        timeoutMs: z.number().int().min(5000).max(3_600_000).optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(await orchestrateLoop(params, service));
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
     "meta_orchestrate_pulse",
     {
       title: "Run consciousness pulse actions",
@@ -680,6 +716,8 @@ export function createServer(
         allowIntercept: z.boolean().optional(),
         allowSpawn: z.boolean().optional(),
         maxActions: z.number().int().min(1).max(20).optional(),
+        excludeSessionIds: z.array(z.string().uuid()).optional(),
+        excludeSessionIndexes: z.array(z.number().int().min(1)).optional(),
         pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
         idleStableMs: z.number().int().min(500).max(120_000).optional(),
         timeoutMs: z.number().int().min(5000).max(3_600_000).optional(),
