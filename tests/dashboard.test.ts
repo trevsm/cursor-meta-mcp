@@ -73,6 +73,7 @@ test("buildExperimentRows reads productive metrics from checkpoint files", () =>
     }),
   );
   const rows = buildExperimentRows([{ name: "sdk-worker-1", pid: 99_999_999, checkpointPath: path }], null);
+  assert.equal(rows[0]?.displayName, "Self-improve worker #1");
   assert.equal(rows[0]?.checkpoint?.exists, true);
   assert.equal(rows[0]?.checkpoint?.ticks, 2);
   assert.equal(rows[0]?.checkpoint?.attemptedTicks, 2);
