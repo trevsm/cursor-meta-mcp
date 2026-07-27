@@ -243,4 +243,29 @@ test("buildWorkerActivity maps sdk worker ticks and strategy status", () => {
 
   const strategy = rows.find((row) => row.name === "strategy-review-loop");
   assert.equal(strategy?.statusText, "Force a code change with npm test verification this tick.");
+
+  const watcher = rows.find((row) => row.name === "watch-experiments");
+  assert.match(watcher?.role ?? "", /Patrols workers/);
+  assert.equal(watcher?.statusText, "Supervisor running");
+});
+
+test("buildWorkerActivity tolerates malformed checkpoint files", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-bad-cp-"));
+  const cpDir = join(metaDir, "experiments");
+  mkdirSync(cpDir, { recursive: true });
+  const checkpointPath = join(cpDir, "sdk-worker-1.json");
+  writeFileSync(checkpointPath, "{not json");
+
+  const rows = buildWorkerActivity([
+    {
+      name: "sdk-worker-1",
+      displayName: "Self-improve worker #1",
+      pid: 1,
+      alive: true,
+      checkpointPath,
+      checkpoint: { exists: true, ticks: 0 },
+    },
+  ]);
+
+  assert.equal(rows[0]?.recentTicks.length, 0);
 });
