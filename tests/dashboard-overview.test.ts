@@ -215,3 +215,37 @@ test("buildFleetOverview reports productivity gate misses", () => {
 
   assert.match(overview.paragraph, /Only 1 of 8 attempted ticks were productive \(13%, below the 30% gate\)/);
 });
+
+test("buildFleetOverview headlines idle worker with latest shipped tick", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "idle",
+        statusText: "Tick 7 complete, awaiting next interval",
+        ticksCompleted: 7,
+        recentTicks: [
+          {
+            tick: 7,
+            producedWork: true,
+            commits: 2,
+            testsPassed: true,
+            testTotal: 380,
+            workSummary: "Ground-truth finished phrasing fix",
+          },
+        ],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.match(overview.headline, /Tick 7 shipped · 2 commits · 380 tests passed/);
+  assert.match(overview.paragraph, /idle between ticks \(7 completed\)/i);
+});
