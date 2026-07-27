@@ -15,6 +15,7 @@ test("friendlyExperimentName maps fleet roles", () => {
   assert.equal(friendlyExperimentName("strategy-review-loop"), "Strategy critic");
   assert.equal(friendlyExperimentName("watch-experiments"), "Fleet watcher");
   assert.equal(friendlyExperimentName("worker-dedicated"), "Dedicated IDE worker");
+  assert.equal(friendlyExperimentName("worker-session-2"), "IDE worker #2");
 });
 
 test("friendlySdkAgentLabel prefers worker context over raw ids", () => {

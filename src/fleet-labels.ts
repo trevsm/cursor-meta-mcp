@@ -15,6 +15,8 @@ export function friendlyExperimentName(raw: string): string {
   if (raw === "sdk-worker-main") return "Self-improve worker";
 
   if (raw === "worker-dedicated") return "Dedicated IDE worker";
+  const ideSession = /^worker-session-(\d+)$/.exec(raw);
+  if (ideSession) return `IDE worker #${ideSession[1]}`;
   const ide = /^worker-(\d+)$/.exec(raw);
   if (ide) return `IDE worker #${ide[1]}`;
 
