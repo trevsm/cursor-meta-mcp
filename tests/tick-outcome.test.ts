@@ -27,6 +27,12 @@ function initRepo(): string {
 test("parseShortstat extracts file and line counts", () => {
   const stat = parseShortstat("3 files changed, 40 insertions(+), 2 deletions(-)");
   assert.deepEqual(stat, { filesChanged: 3, insertions: 40, deletions: 2 });
+  assert.deepEqual(parseShortstat("1 file changed, 5 insertions(+)"), {
+    filesChanged: 1,
+    insertions: 5,
+    deletions: 0,
+  });
+  assert.deepEqual(parseShortstat(""), { filesChanged: 0, insertions: 0, deletions: 0 });
 });
 
 test("parseNodeTestSummary reads node --test counters", () => {
