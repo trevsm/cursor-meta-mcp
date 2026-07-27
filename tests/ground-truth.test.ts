@@ -70,6 +70,17 @@ test("learnings append and inject into prompt", () => {
   assert.match(readFileSync(join(metaDir, "world", "learnings.md"), "utf8"), /test:fast/);
 });
 
+test("appendLearning flattens multi-line lessons to one row", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-flat-"));
+  assert.equal(
+    appendLearning("Tick infra failure: line1\nline2\nline3", metaDir),
+    true,
+  );
+  const body = readFileSync(join(metaDir, "world", "learnings.md"), "utf8");
+  assert.equal(body.split("\n").filter(Boolean).length, 1);
+  assert.match(body, /line1 line2 line3/);
+});
+
 test("recordTickLesson writes from ground-truth audit", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "learnings-gt-"));
   const lesson = recordTickLesson({

@@ -26,7 +26,8 @@ export function formatLearningsForPrompt(metaDir?: string): string {
 }
 
 export function appendLearning(lesson: string, metaDir?: string): boolean {
-  const trimmed = lesson.trim();
+  // Flatten multi-line dumps so compact never sees undated continuation rows.
+  const trimmed = lesson.replace(/\s+/g, " ").trim();
   if (!trimmed) return false;
   const path = learningsPath(metaDir);
   if (existsSync(path) && readFileSync(path, "utf8").includes(trimmed)) return false;
