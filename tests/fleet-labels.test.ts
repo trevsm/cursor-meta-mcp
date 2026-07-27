@@ -49,3 +49,17 @@ test("indexWorkerAgents links agentId to worker experiment", () => {
     agentName: "self-improve-fleet",
   });
 });
+
+test("indexWorkerAgents reads agentId from last tick when row omits it", () => {
+  const map = indexWorkerAgents([
+    {
+      name: "sdk-worker-2",
+      checkpoint: { ticks: 4, lastTick: { tick: 4, agentId: "agent-from-tick" } },
+    },
+  ]);
+  assert.deepEqual(map.get("agent-from-tick"), {
+    workerName: "sdk-worker-2",
+    tick: 4,
+    agentName: "self-improve-fleet",
+  });
+});
