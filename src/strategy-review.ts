@@ -378,27 +378,7 @@ export function heuristicStrategyReview(
   }
 
   const onTrack = score >= 70 && issues.length === 0;
-  const recommendation = onTrack
-    ? "Continue current direction — verified progress detected."
-    : issues.includes("meta_discussion_loop")
-      ? "Pivot out of meta-discussion into concrete shipping work."
-      : issues.includes("architecture_theater")
-        ? "Pivot from architecture to one small verified diff."
-        : issues.includes("no_code_progress")
-          ? "Force a code change with npm test verification this tick."
-          : issues.includes("low_productive_ratio")
-            ? "Raise productive-tick ratio: one verified git change + test:fast per tick; do not scale."
-            : issues.includes("uncommitted_work")
-              ? "Commit verified changes before starting new work."
-              : issues.includes("unpushed_commits")
-                ? "Push local commits to origin before starting new work."
-                : issues.includes("stale_workers")
-                  ? "Kill or relaunch dead workers, then resume verified shipping."
-                  : issues.includes("repeated_failure")
-                    ? "Same failure repeating — change approach or consult world-model skills before retrying."
-                    : issues.includes("fragmented_parallel_tabs")
-                      ? "Too many parallel tabs — spawn a verifier or cut parallelism; keep one shipping thread."
-                      : "Adjust fleet topology or worker prompts.";
+  const recommendation = strategyRecommendation(onTrack, issues);
 
   return {
     onTrack,
@@ -410,6 +390,45 @@ export function heuristicStrategyReview(
     kill,
     killExperiments,
   };
+}
+
+/** Map issue codes to an explicit operator-facing recommendation. */
+export function strategyRecommendation(onTrack: boolean, issues: string[]): string {
+  if (onTrack) return "Continue current direction — verified progress detected.";
+  if (issues.includes("meta_discussion_loop")) {
+    return "Pivot out of meta-discussion into concrete shipping work.";
+  }
+  if (issues.includes("meta_discussion")) {
+    return "Cut meta talk — implement one small verified code change this tick.";
+  }
+  if (issues.includes("strategy_session_title")) {
+    return "This tab is for strategy review — do not use it as a worker; steer shipping chats instead.";
+  }
+  if (issues.includes("architecture_theater")) {
+    return "Pivot from architecture to one small verified diff.";
+  }
+  if (issues.includes("no_code_progress")) {
+    return "Force a code change with npm test verification this tick.";
+  }
+  if (issues.includes("low_productive_ratio")) {
+    return "Raise productive-tick ratio: one verified git change + test:fast per tick; do not scale.";
+  }
+  if (issues.includes("uncommitted_work")) {
+    return "Commit verified changes before starting new work.";
+  }
+  if (issues.includes("unpushed_commits")) {
+    return "Push local commits to origin before starting new work.";
+  }
+  if (issues.includes("stale_workers")) {
+    return "Kill or relaunch dead workers, then resume verified shipping.";
+  }
+  if (issues.includes("repeated_failure")) {
+    return "Same failure repeating — change approach or consult world-model skills before retrying.";
+  }
+  if (issues.includes("fragmented_parallel_tabs")) {
+    return "Too many parallel tabs — spawn a verifier or cut parallelism; keep one shipping thread.";
+  }
+  return "Adjust fleet topology or worker prompts.";
 }
 
 export async function runStrategyReview(

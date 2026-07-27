@@ -19,6 +19,7 @@ import {
   heuristicStrategyReview,
   parseStrategyVerdict,
   runStrategyReview,
+  strategyRecommendation,
   type StrategyContext,
 } from "../src/strategy-review.js";
 
@@ -101,6 +102,13 @@ test("parseStrategyVerdict parses full JSON", () => {
   assert.equal(verdict.pivot, "Fix tests");
   assert.deepEqual(verdict.kill, [2]);
   assert.deepEqual(verdict.killExperiments, []);
+});
+
+test("strategyRecommendation maps remaining issue codes", () => {
+  assert.match(strategyRecommendation(true, []), /verified progress/i);
+  assert.match(strategyRecommendation(false, ["meta_discussion"]), /Cut meta talk/i);
+  assert.match(strategyRecommendation(false, ["strategy_session_title"]), /strategy review/i);
+  assert.match(strategyRecommendation(false, ["unknown_issue"]), /fleet topology/i);
 });
 
 test("buildStrategyReviewPrompt includes mission and git diff", () => {
