@@ -50,6 +50,7 @@ import {
 } from "./plan-budget.js";
 import { runStrategyReview } from "./strategy-review.js";
 import { watchIdeChat } from "./watch-chat.js";
+import { applyWorldRecord, worldStatus } from "./world-model.js";
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
@@ -960,6 +961,59 @@ export function createServer(
         const snapshot = getBudgetSnapshot(state);
         writeBudgetStatus(snapshot);
         return jsonResult(snapshot);
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_world_status",
+    {
+      title: "World model status (AGI memory)",
+      description:
+        "Read persistent north star, goals, beliefs, failures, recent episodes, and extracted skills from ~/.cursor-meta/world/.",
+      inputSchema: {
+        episodeLimit: z.number().int().min(1).max(50).optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (params) => {
+      try {
+        return jsonResult(worldStatus(undefined, params.episodeLimit ?? 12));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_world_record",
+    {
+      title: "Update world model (AGI memory)",
+      description:
+        "Write to persistent world model: set_north_star, push_goal, complete_goal, add_belief, or record_failure.",
+      inputSchema: {
+        action: z.enum(["set_north_star", "push_goal", "complete_goal", "add_belief", "record_failure"]),
+        text: z.string().min(1).optional(),
+        goalId: z.string().min(1).optional(),
+        context: z.string().min(1).optional(),
+        reason: z.string().min(1).optional(),
+        source: z.string().min(1).optional(),
+      },
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    async (params) => {
+      try {
+        return jsonResult(
+          applyWorldRecord(params.action, {
+            text: params.text,
+            goalId: params.goalId,
+            context: params.context,
+            reason: params.reason,
+            source: params.source,
+          }),
+        );
       } catch (error) {
         return errorResult(error);
       }

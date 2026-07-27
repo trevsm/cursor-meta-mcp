@@ -97,8 +97,11 @@ export function recentRunThoughts(
   metaDir?: string,
   maxRuns = 6,
   maxEventsPerRun = 12,
+  maxAgeMs = 10 * 60_000,
 ): Array<{ runId: string; agentId?: string; events: RunEventRecord[]; modifiedAt: string }> {
+  const cutoff = Date.now() - maxAgeMs;
   return listRunEventSources(metaDir)
+    .filter((source) => Date.parse(source.modifiedAt) >= cutoff)
     .slice(0, maxRuns)
     .map((source) => ({
       runId: source.runId,

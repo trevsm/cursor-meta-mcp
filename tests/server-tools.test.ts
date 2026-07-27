@@ -47,6 +47,8 @@ test("registers all meta_* tools", async () => {
       "meta_strategy_review",
       "meta_watch_chat",
       "meta_whoami",
+      "meta_world_record",
+      "meta_world_status",
     ]);
   });
 });

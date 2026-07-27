@@ -9,6 +9,7 @@ import { loadSessionSummary, loadSessionSummaryById } from "./history.js";
 import { isMetaDiscussion, isStrategySessionTitle } from "./meta-discussion.js";
 import { defaultSuccessCriteria } from "./mission.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
+import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes } from "./world-model.js";
 
 export interface StrategySpawnPlan {
   role: string;
@@ -50,6 +51,8 @@ export interface StrategyContext {
   transcriptTail: string;
   pulseSummary: string;
   workerSummary: string;
+  worldModelSummary: string;
+  recentFailures: Array<{ context: string; reason: string }>;
 }
 
 export interface StrategyReviewResult {
@@ -154,6 +157,8 @@ export function gatherStrategyContext(params: StrategyReviewParams): StrategyCon
       ? params.successCriteria.filter((criterion) => criterion.trim())
       : defaultSuccessCriteria();
   const workspaceHint = params.workspace ?? basename(cwd);
+  const world = loadWorldModel();
+  const episodes = recentEpisodes(undefined, 10);
 
   return {
     goal,
@@ -164,6 +169,11 @@ export function gatherStrategyContext(params: StrategyReviewParams): StrategyCon
     transcriptTail: "", // filled async in runStrategyReview
     pulseSummary: summarizePulse(workspaceHint),
     workerSummary: summarizeWorkers(params.workerCheckpoints),
+    worldModelSummary: formatWorldModelForPrompt(world, episodes),
+    recentFailures: world.failures.slice(-5).map((row) => ({
+      context: row.context,
+      reason: row.reason,
+    })),
   };
 }
 
@@ -192,6 +202,9 @@ export function buildStrategyReviewPrompt(context: StrategyContext, transcriptTa
     "",
     "## Worker checkpoints",
     context.workerSummary,
+    "",
+    "## World model (persistent memory)",
+    context.worldModelSummary || "(empty — no north star, goals, or episodes yet)",
     "",
     "Respond with ONLY valid JSON (no markdown fences):",
     '{"onTrack":boolean,"score":0-100,"issues":["..."],"recommendation":"...","pivot":string|null,"spawn":{"role":"...","prompt":"..."}|null,"kill":[sessionIndex,...]}',
@@ -326,6 +339,15 @@ export function heuristicStrategyReview(
       prompt:
         "Independent verifier: read git diff and run npm test. Report blockers only — do not start new features.",
     };
+  }
+
+  const failures = context.recentFailures.slice(-3);
+  if (failures.length >= 2 && failures.every((row) => row.context === failures[0]?.context)) {
+    score -= 15;
+    issues.push("repeated_failure");
+    pivot =
+      pivot ??
+      `Same failure repeated (${failures[0]?.context}): change approach — consult world model skills or pivot task.`;
   }
 
   const staleWorkers = context.workerSummary

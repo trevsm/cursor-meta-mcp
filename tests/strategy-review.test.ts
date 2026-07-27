@@ -88,6 +88,8 @@ const baseContext: StrategyContext = {
   transcriptTail: "Let's discuss the mental model and architecture vision.",
   pulseSummary: "live=2 frustration=0 matrix=1",
   workerSummary: "worker-session-2 #2: ticks=3 errors=0 stopped=running last=ok",
+  worldModelSummary: "North star: Build AGI. Active goals: improve tests.",
+  recentFailures: [],
 };
 
 test("parseStrategyVerdict parses full JSON", () => {
@@ -106,7 +108,25 @@ test("buildStrategyReviewPrompt includes mission and git diff", () => {
   assert.match(prompt, /Autonomously improve/);
   assert.match(prompt, /transcript tail/);
   assert.match(prompt, /Git sync/);
+  assert.match(prompt, /World model/);
   assert.match(prompt, /"onTrack"/);
+});
+
+test("heuristicStrategyReview flags repeated failures from world model", () => {
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      gitDiffStat: " src/foo.ts | 4 ++",
+      transcriptTail: "Implemented fix and npm test passes.",
+      recentFailures: [
+        { context: "npm test", reason: "sqlite3 ABI" },
+        { context: "npm test", reason: "sqlite3 ABI again" },
+      ],
+    },
+    "Implemented fix and npm test passes.",
+  );
+  assert.ok(verdict.issues.includes("repeated_failure"));
+  assert.ok(verdict.pivot?.includes("npm test"));
 });
 
 test("heuristicStrategyReview flags architecture theater without code progress", () => {

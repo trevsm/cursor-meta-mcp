@@ -43,6 +43,14 @@ export interface WorldEpisode {
   notes?: string;
 }
 
+export interface WorldSkill {
+  id: string;
+  name: string;
+  procedure: string;
+  sourceEpisodeId?: string;
+  createdAt: string;
+}
+
 export interface WorldModel {
   northStar?: string;
   updatedAt: string;
@@ -69,6 +77,10 @@ function failuresPath(metaDir?: string): string {
 
 function episodesDir(metaDir?: string): string {
   return join(defaultWorldDir(metaDir), "episodes");
+}
+
+function skillsIndexPath(metaDir?: string): string {
+  return join(defaultWorldDir(metaDir), "skills.json");
 }
 
 function readJsonFile<T>(path: string, fallback: T): T {
@@ -185,7 +197,98 @@ export function appendEpisode(episode: Omit<WorldEpisode, "id"> & { id?: string 
     notes: episode.notes,
   };
   appendFileSync(join(dir, `${day}.jsonl`), `${JSON.stringify(record)}\n`, "utf8");
+  try {
+    extractSkillFromEpisode(record, metaDir);
+  } catch {
+    /* skill extraction is best-effort */
+  }
   return record;
+}
+
+export function listSkills(metaDir?: string): WorldSkill[] {
+  const file = readJsonFile<{ skills?: WorldSkill[] }>(skillsIndexPath(metaDir), {});
+  return file.skills ?? [];
+}
+
+export function saveSkill(
+  skill: Omit<WorldSkill, "id" | "createdAt"> & { id?: string },
+  metaDir?: string,
+): WorldSkill {
+  const skills = listSkills(metaDir);
+  const procedure = skill.procedure.trim();
+  const existing = skills.find((row) => row.procedure === procedure);
+  if (existing) return existing;
+  const record: WorldSkill = {
+    id: skill.id ?? newId("skill"),
+    name: skill.name.trim(),
+    procedure,
+    sourceEpisodeId: skill.sourceEpisodeId,
+    createdAt: new Date().toISOString(),
+  };
+  skills.push(record);
+  writeJsonFile(skillsIndexPath(metaDir), { skills: skills.slice(-100) });
+  return record;
+}
+
+export function extractSkillFromEpisode(episode: WorldEpisode, metaDir?: string): WorldSkill | null {
+  if (episode.outcome !== "success") return null;
+  const verify = episode.verify?.trim();
+  if (!verify || verify.length < 15) return null;
+  const name = (episode.action ?? "verified procedure").slice(0, 80);
+  const procedure = [episode.observe, episode.action, episode.verify].filter(Boolean).join(" → ");
+  return saveSkill({ name, procedure, sourceEpisodeId: episode.id }, metaDir);
+}
+
+export function worldStatus(metaDir?: string, episodeLimit = 12): {
+  model: WorldModel;
+  episodes: WorldEpisode[];
+  skills: WorldSkill[];
+  summary: string;
+} {
+  const model = loadWorldModel(metaDir);
+  const episodes = recentEpisodes(metaDir, episodeLimit);
+  const skills = listSkills(metaDir);
+  return {
+    model,
+    episodes,
+    skills,
+    summary: formatWorldModelForPrompt(model, episodes, skills),
+  };
+}
+
+export type WorldRecordAction =
+  | "set_north_star"
+  | "push_goal"
+  | "complete_goal"
+  | "add_belief"
+  | "record_failure";
+
+export function applyWorldRecord(
+  action: WorldRecordAction,
+  fields: { text?: string; goalId?: string; context?: string; reason?: string; source?: string },
+  metaDir?: string,
+): unknown {
+  switch (action) {
+    case "set_north_star":
+      if (!fields.text?.trim()) throw new Error("text is required for set_north_star");
+      return setNorthStar(fields.text, metaDir);
+    case "push_goal":
+      if (!fields.text?.trim()) throw new Error("text is required for push_goal");
+      return pushGoal(fields.text, metaDir);
+    case "complete_goal":
+      if (!fields.goalId?.trim()) throw new Error("goalId is required for complete_goal");
+      return completeGoal(fields.goalId, metaDir);
+    case "add_belief":
+      if (!fields.text?.trim()) throw new Error("text is required for add_belief");
+      return addBelief(fields.text, metaDir, fields.source);
+    case "record_failure":
+      if (!fields.context?.trim() || !fields.reason?.trim()) {
+        throw new Error("context and reason are required for record_failure");
+      }
+      return recordFailure(fields.context, fields.reason, metaDir);
+    default:
+      throw new Error(`Unknown action: ${String(action)}`);
+  }
 }
 
 export function recentEpisodes(metaDir?: string, max = 20): WorldEpisode[] {
@@ -214,20 +317,28 @@ export function activeGoals(model: WorldModel): WorldGoal[] {
   return model.goals.filter((goal) => goal.status === "active");
 }
 
-export function formatWorldModelForPrompt(model: WorldModel, episodes = recentEpisodes()): string {
+export function formatWorldModelForPrompt(
+  model: WorldModel,
+  episodes = recentEpisodes(),
+  skills: WorldSkill[] = [],
+): string {
   const parts: string[] = [];
   if (model.northStar) parts.push(`North star: ${model.northStar}`);
   const goals = activeGoals(model).slice(0, 5);
   if (goals.length) {
     parts.push(`Active goals: ${goals.map((g) => g.text).join("; ")}`);
   }
-  const beliefs = model.beliefs.slice(-5);
-  if (beliefs.length) {
-    parts.push(`Recent beliefs: ${beliefs.map((b) => b.text).join("; ")}`);
+  const beliefRows = model.beliefs.slice(-5);
+  if (beliefRows.length) {
+    parts.push(`Recent beliefs: ${beliefRows.map((b) => b.text).join("; ")}`);
   }
-  const failures = model.failures.slice(-3);
-  if (failures.length) {
-    parts.push(`Recent failures: ${failures.map((f) => `${f.context} → ${f.reason}`).join("; ")}`);
+  const failureRows = model.failures.slice(-3);
+  if (failureRows.length) {
+    parts.push(`Recent failures: ${failureRows.map((f) => `${f.context} → ${f.reason}`).join("; ")}`);
+  }
+  const skillRows = skills.slice(-3);
+  if (skillRows.length) {
+    parts.push(`Known skills: ${skillRows.map((s) => s.name).join("; ")}`);
   }
   const recent = episodes.slice(0, 5);
   if (recent.length) {

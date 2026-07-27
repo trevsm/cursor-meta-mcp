@@ -14,7 +14,7 @@ import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } fr
 import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, type LongSessionState } from "./long-session.js";
 import { recentRunThoughts, type RunEventRecord } from "./run-events.js";
-import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes, type WorldModel } from "./world-model.js";
+import { formatWorldModelForPrompt, listSkills, loadWorldModel, recentEpisodes, type WorldModel } from "./world-model.js";
 
 export interface DashboardLogSource {
   name: string;
@@ -456,11 +456,12 @@ export function collectSpawnThoughts(input: {
   for (const run of recentRunThoughts(metaDir)) {
     const latest = run.events.at(-1);
     if (!latest) continue;
+    const ageMs = latest.at ? Date.now() - Date.parse(latest.at) : Number.POSITIVE_INFINITY;
     thoughts.push({
       id: `sdk:${run.runId}`,
       source: "sdk-run",
       label: run.agentId ? `SDK ${run.agentId.slice(0, 8)}` : `SDK ${run.runId.slice(0, 8)}`,
-      status: "active",
+      status: ageMs < 120_000 ? "active" : "idle",
       kind: thoughtKindFromEvent(latest.type),
       text: latest.message,
       at: latest.at,
