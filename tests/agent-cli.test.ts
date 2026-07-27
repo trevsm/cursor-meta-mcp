@@ -180,3 +180,25 @@ test("runAgentCliPrompt rejects when CLI is not logged in", async () => {
     /not logged in/i,
   );
 });
+
+test("runAgentCliPrompt maps spawn ENOENT to install guidance", async () => {
+  spawnMock.mock.mockImplementation((_command, args) => {
+    const child = new EventEmitter() as ReturnType<SpawnHandler>;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    queueMicrotask(() => {
+      if (args[0] === "status") {
+        child.stdout.emit("data", Buffer.from("Logged in as cli@example.com\n"));
+        child.emit("close", 0);
+        return;
+      }
+      const err = Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+      child.emit("error", err);
+    });
+    return child;
+  });
+  await assert.rejects(
+    () => runAgentCliPrompt({ prompt: "hello", cwd: process.cwd() }),
+    /spawn .+ ENOENT.*Agent CLI not installed/i,
+  );
+});

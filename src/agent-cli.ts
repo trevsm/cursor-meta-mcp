@@ -28,22 +28,36 @@ export async function isAgentCliLoggedIn(): Promise<boolean> {
     // (e.g. "Minimize scope; ship small…" → `/bin/sh: ship: command not found`).
     const child = spawn(AGENT_BIN, ["status"], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
+    child.on("error", () => finish(false));
     child.on("close", () => {
-      resolve(stdout.includes("Logged in as"));
+      finish(stdout.includes("Logged in as"));
     });
   });
+}
+
+const AGENT_MISSING =
+  "Cursor Agent CLI not installed. Run: cursor agent (from Cursor app bin).";
+
+async function requireAgentBin(): Promise<void> {
+  if (!(await agentBinExists())) {
+    throw new Error(AGENT_MISSING);
+  }
 }
 
 export async function agentCliWhoami(): Promise<{
   apiKeyName: string;
   userEmail?: string;
 }> {
-  if (!(await agentBinExists())) {
-    throw new Error("Cursor Agent CLI not installed. Run: cursor agent (from Cursor app bin).");
-  }
+  await requireAgentBin();
   const stdout = await runAgentCommand(["status"]);
   const emailMatch = stdout.match(/Logged in as\s+(.+)/);
   return {
@@ -68,6 +82,11 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
       stderr += chunk.toString();
     });
     child.on("error", (error) => {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        reject(new Error(`spawn ${AGENT_BIN} ENOENT — ${AGENT_MISSING}`));
+        return;
+      }
       reject(error);
     });
     child.on("close", (code) => {
@@ -80,12 +99,17 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
   });
 }
 
-export async function createAgentChat(): Promise<string> {
+async function requireAgentCliLoggedIn(): Promise<void> {
+  await requireAgentBin();
   if (!(await isAgentCliLoggedIn())) {
     throw new Error(
       "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login",
     );
   }
+}
+
+export async function createAgentChat(): Promise<string> {
+  await requireAgentCliLoggedIn();
   const chatId = await runAgentCommand(["create-chat"]);
   if (!/^[0-9a-f-]{36}$/i.test(chatId)) {
     throw new Error(`Unexpected create-chat output: ${chatId}`);
@@ -101,11 +125,7 @@ export async function runAgentCliResume(params: {
   mode?: "agent" | "plan" | "ask";
   model?: string;
 }): Promise<AgentCliRunResult> {
-  if (!(await isAgentCliLoggedIn())) {
-    throw new Error(
-      "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login",
-    );
-  }
+  await requireAgentCliLoggedIn();
 
   const args = ["-p", "--trust", "--resume", params.chatId, "--output-format", "text"];
   if (params.mode === "plan" || params.mode === "ask") {
@@ -132,11 +152,7 @@ export async function runAgentCliPrompt(params: {
   mode?: "agent" | "plan" | "ask";
   model?: string;
 }): Promise<AgentCliRunResult> {
-  if (!(await isAgentCliLoggedIn())) {
-    throw new Error(
-      "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login",
-    );
-  }
+  await requireAgentCliLoggedIn();
 
   const args = ["-p", "--trust", "--output-format", "text"];
   if (params.mode === "plan" || params.mode === "ask") {
