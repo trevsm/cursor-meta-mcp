@@ -54,6 +54,40 @@ test("buildWorkerActivity includes live sdk run events", () => {
   assert.match(rows[0]?.statusText ?? "", /Planning tick improvement/);
 });
 
+test("buildWorkerActivity ignores stale sdk run events for active status", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-stale-"));
+  const runsDir = join(metaDir, "runs");
+  mkdirSync(runsDir, { recursive: true });
+  const agentId = "agent-stale";
+  writeFileSync(
+    join(runsDir, "run-stale.jsonl"),
+    `${JSON.stringify({
+      type: "thinking",
+      message: "Old planning",
+      at: "2020-01-01T00:00:00.000Z",
+      runId: "run-stale",
+      agentId,
+    })}\n`,
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 3, lastTick: { tick: 3 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.status, "idle");
+  assert.equal(rows[0]?.liveEvents.length, 1);
+});
+
 test("buildWorkerActivity marks sdk worker error and dead states", () => {
   const errorRows = buildWorkerActivity([
     {
