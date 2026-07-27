@@ -158,3 +158,28 @@ test("buildFleetOverview warns when fleet is degraded", () => {
   assert.match(overview.paragraph, /degraded — 2 of 3 workers are alive/i);
   assert.match(overview.headline, /idle after tick 4/i);
 });
+
+test("buildFleetOverview normalizes raw sdk stream status text", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "active",
+        statusText: "tool grep: completed",
+        ticksCompleted: 2,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.match(overview.headline, /tick 3 in progress/i);
+  assert.match(overview.paragraph, /running tick 3/i);
+});
