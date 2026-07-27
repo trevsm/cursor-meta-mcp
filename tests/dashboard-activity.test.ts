@@ -365,3 +365,30 @@ test("buildWorkerActivity surfaces tick errors in recent tick breakdown", () => 
   assert.equal(rows[0]?.recentTicks[0]?.outcomeSummary, "error");
   assert.match(rows[0]?.statusText ?? "", /spawn failed/);
 });
+
+test("buildWorkerActivity maps orchestrator role and stopped strategy reviewer", () => {
+  const rows = buildWorkerActivity([
+    {
+      name: "orchestrator-loop",
+      displayName: "Pulse orchestrator",
+      pid: 10,
+      alive: true,
+      checkpoint: { exists: false },
+    },
+    {
+      name: "strategy-review-loop",
+      displayName: "Strategy critic",
+      pid: 11,
+      alive: false,
+      checkpoint: { exists: false },
+    },
+  ]);
+
+  const orchestrator = rows.find((row) => row.name === "orchestrator-loop");
+  assert.match(orchestrator?.role ?? "", /Pulse orchestrator/i);
+  assert.equal(orchestrator?.statusText, "Supervisor running");
+
+  const strategy = rows.find((row) => row.name === "strategy-review-loop");
+  assert.equal(strategy?.status, "dead");
+  assert.equal(strategy?.statusText, "Stopped");
+});
