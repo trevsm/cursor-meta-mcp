@@ -17,7 +17,7 @@ export interface GroundTruthAudit extends CompletionClaims {
 const DONE_CLAIM =
   /\b(?:all done|task (?:is )?complete|ready to merge|this is done|work is finished)(?!\s+(?:once|when|if|after|until|before)\b)|should work now(?! that)|(?<!\b(?:almost|nearly|still) )finished(?:\.|!|$)/i;
 const TESTS_PASS_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout (?:claiming )?)(?<!\bdo not say )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )\b(?:all tests pass(?:ed)?|(?<!\ball )tests pass(?:ed)?|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout (?:claiming )?)(?<!\bdo not say )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\bensure )(?<!\bmake )(?<!\bneed )(?<!\bhelp )\b(?:all tests pass(?:ed)?(?!\s+in\b)|(?<!\ball )tests pass(?:ed)?(?!\s+in\b)|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing(?!\s+in\b))\b/i;
 const COMMIT_CLAIM =
   /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )\bcommitted\b/i;
 const PUSH_CLAIM =

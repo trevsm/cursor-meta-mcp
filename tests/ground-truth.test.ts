@@ -59,6 +59,9 @@ test("detectCompletionClaims ignores conditional tests-pass phrasing", () => {
   assert.equal(detectCompletionClaims("Will commit after tests pass.").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("Wait until tests pass before claiming success.").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("before tests pass we should not commit").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("ensure tests pass before merge").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("tests pass in CI only").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("make tests pass before claiming").claimedTestsPass, false);
   assert.equal(detectCompletionClaims("tests are passing now").claimedTestsPass, true);
 });
 
