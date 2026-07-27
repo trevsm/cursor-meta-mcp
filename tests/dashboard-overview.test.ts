@@ -308,3 +308,28 @@ test("buildFleetOverview humanShippedTick omits test count when only pass flag s
 
   assert.match(overview.paragraph, /Latest work: Tick 3 shipped 1 commit, 2 files changed, tests passed/);
 });
+
+test("buildFleetOverview uses fleet needs attention when degraded without sdk worker", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: { ...healthyFleet, total: 3, alive: 2 },
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "watch-experiments",
+        displayName: "Fleet watcher",
+        alive: true,
+        role: "Patrols workers",
+        status: "idle",
+        statusText: "Supervisor running",
+        ticksCompleted: 0,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.equal(overview.status, "warn");
+  assert.equal(overview.headline, "Fleet needs attention");
+});
