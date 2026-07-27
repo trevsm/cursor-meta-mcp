@@ -154,6 +154,29 @@ test("appendLearning flattens multi-line lessons to one row", () => {
   assert.match(body, /line1 line2 line3/);
 });
 
+test("recordTickLesson writes from test failure outcome", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-test-fail-"));
+  const lesson = recordTickLesson({
+    metaDir,
+    outcome: {
+      headBefore: "a",
+      headAfter: "b",
+      committed: true,
+      pushed: false,
+      commits: 1,
+      filesChanged: 1,
+      insertions: 2,
+      deletions: 0,
+      dirtyFiles: 0,
+      producedWork: true,
+      tests: { ran: true, passed: false, failed: 2, durationMs: 100, command: "npm run test:fast" },
+    },
+  });
+  assert.ok(lesson);
+  assert.match(lesson, /test:fast failed \(2 failing\)/);
+  assert.match(formatLearningsForPrompt(metaDir), /fix before claiming done/i);
+});
+
 test("recordTickLesson writes from ground-truth audit", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "learnings-gt-"));
   const lesson = recordTickLesson({
