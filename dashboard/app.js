@@ -168,7 +168,7 @@ function renderFull(data) {
         return `<div class="proc">
           <div class="proc-dot ${exp.alive ? "alive" : ""}"></div>
           <div>
-            <div class="proc-name">${escapeHtml(exp.name)}</div>
+            <div class="proc-name">${escapeHtml(exp.displayName ?? exp.name)}</div>
             <div class="proc-meta">pid ${exp.pid > 0 ? exp.pid : "—"} · ticks ${cp.ticks ?? "—"} · ${last?.at ? fmtTime(last.at) : "idle"}</div>
             ${notes ? `<div class="proc-meta">${escapeHtml(notes)}</div>` : ""}
           </div>

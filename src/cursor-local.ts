@@ -60,6 +60,8 @@ export interface FollowUpParams {
   prompt: string;
   model?: string;
   cwd?: string;
+  /** Dashboard label for this run (inherits from Agent.create name). */
+  name?: string;
 }
 
 export interface InterceptAgentParams extends FollowUpParams {
@@ -311,12 +313,17 @@ export class CursorLocalService implements LocalAgentService {
     };
   }
 
-  private async driveRun(agentId: string, run: Run, hooks?: RunHooks): Promise<AgentRunResult> {
+  private async driveRun(
+    agentId: string,
+    run: Run,
+    hooks?: RunHooks,
+    runLabel?: string,
+  ): Promise<AgentRunResult> {
     const removeAbort = this.wireAbort(run, hooks?.signal);
     try {
       if (run.supports("stream")) {
         const reducer = new ProgressReducer((event) => {
-          appendRunEvent(run.id, event, { agentId });
+          appendRunEvent(run.id, event, { agentId, label: runLabel });
           hooks?.onProgress?.(event);
         });
         try {
@@ -374,7 +381,7 @@ export class CursorLocalService implements LocalAgentService {
     });
     try {
       const run = await agent.send(params.prompt);
-      const result = await this.driveRun(agent.agentId, run, hooks);
+      const result = await this.driveRun(agent.agentId, run, hooks, params.name);
       recordSdkRunComplete({
         durationMs: result.durationMs,
         model: result.model ?? params.model ?? this.defaultModel,
@@ -467,11 +474,11 @@ export class CursorLocalService implements LocalAgentService {
         params.prompt,
         params.model ? { model: { id: params.model } } : undefined,
       );
-      const result = await this.driveRun(agent.agentId, run, hooks);
+      const result = await this.driveRun(agent.agentId, run, hooks, params.name);
       recordSdkRunComplete({
         durationMs: result.durationMs,
         model: result.model ?? params.model ?? this.defaultModel,
-        source: "followUp",
+        source: params.name ?? "followUp",
       });
       return result;
     } finally {

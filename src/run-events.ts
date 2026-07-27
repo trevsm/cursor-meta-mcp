@@ -8,11 +8,14 @@ export interface RunEventRecord extends RunProgressEvent {
   at: string;
   runId: string;
   agentId?: string;
+  /** Human-readable spawn label (e.g. self-improve-fleet). */
+  label?: string;
 }
 
 export interface RunEventSource {
   runId: string;
   agentId?: string;
+  label?: string;
   path: string;
   modifiedAt: string;
   bytes: number;
@@ -25,7 +28,7 @@ export function defaultRunsDir(metaDir = metaHome()): string {
 export function appendRunEvent(
   runId: string,
   event: RunProgressEvent,
-  options?: { metaDir?: string; agentId?: string },
+  options?: { metaDir?: string; agentId?: string; label?: string },
 ): void {
   const dir = defaultRunsDir(options?.metaDir);
   mkdirSync(dir, { recursive: true });
@@ -34,6 +37,7 @@ export function appendRunEvent(
     at: new Date().toISOString(),
     runId,
     agentId: options?.agentId,
+    label: options?.label,
   };
   appendFileSync(join(dir, `${runId}.jsonl`), `${JSON.stringify(record)}\n`, "utf8");
 }
@@ -71,10 +75,13 @@ export function listRunEventSources(metaDir?: string): RunEventSource[] {
       const stat = statSync(path);
       const runId = name.slice(0, -".jsonl".length);
       let agentId: string | undefined;
+      let label: string | undefined;
       const firstLine = readFileSync(path, "utf8").split(/\r?\n/).find(Boolean);
       if (firstLine) {
         try {
-          agentId = (JSON.parse(firstLine) as RunEventRecord).agentId;
+          const parsed = JSON.parse(firstLine) as RunEventRecord;
+          agentId = parsed.agentId;
+          label = parsed.label;
         } catch {
           /* ignore */
         }
@@ -82,6 +89,7 @@ export function listRunEventSources(metaDir?: string): RunEventSource[] {
       sources.push({
         runId,
         agentId,
+        label,
         path,
         modifiedAt: stat.mtime.toISOString(),
         bytes: stat.size,
@@ -98,16 +106,20 @@ export function recentRunThoughts(
   maxRuns = 6,
   maxEventsPerRun = 12,
   maxAgeMs = 10 * 60_000,
-): Array<{ runId: string; agentId?: string; events: RunEventRecord[]; modifiedAt: string }> {
+): Array<{ runId: string; agentId?: string; label?: string; events: RunEventRecord[]; modifiedAt: string }> {
   const cutoff = Date.now() - maxAgeMs;
   return listRunEventSources(metaDir)
     .filter((source) => Date.parse(source.modifiedAt) >= cutoff)
     .slice(0, maxRuns)
-    .map((source) => ({
-      runId: source.runId,
-      agentId: source.agentId,
-      modifiedAt: source.modifiedAt,
-      events: tailRunEvents(source.runId, { metaDir, maxLines: maxEventsPerRun }),
-    }))
+    .map((source) => {
+      const events = tailRunEvents(source.runId, { metaDir, maxLines: maxEventsPerRun });
+      return {
+        runId: source.runId,
+        agentId: source.agentId,
+        label: source.label ?? events.find((event) => event.label)?.label,
+        modifiedAt: source.modifiedAt,
+        events,
+      };
+    })
     .filter((row) => row.events.length > 0);
 }

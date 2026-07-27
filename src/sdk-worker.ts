@@ -95,6 +95,8 @@ export const DEFAULT_SDK_WORKER_PROMPT = [
   "Minimize scope. No architecture theater.",
 ].join(" ");
 
+export const SDK_FLEET_AGENT_NAME = "self-improve-fleet";
+
 export async function runSdkWorkerTick(
   service: LocalAgentService,
   params: SdkWorkerParams & { agentId?: string },
@@ -104,10 +106,20 @@ export async function runSdkWorkerTick(
   const started = Date.now();
   try {
     const result = params.agentId
-      ? await service.followUp({ agentId: params.agentId, prompt, cwd: params.cwd, model: params.model })
-      : await service.runLocalAgent(
-          { prompt, cwd: params.cwd, model: params.model, mode: "agent" },
-        );
+      ? await service.followUp({
+          agentId: params.agentId,
+          prompt,
+          cwd: params.cwd,
+          model: params.model,
+          name: SDK_FLEET_AGENT_NAME,
+        })
+      : await service.runLocalAgent({
+          prompt,
+          cwd: params.cwd,
+          model: params.model,
+          mode: "agent",
+          name: SDK_FLEET_AGENT_NAME,
+        });
 
     return {
       tick,

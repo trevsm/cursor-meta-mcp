@@ -183,7 +183,7 @@ test("buildActiveSummary summarizes fleet and worker tails", () => {
     spawnThoughts: [],
   });
   assert.match(summary.headline, /running smoothly|active/i);
-  assert.ok(summary.lines.some((line) => line.text.includes("worker-a")));
+  assert.ok(summary.lines.some((line) => /Worker A/i.test(line.text)));
 });
 
 test("collectSpawnThoughts includes worker tails and live chats", () => {

@@ -11,6 +11,11 @@ import {
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
 import {
+  friendlyExperimentName,
+  friendlySdkAgentLabel,
+  indexWorkerAgents,
+} from "./fleet-labels.js";
+import {
   analyzeWorkerCheckpoint,
   attemptedTickCount,
   meetsProductiveTickGate,
@@ -32,6 +37,7 @@ export interface DashboardLogSource {
 
 export interface DashboardExperimentRow {
   name: string;
+  displayName: string;
   pid: number;
   alive: boolean;
   sessionId?: string;
@@ -39,6 +45,7 @@ export interface DashboardExperimentRow {
   checkpointPath?: string;
   logPath?: string;
   relaunchCount?: number;
+  agentId?: string;
   checkpoint?: {
     exists: boolean;
     ticks?: number;
@@ -282,9 +289,11 @@ export function buildExperimentRows(
       watch?.checkpoint && typeof watch.checkpoint === "object"
         ? (watch.checkpoint as DashboardExperimentRow["checkpoint"])
         : undefined;
+    const rawCheckpoint = readJsonSafe<{ agentId?: string }>(exp.checkpointPath);
 
     return {
       name: exp.name,
+      displayName: friendlyExperimentName(exp.name),
       pid: exp.pid,
       alive,
       sessionId: exp.sessionId,
@@ -292,6 +301,7 @@ export function buildExperimentRows(
       checkpointPath: exp.checkpointPath,
       logPath: exp.logPath,
       relaunchCount: exp.relaunchCount,
+      agentId: rawCheckpoint?.agentId,
       checkpoint: checkpointFromWatch ?? summarizeCheckpoint(exp.checkpointPath),
     };
   });
@@ -429,6 +439,7 @@ export function buildActiveSummary(input: {
   }
 
   for (const exp of input.experiments.filter((row) => row.alive).slice(0, 4)) {
+    const label = exp.displayName ?? friendlyExperimentName(exp.name);
     const last = exp.checkpoint?.lastTick;
     const tail = last?.lastAssistantTail?.trim();
     const err = last?.error?.trim();
@@ -438,17 +449,17 @@ export function buildActiveSummary(input: {
       const attempted = attemptedTickCount(metrics);
       lines.push({
         level: "warn",
-        text: `${exp.name}: productive ${(metrics.productiveRatio * 100).toFixed(0)}% below ${PRODUCTIVE_TICK_GATE * 100}% gate (${metrics.productiveTicks}/${attempted} attempted).`,
+        text: `${label}: productive ${(metrics.productiveRatio * 100).toFixed(0)}% below ${PRODUCTIVE_TICK_GATE * 100}% gate (${metrics.productiveTicks}/${attempted} attempted).`,
       });
     }
     if (err) {
-      lines.push({ level: "bad", text: `${exp.name}: ${err.slice(0, 120)}${err.length > 120 ? "…" : ""}` });
+      lines.push({ level: "bad", text: `${label}: ${err.slice(0, 120)}${err.length > 120 ? "…" : ""}` });
     } else if (last?.skipped === "busy") {
-      lines.push({ level: "info", text: `${exp.name}: waiting for chat to finish generating.` });
+      lines.push({ level: "info", text: `${label}: waiting for chat to finish generating.` });
     } else if (tail) {
-      lines.push({ level: "info", text: `${exp.name}: ${tail.slice(0, 120)}${tail.length > 120 ? "…" : ""}` });
+      lines.push({ level: "info", text: `${label}: ${tail.slice(0, 120)}${tail.length > 120 ? "…" : ""}` });
     } else if (ticks > 0) {
-      lines.push({ level: "ok", text: `${exp.name}: tick ${ticks} complete, idle.` });
+      lines.push({ level: "ok", text: `${label}: tick ${ticks} complete, idle.` });
     }
   }
 
@@ -490,8 +501,10 @@ export function collectSpawnThoughts(input: {
 }): SpawnThought[] {
   const thoughts: SpawnThought[] = [];
   const metaDir = input.metaDir ?? defaultMetaDir();
+  const agentIndex = indexWorkerAgents(input.experiments);
 
   for (const exp of input.experiments) {
+    const workerLabel = exp.displayName ?? friendlyExperimentName(exp.name);
     const last = exp.checkpoint?.lastTick;
     const tail = last?.lastAssistantTail?.trim();
     const err = last?.error?.trim();
@@ -507,7 +520,7 @@ export function collectSpawnThoughts(input: {
       thoughts.push({
         id: `worker:${exp.name}:error`,
         source: "worker",
-        label: exp.name,
+        label: workerLabel,
         status,
         kind: "error",
         text: err,
@@ -518,7 +531,7 @@ export function collectSpawnThoughts(input: {
       thoughts.push({
         id: `worker:${exp.name}:tail`,
         source: "worker",
-        label: exp.name,
+        label: workerLabel,
         status,
         kind: thoughtKindFromTail(tail),
         text: tail,
@@ -529,7 +542,7 @@ export function collectSpawnThoughts(input: {
       thoughts.push({
         id: `worker:${exp.name}:idle`,
         source: "worker",
-        label: exp.name,
+        label: workerLabel,
         status,
         kind: last?.skipped === "busy" ? "status" : "other",
         text: last?.skipped === "busy" ? "Waiting for IDE chat to finish…" : "Worker alive, awaiting next tick.",
@@ -553,14 +566,29 @@ export function collectSpawnThoughts(input: {
     });
   }
 
+  const runsByAgent = new Map<string, (ReturnType<typeof recentRunThoughts>[number])>();
   for (const run of recentRunThoughts(metaDir)) {
+    const key = run.agentId ?? run.runId;
+    const existing = runsByAgent.get(key);
+    if (!existing || Date.parse(run.modifiedAt) > Date.parse(existing.modifiedAt)) {
+      runsByAgent.set(key, run);
+    }
+  }
+
+  for (const run of runsByAgent.values()) {
     const latest = run.events.at(-1);
     if (!latest) continue;
     const ageMs = latest.at ? Date.now() - Date.parse(latest.at) : Number.POSITIVE_INFINITY;
+    const ctx = run.agentId ? agentIndex.get(run.agentId) : undefined;
     thoughts.push({
-      id: `sdk:${run.runId}`,
+      id: `sdk:${run.agentId ?? run.runId}`,
       source: "sdk-run",
-      label: run.agentId ? `SDK ${run.agentId.slice(0, 8)}` : `SDK ${run.runId.slice(0, 8)}`,
+      label: friendlySdkAgentLabel({
+        agentName: run.label ?? ctx?.agentName,
+        workerExperiment: ctx?.workerName,
+        tick: ctx?.tick,
+        agentId: run.agentId,
+      }),
       status: ageMs < 120_000 ? "active" : "idle",
       kind: thoughtKindFromEvent(latest.type),
       text: latest.message,
