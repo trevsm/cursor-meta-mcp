@@ -31,6 +31,8 @@ test("extractWorkSummary strips list markers and markdown emphasis", () => {
     "Tick 3 — added dashboard overview prose",
   );
   assert.equal(extractWorkSummary("* **Shipped** fleet metrics gate"), "Shipped fleet metrics gate");
+  assert.equal(extractWorkSummary("Tick 4 summary without em dash"), "Tick 4 summary without em dash");
+  assert.equal(extractWorkSummary("Tick 4 only"), undefined);
 });
 
 test("buildWorkerActivity includes live sdk run events", () => {
