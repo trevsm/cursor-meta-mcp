@@ -41,7 +41,7 @@ test("resolveHonestWorkerMode hybrid falls back to ide without auth", async () =
 
 test("workerAuthHint describes auth source", () => {
   assert.match(workerAuthHint({ apiKey: true, cli: true, sdk: true }), /CURSOR_API_KEY/);
-  assert.match(workerAuthHint({ apiKey: false, cli: true, sdk: true }), /Agent CLI login/);
+  assert.match(workerAuthHint({ apiKey: false, cli: true, sdk: true }), /detached fleet workers require CURSOR_API_KEY/);
   assert.match(workerAuthHint({ apiKey: false, cli: false, sdk: false }), /falling back to IDE/);
 });
 

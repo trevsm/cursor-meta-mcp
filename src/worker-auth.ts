@@ -26,10 +26,11 @@ export async function resolveHonestWorkerMode(
 }
 
 export function workerAuthHint(status: WorkerAuthStatus): string {
-  if (status.sdk) {
-    return status.apiKey
-      ? "Using CURSOR_API_KEY for SDK worker."
-      : "Using Agent CLI login for SDK worker (one-shot runs).";
+  if (status.apiKey) {
+    return "Using CURSOR_API_KEY for SDK worker.";
+  }
+  if (status.cli) {
+    return "Agent CLI login works for interactive runs; detached fleet workers require CURSOR_API_KEY in ~/.cursor/.env.";
   }
   return "No SDK auth — falling back to IDE long-session worker. Set CURSOR_API_KEY in ~/.cursor/.env or run ~/.local/bin/agent login.";
 }
