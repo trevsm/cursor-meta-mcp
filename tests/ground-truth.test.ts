@@ -35,6 +35,29 @@ test("detectCompletionClaims ignores haven't/didn't commit and imperative comple
   assert.equal(detectCompletionClaims("All done. Task is complete.").claimedDone, true);
 });
 
+test("auditGroundTruth blocks done claims without recorded outcome", () => {
+  const audit = auditGroundTruth("All done. Task is complete.", undefined);
+  assert.equal(audit.blocked, true);
+  assert.ok(audit.violations.some((v) => /no tick outcome recorded/i.test(v)));
+});
+
+test("auditGroundTruth blocks done claims with no repo change", () => {
+  const audit = auditGroundTruth("All done.", {
+    headBefore: "a",
+    headAfter: "a",
+    committed: false,
+    pushed: false,
+    commits: 0,
+    filesChanged: 0,
+    insertions: 0,
+    deletions: 0,
+    dirtyFiles: 0,
+    producedWork: false,
+  });
+  assert.equal(audit.blocked, true);
+  assert.ok(audit.violations.some((v) => /no repo change detected/i.test(v)));
+});
+
 test("auditGroundTruth blocks false tests-pass claims", () => {
   const audit = auditGroundTruth("All tests pass now.", {
     headBefore: "a",

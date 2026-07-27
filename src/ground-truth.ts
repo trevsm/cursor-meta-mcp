@@ -54,8 +54,12 @@ export function auditGroundTruth(
   if (claims.claimedPushed && !outcome?.pushed) {
     violations.push("claimed push but origin was not updated this tick");
   }
-  if ((claims.claimedDone || claims.claimedTestsPass) && outcome && !outcome.producedWork) {
-    violations.push("claimed completion but no repo change detected");
+  if (claims.claimedDone) {
+    if (!outcome) {
+      violations.push("claimed completion but no tick outcome recorded");
+    } else if (!outcome.producedWork) {
+      violations.push("claimed completion but no repo change detected");
+    }
   }
 
   const blocked = violations.length > 0;
