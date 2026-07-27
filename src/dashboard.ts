@@ -185,16 +185,15 @@ export function listLogSources(experimentsDir: string): DashboardLogSource[] {
 function summarizeCheckpoint(path?: string): DashboardExperimentRow["checkpoint"] {
   if (!path || !existsSync(path)) return { exists: false };
   const metrics = analyzeWorkerCheckpoint(path);
-  if (!metrics) return { exists: false };
   try {
     const state = readCheckpoint(path);
     const lastTick = state.ticks.at(-1) ?? null;
     return {
       exists: true,
-      ticks: metrics.ticks,
-      productiveTicks: metrics.productiveTicks,
-      productiveRatio: metrics.productiveRatio,
-      stoppedBecause: metrics.stoppedBecause ?? null,
+      ticks: metrics?.ticks ?? state.ticks.length,
+      productiveTicks: metrics?.productiveTicks,
+      productiveRatio: metrics?.productiveRatio,
+      stoppedBecause: metrics?.stoppedBecause ?? state.stoppedBecause ?? null,
       lastTick,
       metrics,
       summary: summarizeLongSession({
@@ -202,10 +201,11 @@ function summarizeCheckpoint(path?: string): DashboardExperimentRow["checkpoint"
         endedAt: lastTick?.at ?? state.startedAt,
         elapsedMs: 0,
         checkpointPath: path,
-        stoppedBecause: metrics.stoppedBecause ?? state.stoppedBecause ?? "duration",
+        stoppedBecause: metrics?.stoppedBecause ?? state.stoppedBecause ?? "duration",
       }),
     };
   } catch {
+    if (!metrics) return { exists: true, ticks: 0, stoppedBecause: null, lastTick: null };
     return {
       exists: true,
       ticks: metrics.ticks,

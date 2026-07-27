@@ -56,6 +56,38 @@ test("buildExperimentRows merges watch checkpoint data", () => {
   assert.equal(rows[0]?.checkpoint?.ticks, 2);
 });
 
+test("buildExperimentRows reads productive metrics from checkpoint files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dashboard-cp-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      startedAt: "2026-07-27T12:00:00.000Z",
+      ticks: [
+        {
+          at: "2026-07-27T12:01:00.000Z",
+          outcome: { producedWork: true, committed: true, commits: 1, filesChanged: 1 },
+        },
+        { at: "2026-07-27T12:02:00.000Z", error: "auth" },
+      ],
+    }),
+  );
+  const rows = buildExperimentRows([{ name: "sdk-worker-1", pid: 99_999_999, checkpointPath: path }], null);
+  assert.equal(rows[0]?.checkpoint?.exists, true);
+  assert.equal(rows[0]?.checkpoint?.ticks, 2);
+  assert.equal(rows[0]?.checkpoint?.productiveTicks, 1);
+  assert.equal(rows[0]?.checkpoint?.productiveRatio, 0.5);
+});
+
+test("buildExperimentRows marks corrupt checkpoints as existing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dashboard-bad-cp-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(path, "{not-json");
+  const rows = buildExperimentRows([{ name: "sdk-worker-bad", pid: 1, checkpointPath: path }], null);
+  assert.equal(rows[0]?.checkpoint?.exists, true);
+  assert.equal(rows[0]?.checkpoint?.ticks, 0);
+});
+
 test("pidAlive detects current process", () => {
   assert.equal(pidAlive(process.pid), true);
   assert.equal(pidAlive(-1), false);
