@@ -36,6 +36,13 @@ test("detectCompletionClaims ignores negated tests-pass language", () => {
   assert.equal(detectCompletionClaims("npm run test:fast passed.").claimedTestsPass, true);
 });
 
+test("detectCompletionClaims ignores conditional tests-pass phrasing", () => {
+  assert.equal(detectCompletionClaims("once tests are passing we ship").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("when all tests pass we merge").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("if tests pass then commit").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("tests are passing now").claimedTestsPass, true);
+});
+
 test("detectCompletionClaims ignores procedural git language in prompts", () => {
   const constitution =
     "Ground-truth: never claim tests pass without npm run test:fast + git commit this tick.";
