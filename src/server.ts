@@ -27,6 +27,7 @@ import {
   showChat,
 } from "./history.js";
 import { runRelentlessLoop } from "./relentless-loop.js";
+import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import {
   resolveSentimentSessionIndex,
   runSentimentAnalysis,
@@ -42,7 +43,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.3.1",
+  version: "0.3.2",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -657,6 +658,27 @@ export function createServer(
             sessionIndex: resolvedIndex,
           }),
         );
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_consciousness_pulse",
+    {
+      title: "Consciousness pulse scan",
+      description:
+        "Live orchestration scan: active chats, frustration fossils, and recommended WATCH/INTERCEPT/CONTINUE/SPAWN actions using local composer state.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        workspace: z.string().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(runConsciousnessPulse(params));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
       }

@@ -18,6 +18,7 @@ test("registers all meta_* tools", async () => {
     assert.deepEqual(names, [
       "meta_abort_chat",
       "meta_cancel_run",
+      "meta_consciousness_pulse",
       "meta_continue_from_chat",
       "meta_create_chat",
       "meta_export_chat",

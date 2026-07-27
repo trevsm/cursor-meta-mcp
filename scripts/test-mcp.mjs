@@ -63,6 +63,7 @@ async function callTool(name, args = {}) {
 const expectedTools = [
   "meta_abort_chat",
   "meta_cancel_run",
+  "meta_consciousness_pulse",
   "meta_continue_from_chat",
   "meta_create_chat",
   "meta_export_chat",
@@ -82,6 +83,7 @@ const expectedTools = [
   "meta_send_to_chat",
   "meta_show_chat",
   "meta_spawn_local_agent",
+  "meta_watch_chat",
   "meta_whoami",
 ];
 
@@ -136,6 +138,7 @@ const tests = [
   ["meta_search_chats", { query: "MCP", limit: 2 }],
   ["meta_show_chat", { sessionIndex: 1 }],
   ["meta_sentiment_analysis", { topMessages: 3, topSessions: 2 }],
+  ["meta_consciousness_pulse", { limit: 5 }],
   ["meta_whoami", {}],
 ];
 
