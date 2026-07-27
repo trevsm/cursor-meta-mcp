@@ -14,6 +14,8 @@ export interface TickOutcome {
   headBefore?: string;
   headAfter?: string;
   committed: boolean;
+  /** True when this tick reduced commits ahead of origin (including commit+push from synced). */
+  pushed: boolean;
   commits: number;
   filesChanged: number;
   insertions: number;
@@ -42,6 +44,8 @@ export interface RepoSnapshot {
    * content hashes for untracked files (porcelain alone misses content edits).
    */
   dirtyFingerprint: string;
+  /** Commits ahead of origin/<branch>; undefined when no upstream. */
+  aheadOfUpstream?: number;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -85,6 +89,15 @@ function untrackedContentFingerprint(cwd: string, porcelain: string): string {
   return hashes.sort().join("\n");
 }
 
+function aheadOfUpstream(cwd: string): number | undefined {
+  const branch = safeGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (!branch || branch === "HEAD") return undefined;
+  const counts = safeGit(cwd, ["rev-list", "--left-right", "--count", `origin/${branch}...HEAD`]);
+  if (counts === undefined) return undefined;
+  const parts = counts.split(/\s+/);
+  return Number(parts[1]) || 0;
+}
+
 export function captureRepoSnapshot(cwd: string): RepoSnapshot {
   const head = safeGit(cwd, ["rev-parse", "HEAD"]);
   const porcelain = safeGit(cwd, ["status", "--porcelain"]) ?? "";
@@ -94,6 +107,7 @@ export function captureRepoSnapshot(cwd: string): RepoSnapshot {
     head,
     dirtyFiles: porcelain.split("\n").filter((line) => line.trim().length > 0).length,
     dirtyFingerprint: `${porcelain}\n${diff}\n${untracked}`,
+    aheadOfUpstream: aheadOfUpstream(cwd),
   };
 }
 
@@ -192,10 +206,19 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
     after.dirtyFiles > params.before.dirtyFiles ||
     after.dirtyFingerprint !== params.before.dirtyFingerprint;
 
+  const aheadBefore = params.before.aheadOfUpstream;
+  const aheadAfter = after.aheadOfUpstream;
+  const pushed =
+    typeof aheadAfter === "number" &&
+    aheadAfter === 0 &&
+    ((typeof aheadBefore === "number" && aheadBefore > 0) ||
+      (committed && typeof aheadBefore === "number"));
+
   return {
     headBefore,
     headAfter,
     committed,
+    pushed,
     commits,
     filesChanged: stat.filesChanged,
     insertions: stat.insertions,
@@ -211,6 +234,7 @@ export function describeTickOutcome(outcome: TickOutcome | undefined): string {
   if (!outcome.producedWork) return "no repo change";
   const parts: string[] = [];
   if (outcome.committed) parts.push(`${outcome.commits} commit(s)`);
+  if (outcome.pushed) parts.push("pushed");
   parts.push(`${outcome.filesChanged} file(s) +${outcome.insertions}/-${outcome.deletions}`);
   if (outcome.tests) {
     parts.push(

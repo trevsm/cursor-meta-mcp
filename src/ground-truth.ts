@@ -4,6 +4,7 @@ export interface CompletionClaims {
   claimedDone: boolean;
   claimedTestsPass: boolean;
   claimedCommitted: boolean;
+  claimedPushed: boolean;
 }
 
 export interface GroundTruthAudit extends CompletionClaims {
@@ -18,7 +19,9 @@ const DONE_CLAIM =
 const TESTS_PASS_CLAIM =
   /\b(tests pass(?:ed)?|all tests pass|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing)\b/i;
 const COMMIT_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(committed|git commit|pushed to origin|git push(?:ed)?)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(committed|git commit)\b/i;
+const PUSH_CLAIM =
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )\b(pushed to origin|git push(?:ed)?|pushed)\b/i;
 
 /** Extract completion claims from the assistant tail of a tick. */
 export function detectCompletionClaims(text: string | undefined): CompletionClaims {
@@ -27,6 +30,7 @@ export function detectCompletionClaims(text: string | undefined): CompletionClai
     claimedDone: DONE_CLAIM.test(tail),
     claimedTestsPass: TESTS_PASS_CLAIM.test(tail),
     claimedCommitted: COMMIT_CLAIM.test(tail),
+    claimedPushed: PUSH_CLAIM.test(tail),
   };
 }
 
@@ -46,6 +50,9 @@ export function auditGroundTruth(
   }
   if (claims.claimedCommitted && !outcome?.committed) {
     violations.push("claimed commit but HEAD unchanged this tick");
+  }
+  if (claims.claimedPushed && !outcome?.pushed) {
+    violations.push("claimed push but origin was not updated this tick");
   }
   if ((claims.claimedDone || claims.claimedTestsPass) && outcome && !outcome.producedWork) {
     violations.push("claimed completion but no repo change detected");

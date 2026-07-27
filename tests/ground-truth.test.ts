@@ -11,11 +11,13 @@ test("detectCompletionClaims finds tests-pass and commit language", () => {
   const claims = detectCompletionClaims("All tests pass. Committed and pushed.");
   assert.equal(claims.claimedTestsPass, true);
   assert.equal(claims.claimedCommitted, true);
+  assert.equal(claims.claimedPushed, true);
 });
 
 test("detectCompletionClaims ignores negated commit language", () => {
   const claims = detectCompletionClaims("Not committed yet; npm run test:fast passed.");
   assert.equal(claims.claimedCommitted, false);
+  assert.equal(claims.claimedPushed, false);
   assert.equal(claims.claimedTestsPass, true);
 });
 
@@ -31,6 +33,7 @@ test("auditGroundTruth blocks false tests-pass claims", () => {
     headBefore: "a",
     headAfter: "a",
     committed: false,
+    pushed: false,
     commits: 0,
     filesChanged: 2,
     insertions: 5,
@@ -49,6 +52,7 @@ test("auditGroundTruth passes when claims match outcome", () => {
     headBefore: "a",
     headAfter: "b",
     committed: true,
+    pushed: false,
     commits: 1,
     filesChanged: 1,
     insertions: 2,
@@ -59,6 +63,26 @@ test("auditGroundTruth passes when claims match outcome", () => {
   });
   assert.equal(audit.blocked, false);
   assert.equal(audit.violations.length, 0);
+});
+
+test("auditGroundTruth blocks false push claims", () => {
+  const audit = auditGroundTruth("Committed and pushed to origin.", {
+    headBefore: "a",
+    headAfter: "b",
+    committed: true,
+    pushed: false,
+    commits: 1,
+    filesChanged: 1,
+    insertions: 2,
+    deletions: 0,
+    dirtyFiles: 0,
+    producedWork: true,
+    tests: { ran: true, passed: true, total: 10, durationMs: 50, command: "npm run test:fast" },
+  });
+  assert.equal(audit.blocked, true);
+  assert.ok(audit.violations.some((v) => /claimed push/i.test(v)));
+  assert.equal(audit.claimedPushed, true);
+  assert.equal(audit.claimedCommitted, true);
 });
 
 test("learnings append and inject into prompt", () => {
@@ -89,6 +113,7 @@ test("recordTickLesson writes from ground-truth audit", () => {
       claimedDone: true,
       claimedTestsPass: true,
       claimedCommitted: false,
+      claimedPushed: false,
       violations: ["claimed tests pass but test:fast did not pass this tick"],
       blocked: true,
     },

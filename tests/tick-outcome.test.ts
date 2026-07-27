@@ -41,6 +41,7 @@ test("describeTickOutcome summarizes repo changes", () => {
       headBefore: "abc",
       headAfter: "def",
       committed: true,
+      pushed: true,
       commits: 1,
       filesChanged: 2,
       insertions: 10,
@@ -49,7 +50,7 @@ test("describeTickOutcome summarizes repo changes", () => {
       producedWork: true,
       tests: { ran: true, passed: true, total: 200, durationMs: 1000, command: "npm test" },
     }),
-    /1 commit/,
+    /1 commit.*pushed/,
   );
 });
 
@@ -81,6 +82,25 @@ test("summarizeTickOutcome reports no work when nothing changed", () => {
   const before = captureRepoSnapshot(dir);
   const outcome = summarizeTickOutcome({ cwd: dir, before });
   assert.equal(outcome.producedWork, false);
+  assert.equal(outcome.pushed, false);
   assert.equal(outcome.filesChanged, 0);
   assert.equal(before.dirtyFingerprint, captureRepoSnapshot(dir).dirtyFingerprint);
+});
+
+test("summarizeTickOutcome detects push that clears ahead-of-origin", () => {
+  const dir = initRepo();
+  const bare = mkdtempSync(join(tmpdir(), "tick-origin-"));
+  execFileSync("git", ["init", "--bare", "-b", "main"], { cwd: bare, stdio: "ignore" });
+  execFileSync("git", ["branch", "-M", "main"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", bare], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["push", "-u", "origin", "HEAD"], { cwd: dir, stdio: "ignore" });
+  writeFileSync(join(dir, "b.txt"), "two\n");
+  execFileSync("git", ["add", "b.txt"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "ahead"], { cwd: dir, stdio: "ignore" });
+  const before = captureRepoSnapshot(dir);
+  assert.equal(before.aheadOfUpstream, 1);
+  execFileSync("git", ["push"], { cwd: dir, stdio: "ignore" });
+  const outcome = summarizeTickOutcome({ cwd: dir, before });
+  assert.equal(outcome.committed, false);
+  assert.equal(outcome.pushed, true);
 });
