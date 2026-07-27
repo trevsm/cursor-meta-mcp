@@ -121,6 +121,7 @@ test("buildFleetOverview reports sdk worker errors and dead fleet", () => {
   assert.equal(errorOverview.status, "bad");
   assert.match(errorOverview.headline, /hit an error/i);
   assert.match(errorOverview.paragraph, /Agent transport dropped/i);
+  assert.match(errorOverview.paragraph, /Latest tick failed:/i);
 
   const deadOverview = buildFleetOverview({
     fleetHealth: { ...healthyFleet, alive: 0 },
