@@ -28,6 +28,14 @@ test("detectCompletionClaims ignores negated push language", () => {
   assert.equal(detectCompletionClaims("Committed and pushed to origin.").claimedPushed, true);
 });
 
+test("detectCompletionClaims ignores negated tests-pass language", () => {
+  assert.equal(detectCompletionClaims("Tests didn't pass.").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("npm test did not pass.").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("tests do not pass yet.").claimedTestsPass, false);
+  assert.equal(detectCompletionClaims("All tests pass.").claimedTestsPass, true);
+  assert.equal(detectCompletionClaims("npm run test:fast passed.").claimedTestsPass, true);
+});
+
 test("detectCompletionClaims ignores haven't/didn't commit and imperative complete", () => {
   assert.equal(detectCompletionClaims("I haven't committed these changes.").claimedCommitted, false);
   assert.equal(detectCompletionClaims("I didn't commit yet.").claimedCommitted, false);
