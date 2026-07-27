@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { buildSdkWorkerArgs, summarizeSdkWorker } from "../src/sdk-worker.js";
+
+test("summarizeSdkWorker aggregates tick outcomes", () => {
+  const summary = summarizeSdkWorker({
+    startedAt: new Date().toISOString(),
+    endedAt: new Date().toISOString(),
+    elapsedMs: 1000,
+    cwd: "/tmp/project",
+    durationMs: 60_000,
+    maxTicks: 10,
+    prompt: "work",
+    stoppedBecause: "duration",
+    checkpointPath: "/tmp/sdk-worker.json",
+    ticks: [
+      {
+        tick: 1,
+        at: "2026-07-27T00:00:00.000Z",
+        watchedMs: 100,
+        outcome: {
+          committed: true,
+          pushed: false,
+          commits: 1,
+          filesChanged: 1,
+          insertions: 2,
+          deletions: 0,
+          dirtyFiles: 0,
+          producedWork: true,
+          tests: { ran: true, passed: true, total: 10, durationMs: 50, command: "npm run test:fast" },
+        },
+      },
+      { tick: 2, at: "2026-07-27T00:01:00.000Z", watchedMs: 50, error: "transport" },
+      {
+        tick: 3,
+        at: "2026-07-27T00:02:00.000Z",
+        watchedMs: 80,
+        outcome: {
+          committed: false,
+          pushed: false,
+          commits: 0,
+          filesChanged: 1,
+          insertions: 1,
+          deletions: 0,
+          dirtyFiles: 1,
+          producedWork: true,
+          tests: { ran: true, passed: false, failed: 2, durationMs: 50, command: "npm run test:fast" },
+        },
+      },
+    ],
+  });
+
+  assert.equal(summary.ticks, 3);
+  assert.equal(summary.errors, 1);
+  assert.equal(summary.productiveTicks, 2);
+  assert.equal(summary.commits, 1);
+  assert.equal(summary.filesChanged, 2);
+  assert.equal(summary.testFailures, 1);
+  assert.equal(summary.checkpointPath, "/tmp/sdk-worker.json");
+});
+
+test("buildSdkWorkerArgs forwards worker options", () => {
+  const args = buildSdkWorkerArgs({
+    cwd: "/repo",
+    durationMs: 120_000,
+    maxTicks: 5,
+    tickIntervalMs: 30_000,
+    checkpointPath: "/tmp/worker.json",
+    prompt: "ship",
+    model: "composer",
+    metaDir: "/meta",
+  });
+  assert.deepEqual(args.slice(0, 4), ["--import", "tsx", "scripts/sdk-worker.mjs", "--cwd"]);
+  assert.ok(args.includes("/repo"));
+  assert.ok(args.includes("--duration"));
+  assert.ok(args.includes("120000"));
+  assert.ok(args.includes("--max-ticks"));
+  assert.ok(args.includes("--tick-interval"));
+  assert.ok(args.includes("--checkpoint"));
+  assert.ok(args.includes("/tmp/worker.json"));
+  assert.ok(args.includes("--prompt"));
+  assert.ok(args.includes("ship"));
+  assert.ok(args.includes("--model"));
+  assert.ok(args.includes("composer"));
+  assert.ok(args.includes("--meta-dir"));
+  assert.ok(args.includes("/meta"));
+});
