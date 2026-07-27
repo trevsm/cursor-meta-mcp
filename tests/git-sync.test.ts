@@ -46,6 +46,33 @@ test("getGitSyncStatus reports dirty working tree", () => {
   assert.match(status.uncommittedSummary, /dirty\.txt/);
 });
 
+test("formatGitSyncStatusForPrompt urges pull when behind origin", () => {
+  const prompt = formatGitSyncStatusForPrompt({
+    available: true,
+    branch: "main",
+    ahead: 0,
+    behind: 2,
+    dirty: false,
+    unpushed: false,
+    uncommittedSummary: "(clean working tree)",
+  });
+  assert.match(prompt, /2 commit\(s\) behind origin/);
+  assert.match(prompt, /pull\/rebase before new work/);
+});
+
+test("formatGitSyncStatusForPrompt reports clean synced repo", () => {
+  const prompt = formatGitSyncStatusForPrompt({
+    available: true,
+    branch: "main",
+    ahead: 0,
+    behind: 0,
+    dirty: false,
+    unpushed: false,
+    uncommittedSummary: "(clean working tree)",
+  });
+  assert.match(prompt, /clean and synced with origin/);
+});
+
 test("formatGitSyncStatusForPrompt urges commit and push when dirty/ahead", () => {
   const prompt = formatGitSyncStatusForPrompt({
     available: true,
