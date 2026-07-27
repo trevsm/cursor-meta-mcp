@@ -212,3 +212,29 @@ test("heuristicStrategyReview flags uncommitted work after concrete progress", (
   assert.ok(verdict.issues.includes("uncommitted_work"));
   assert.match(verdict.pivot ?? "", /commit/i);
 });
+
+test("heuristicStrategyReview flags unpushed commits", () => {
+  const cwd = initRepo();
+  // Simulate upstream tracking with a fake remote ref by creating a second commit locally
+  // and pointing origin/main at the first commit via a bare remote.
+  const bare = mkdtempSync(join(tmpdir(), "strategy-origin-"));
+  execFileSync("git", ["init", "--bare", "-b", "main"], { cwd: bare });
+  execFileSync("git", ["remote", "add", "origin", bare], { cwd });
+  execFileSync("git", ["push", "-u", "origin", "HEAD"], { cwd });
+  writeFileSync(join(cwd, "local-only.txt"), "ahead\n");
+  execFileSync("git", ["add", "local-only.txt"], { cwd });
+  execFileSync("git", ["commit", "-m", "local ahead"], { cwd });
+
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      cwd,
+      gitDiffStat: "(no uncommitted changes)",
+      gitSyncSummary: "ahead",
+    },
+    "Implemented fix and npm test passes. committed.",
+  );
+  assert.equal(verdict.onTrack, false);
+  assert.ok(verdict.issues.includes("unpushed_commits"));
+  assert.match(verdict.pivot ?? "", /Push/i);
+});

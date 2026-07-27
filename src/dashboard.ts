@@ -10,8 +10,11 @@ import {
 } from "./budget-supervisor.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
+import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
 import { getBudgetSnapshot, loadBudgetState } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, type LongSessionState } from "./long-session.js";
+import { recentRunThoughts, type RunEventRecord } from "./run-events.js";
+import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes, type WorldModel } from "./world-model.js";
 
 export interface DashboardLogSource {
   name: string;
@@ -38,6 +41,44 @@ export interface DashboardExperimentRow {
   };
 }
 
+export interface SpawnThought {
+  id: string;
+  source: "worker" | "chat" | "sdk-run";
+  label: string;
+  status: "active" | "idle" | "error" | "dead";
+  kind: "thinking" | "assistant" | "tool" | "status" | "error" | "other";
+  text: string;
+  at?: string;
+  sessionIndex?: number;
+  runId?: string;
+}
+
+export interface ActiveSummaryLine {
+  level: "info" | "ok" | "warn" | "bad";
+  text: string;
+}
+
+export interface ActiveSummary {
+  at: string;
+  headline: string;
+  lines: ActiveSummaryLine[];
+}
+
+export interface DashboardLiveSnapshot {
+  at: string;
+  activeSummary: ActiveSummary;
+  spawnThoughts: SpawnThought[];
+  fleetHealth: DashboardSnapshot["fleetHealth"];
+  pulseAt?: string;
+  liveChatCount: number;
+  worldModel?: {
+    northStar?: string;
+    activeGoalCount: number;
+    recentEpisodeCount: number;
+    summary: string;
+  };
+}
+
 export interface DashboardSnapshot {
   at: string;
   metaDir: string;
@@ -58,6 +99,13 @@ export interface DashboardSnapshot {
   experiments: DashboardExperimentRow[];
   logs: DashboardLogSource[];
   dedicatedWorker: { sessionId?: string; sessionIndex?: number | null } | null;
+  gitSync: GitSyncStatus & { summary: string };
+  fleetRuntime: {
+    elapsedMs: number;
+    maxDurationMs: number;
+    percent: number;
+    remainingMs: number;
+  } | null;
 }
 
 export function defaultMetaDir(): string {
@@ -172,6 +220,322 @@ export function buildExperimentRows(
   });
 }
 
+let pulseCache: {
+  key: string;
+  at: number;
+  pulse: DashboardSnapshot["pulse"];
+} | null = null;
+
+const PULSE_CACHE_MS = 3_000;
+
+function cachedPulse(options?: { metaDir?: string; workspace?: string; pulseLimit?: number }): DashboardSnapshot["pulse"] {
+  const key = `${options?.workspace ?? ""}:${options?.pulseLimit ?? 25}`;
+  const now = Date.now();
+  if (pulseCache && pulseCache.key === key && now - pulseCache.at < PULSE_CACHE_MS) {
+    return pulseCache.pulse;
+  }
+  try {
+    const pulse = runConsciousnessPulse({
+      limit: options?.pulseLimit ?? 25,
+      workspace: options?.workspace,
+    });
+    pulseCache = { key, at: now, pulse };
+    return pulse;
+  } catch (error) {
+    const pulse = { error: error instanceof Error ? error.message : String(error) };
+    pulseCache = { key, at: now, pulse };
+    return pulse;
+  }
+}
+
+function thoughtKindFromEvent(type: RunEventRecord["type"]): SpawnThought["kind"] {
+  if (type === "thinking") return "thinking";
+  if (type === "assistant") return "assistant";
+  if (type === "tool_call") return "tool";
+  if (type === "status") return "status";
+  return "other";
+}
+
+function thoughtKindFromTail(text: string, signals: string[] = []): SpawnThought["kind"] {
+  if (signals.some((signal) => signal.includes("generating") || signal.includes("tool"))) return "tool";
+  if (/\b(thinking|reasoning|planning)\b/i.test(text)) return "thinking";
+  return "assistant";
+}
+
+export function buildActiveSummary(input: {
+  fleetHealth: DashboardSnapshot["fleetHealth"];
+  manifest: DashboardSnapshot["manifest"];
+  budget: DashboardSnapshot["budget"];
+  strategyStatus: DashboardSnapshot["strategyStatus"];
+  pulse: DashboardSnapshot["pulse"];
+  experiments: DashboardExperimentRow[];
+  spawnThoughts: SpawnThought[];
+  worldModel?: WorldModel;
+  recentEpisodes?: ReturnType<typeof recentEpisodes>;
+}): ActiveSummary {
+  const lines: ActiveSummaryLine[] = [];
+  const fh = input.fleetHealth;
+  const goal = input.manifest?.goal?.trim();
+
+  if (input.worldModel?.northStar) {
+    const star = input.worldModel.northStar;
+    lines.push({
+      level: "info",
+      text: `North star: ${star.slice(0, 120)}${star.length > 120 ? "…" : ""}`,
+    });
+  }
+
+  if (goal) lines.push({ level: "info", text: `Goal: ${goal.slice(0, 140)}${goal.length > 140 ? "…" : ""}` });
+
+  if (!fh.total) {
+    lines.push({ level: "warn", text: "No fleet running — launch experiments to start workers." });
+  } else if (fh.alive === 0) {
+    lines.push({ level: "bad", text: `Fleet stopped — 0 / ${fh.total} processes alive.` });
+  } else if (fh.alive < fh.total) {
+    lines.push({ level: "warn", text: `Fleet degraded — ${fh.alive} / ${fh.total} processes alive.` });
+  } else {
+    lines.push({ level: "ok", text: `Fleet healthy — ${fh.alive} / ${fh.total} workers running.` });
+  }
+
+  const watcher = fh.watcherAlive ? "watcher on" : "watcher off";
+  const strategy = fh.strategyReviewerAlive ? "strategy on" : "strategy off";
+  lines.push({ level: fh.watcherAlive && fh.strategyReviewerAlive ? "ok" : "warn", text: `${watcher}, ${strategy}.` });
+
+  const blocked = input.manifest?.budgetBlocked;
+  if (blocked) {
+    lines.push({
+      level: "bad",
+      text: `Budget blocked: ${input.manifest?.budgetBlockedReason ?? "supervisor halt"}.`,
+    });
+  }
+
+  const warnings = input.budget?.warnings ?? [];
+  for (const warning of warnings.slice(0, 2)) {
+    lines.push({ level: "warn", text: warning });
+  }
+
+  const strat = input.strategyStatus;
+  if (strat && typeof strat.recommendation === "string" && strat.recommendation.trim()) {
+    const onTrack = strat.onTrack === true;
+    lines.push({
+      level: onTrack ? "ok" : "warn",
+      text: `Strategy: ${strat.recommendation.slice(0, 160)}${strat.recommendation.length > 160 ? "…" : ""}`,
+    });
+  }
+
+  const pulse = "error" in input.pulse ? null : input.pulse;
+  if (pulse) {
+    if (pulse.live.length) {
+      lines.push({ level: "info", text: `${pulse.live.length} live IDE chat${pulse.live.length === 1 ? "" : "s"} in flight.` });
+    }
+    if (pulse.frustrationEvents.length) {
+      const hot = pulse.frustrationEvents[0];
+      lines.push({
+        level: "warn",
+        text: `Frustration on #${hot.sessionIndex ?? "?"} ${hot.title}: ${hot.frustrationRisk.reason ?? "elevated risk"}.`,
+      });
+    }
+  }
+
+  for (const exp of input.experiments.filter((row) => row.alive).slice(0, 4)) {
+    const last = exp.checkpoint?.lastTick;
+    const tail = last?.lastAssistantTail?.trim();
+    const err = last?.error?.trim();
+    if (err) {
+      lines.push({ level: "bad", text: `${exp.name}: ${err.slice(0, 120)}${err.length > 120 ? "…" : ""}` });
+    } else if (last?.skipped === "busy") {
+      lines.push({ level: "info", text: `${exp.name}: waiting for chat to finish generating.` });
+    } else if (tail) {
+      lines.push({ level: "info", text: `${exp.name}: ${tail.slice(0, 120)}${tail.length > 120 ? "…" : ""}` });
+    } else if ((exp.checkpoint?.ticks ?? 0) > 0) {
+      lines.push({ level: "ok", text: `${exp.name}: tick ${exp.checkpoint?.ticks} complete, idle.` });
+    }
+  }
+
+  const activeThoughts = input.spawnThoughts.filter((thought) => thought.status === "active").slice(0, 3);
+  for (const thought of activeThoughts) {
+    lines.push({
+      level: thought.kind === "error" ? "bad" : "info",
+      text: `${thought.label}: ${thought.text.slice(0, 120)}${thought.text.length > 120 ? "…" : ""}`,
+    });
+  }
+
+  const episodes = input.recentEpisodes ?? [];
+  for (const ep of episodes.slice(0, 2)) {
+    const text = [ep.actor, ep.action, ep.outcome].filter(Boolean).join(" · ");
+    if (text) {
+      lines.push({
+        level: ep.outcome === "failure" ? "bad" : ep.outcome === "partial" ? "warn" : "ok",
+        text: `Episode: ${text.slice(0, 120)}${text.length > 120 ? "…" : ""}`,
+      });
+    }
+  }
+
+  let headline = "Standing by";
+  if (blocked) headline = "Fleet blocked by budget";
+  else if (!fh.total) headline = "Fleet idle";
+  else if (fh.alive === 0) headline = "Fleet stopped";
+  else if (fh.alive < fh.total) headline = "Fleet degraded";
+  else if (activeThoughts.length) headline = `${activeThoughts.length} active spawn${activeThoughts.length === 1 ? "" : "s"}`;
+  else if (pulse?.live.length) headline = `${pulse.live.length} live chat${pulse.live.length === 1 ? "" : "s"}`;
+  else headline = "Fleet running smoothly";
+
+  return { at: new Date().toISOString(), headline, lines: lines.slice(0, 12) };
+}
+
+export function collectSpawnThoughts(input: {
+  metaDir?: string;
+  experiments: DashboardExperimentRow[];
+  pulse: DashboardSnapshot["pulse"];
+}): SpawnThought[] {
+  const thoughts: SpawnThought[] = [];
+  const metaDir = input.metaDir ?? defaultMetaDir();
+
+  for (const exp of input.experiments) {
+    const last = exp.checkpoint?.lastTick;
+    const tail = last?.lastAssistantTail?.trim();
+    const err = last?.error?.trim();
+    const status: SpawnThought["status"] = !exp.alive
+      ? "dead"
+      : err
+        ? "error"
+        : last?.skipped === "busy"
+          ? "active"
+          : "idle";
+
+    if (err) {
+      thoughts.push({
+        id: `worker:${exp.name}:error`,
+        source: "worker",
+        label: exp.name,
+        status,
+        kind: "error",
+        text: err,
+        at: last?.at,
+        sessionIndex: exp.sessionIndex,
+      });
+    } else if (tail) {
+      thoughts.push({
+        id: `worker:${exp.name}:tail`,
+        source: "worker",
+        label: exp.name,
+        status,
+        kind: thoughtKindFromTail(tail),
+        text: tail,
+        at: last?.at,
+        sessionIndex: exp.sessionIndex,
+      });
+    } else if (exp.alive) {
+      thoughts.push({
+        id: `worker:${exp.name}:idle`,
+        source: "worker",
+        label: exp.name,
+        status,
+        kind: last?.skipped === "busy" ? "status" : "other",
+        text: last?.skipped === "busy" ? "Waiting for IDE chat to finish…" : "Worker alive, awaiting next tick.",
+        at: last?.at,
+        sessionIndex: exp.sessionIndex,
+      });
+    }
+  }
+
+  const pulse = "error" in input.pulse ? null : input.pulse;
+  for (const chat of pulse?.live ?? []) {
+    const text = chat.lastBubble?.trim() || chat.signals.join(", ") || "Generating…";
+    thoughts.push({
+      id: `chat:${chat.sessionId}`,
+      source: "chat",
+      label: `#${chat.sessionIndex ?? "?"} ${chat.title}`,
+      status: "active",
+      kind: thoughtKindFromTail(text, chat.signals),
+      text,
+      sessionIndex: chat.sessionIndex,
+    });
+  }
+
+  for (const run of recentRunThoughts(metaDir)) {
+    const latest = run.events.at(-1);
+    if (!latest) continue;
+    thoughts.push({
+      id: `sdk:${run.runId}`,
+      source: "sdk-run",
+      label: run.agentId ? `SDK ${run.agentId.slice(0, 8)}` : `SDK ${run.runId.slice(0, 8)}`,
+      status: "active",
+      kind: thoughtKindFromEvent(latest.type),
+      text: latest.message,
+      at: latest.at,
+      runId: run.runId,
+    });
+  }
+
+  return thoughts.sort((a, b) => {
+    const rank = (row: SpawnThought) =>
+      row.status === "active" ? 0 : row.status === "error" ? 1 : row.status === "idle" ? 2 : 3;
+    const byStatus = rank(a) - rank(b);
+    if (byStatus !== 0) return byStatus;
+    return Date.parse(b.at ?? "") - Date.parse(a.at ?? "");
+  });
+}
+
+export function collectDashboardLiveSnapshot(options?: {
+  metaDir?: string;
+  workspace?: string;
+  pulseLimit?: number;
+}): DashboardLiveSnapshot {
+  const metaDir = options?.metaDir ?? defaultMetaDir();
+  const experimentsDir = join(metaDir, "experiments");
+  const manifest = loadFleetManifest(experimentsDir);
+  const state = loadBudgetState(join(metaDir, "plan-budget.json"));
+  const activeWorkers = countActiveWorkers(manifest);
+  const fleetStartedAt = manifest?.at ?? state.fleetStartedAt;
+  const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
+  const watchStatus = readJsonSafe(join(experimentsDir, "watch-status.json"));
+  const strategyStatus = readJsonSafe(join(experimentsDir, "strategy-status.json"));
+  const pulse = cachedPulse(options);
+  const experiments = buildExperimentRows(manifest?.experiments ?? [], watchStatus);
+  const aliveCount = experiments.filter((row) => row.alive).length;
+  const manifestAt = manifest?.at ?? null;
+  const manifestAgeMs = manifestAt ? Date.now() - Date.parse(manifestAt) : null;
+  const staleManifest = aliveCount === 0 && (manifestAgeMs ?? 0) > 5 * 60_000;
+  const fleetHealth = {
+    total: experiments.length,
+    alive: aliveCount,
+    watcherAlive: pidAlive(manifest?.watcherPid),
+    strategyReviewerAlive: pidAlive(manifest?.strategyReviewerPid),
+    manifestAt,
+    staleManifest,
+  };
+  const spawnThoughts = collectSpawnThoughts({ metaDir, experiments, pulse });
+  const worldModel = loadWorldModel(metaDir);
+  const episodes = recentEpisodes(metaDir, 8);
+  const activeSummary = buildActiveSummary({
+    fleetHealth,
+    manifest,
+    budget,
+    strategyStatus,
+    pulse,
+    experiments,
+    spawnThoughts,
+    worldModel,
+    recentEpisodes: episodes,
+  });
+
+  return {
+    at: new Date().toISOString(),
+    activeSummary,
+    spawnThoughts,
+    fleetHealth,
+    pulseAt: "error" in pulse ? undefined : pulse.at,
+    liveChatCount: "error" in pulse ? 0 : pulse.live.length,
+    worldModel: {
+      northStar: worldModel.northStar,
+      activeGoalCount: worldModel.goals.filter((g) => g.status === "active").length,
+      recentEpisodeCount: episodes.length,
+      summary: formatWorldModelForPrompt(worldModel, episodes),
+    },
+  };
+}
+
 export function collectDashboardSnapshot(options?: {
   metaDir?: string;
   workspace?: string;
@@ -188,18 +552,24 @@ export function collectDashboardSnapshot(options?: {
   const watchStatus = readJsonSafe(join(experimentsDir, "watch-status.json"));
   const strategyStatus = readJsonSafe(join(experimentsDir, "strategy-status.json"));
 
-  let pulse: DashboardSnapshot["pulse"];
-  try {
-    pulse = runConsciousnessPulse({
-      limit: options?.pulseLimit ?? 25,
-      workspace: options?.workspace,
-    });
-  } catch (error) {
-    pulse = { error: error instanceof Error ? error.message : String(error) };
-  }
+  const pulse = cachedPulse(options);
 
   const experiments = buildExperimentRows(manifest?.experiments ?? [], watchStatus);
   const dedicatedWorker = readDedicatedWorker(experimentsDir);
+  const fleetCwd = manifest?.root?.trim() || join(homedir(), "Projects", "cursor-meta-mcp");
+  const gitStatus = getGitSyncStatus(fleetCwd);
+
+  const elapsedMs = fleetStartedAt ? Date.now() - Date.parse(fleetStartedAt) : 0;
+  const maxDurationMs = budget.fleet?.maxDurationMs ?? 0;
+  const fleetRuntime =
+    maxDurationMs > 0 && fleetStartedAt
+      ? {
+          elapsedMs,
+          maxDurationMs,
+          percent: Math.min(100, (elapsedMs / maxDurationMs) * 100),
+          remainingMs: Math.max(0, maxDurationMs - elapsedMs),
+        }
+      : null;
 
   const aliveCount = experiments.filter((row) => row.alive).length;
   const manifestAt = manifest?.at ?? null;
@@ -226,5 +596,7 @@ export function collectDashboardSnapshot(options?: {
     experiments,
     logs: listLogSources(experimentsDir),
     dedicatedWorker,
+    gitSync: { ...gitStatus, summary: formatGitSyncStatusForPrompt(gitStatus) },
+    fleetRuntime,
   };
 }

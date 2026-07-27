@@ -14,6 +14,7 @@ import {
   runAgentCliPrompt,
   shouldUseAgentCliFallback,
 } from "./agent-cli.js";
+import { appendRunEvent } from "./run-events.js";
 import {
   assertBudgetAllowed,
   recordBudgetEvent,
@@ -153,8 +154,13 @@ export function summarizeSdkMessage(message: SDKMessage): RunProgressEvent | und
     }
     case "tool_call":
       return { type: message.type, message: `tool ${message.name}: ${message.status}` };
-    case "thinking":
-      return { type: message.type, message: "thinking…" };
+    case "thinking": {
+      const text =
+        "text" in message && typeof (message as { text?: string }).text === "string"
+          ? clip((message as { text: string }).text, 400)
+          : "";
+      return { type: message.type, message: text || "thinking…" };
+    }
     case "status": {
       const detail = message.message ? `: ${clip(message.message)}` : "";
       return { type: message.type, message: `status ${message.status}${detail}` };
@@ -308,8 +314,11 @@ export class CursorLocalService implements LocalAgentService {
   private async driveRun(agentId: string, run: Run, hooks?: RunHooks): Promise<AgentRunResult> {
     const removeAbort = this.wireAbort(run, hooks?.signal);
     try {
-      if (hooks?.onProgress && run.supports("stream")) {
-        const reducer = new ProgressReducer(hooks.onProgress);
+      if (run.supports("stream")) {
+        const reducer = new ProgressReducer((event) => {
+          appendRunEvent(run.id, event, { agentId });
+          hooks?.onProgress?.(event);
+        });
         try {
           for await (const message of run.stream()) {
             reducer.push(message);

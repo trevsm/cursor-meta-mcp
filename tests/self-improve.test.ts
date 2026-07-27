@@ -79,7 +79,7 @@ mock.module("../src/git-sync.js", {
       () => "Git state: branch=main — clean and synced with origin.",
     ),
     SELF_IMPROVE_GIT_RULES:
-      "Each tick: one high-value improvement → verify with npm test. Do not create git commits unless explicitly asked.",
+      "Each tick: one high-value improvement → npm test → git commit → git push to keep origin current.",
   },
 });
 mock.module("../src/consciousness-pulse.js", {
@@ -100,7 +100,7 @@ test("buildSelfImprovePrompt includes base rules", () => {
   assert.match(prompt, /Custom base/);
   assert.match(prompt, /no user questions/);
   assert.match(prompt, /npm test/);
-  assert.match(prompt, /Do not create git commits unless explicitly asked/);
+  assert.match(prompt, /git commit → git push/);
   assert.match(prompt, /Git state:/);
 });
 

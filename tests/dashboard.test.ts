@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+  buildActiveSummary,
   buildExperimentRows,
+  collectDashboardLiveSnapshot,
   collectDashboardSnapshot,
+  collectSpawnThoughts,
   defaultExperimentsDir,
   listLogSources,
   pidAlive,
@@ -81,6 +84,8 @@ test("collectDashboardSnapshot reads experiment dir when present", () => {
   assert.equal(snapshot.fleetHealth.watcherAlive, false);
   assert.equal(snapshot.fleetHealth.strategyReviewerAlive, false);
   assert.equal(snapshot.dedicatedWorker?.sessionIndex, 4);
+  assert.ok(snapshot.gitSync);
+  assert.ok(snapshot.gitSync.summary);
 });
 
 test("collectDashboardSnapshot marks staleManifest when fleet dead and manifest old", () => {
@@ -114,4 +119,98 @@ test("collectDashboardSnapshot does not mark staleManifest for fresh dead fleet"
   const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
   assert.equal(snapshot.fleetHealth.alive, 0);
   assert.equal(snapshot.fleetHealth.staleManifest, false);
+});
+
+test("buildActiveSummary summarizes fleet and worker tails", () => {
+  const summary = buildActiveSummary({
+    fleetHealth: { total: 2, alive: 2, watcherAlive: true, strategyReviewerAlive: true, manifestAt: null, staleManifest: false },
+    manifest: { goal: "Improve tests" },
+    budget: { warnings: [] },
+    strategyStatus: { onTrack: true, recommendation: "Keep going" },
+    pulse: { at: new Date().toISOString(), scanned: 0, live: [], frustrationEvents: [], orchestrationMatrix: [], parallelWorkspaces: [] },
+    experiments: [
+      {
+        name: "worker-a",
+        pid: 1,
+        alive: true,
+        checkpoint: {
+          exists: true,
+          ticks: 3,
+          lastTick: {
+            tick: 3,
+            at: new Date().toISOString(),
+            watchedMs: 100,
+            wasAlreadyIdle: true,
+            lastAssistantTail: "All tests pass now.",
+          },
+        },
+      },
+    ],
+    spawnThoughts: [],
+  });
+  assert.match(summary.headline, /running smoothly|active/i);
+  assert.ok(summary.lines.some((line) => line.text.includes("worker-a")));
+});
+
+test("collectSpawnThoughts includes worker tails and live chats", () => {
+  const thoughts = collectSpawnThoughts({
+    experiments: [
+      {
+        name: "worker-a",
+        pid: 1,
+        alive: true,
+        checkpoint: {
+          exists: true,
+          ticks: 1,
+          lastTick: {
+            tick: 1,
+            at: new Date().toISOString(),
+            watchedMs: 50,
+            wasAlreadyIdle: false,
+            lastAssistantTail: "Refactoring dashboard.ts",
+          },
+        },
+      },
+    ],
+    pulse: {
+      at: new Date().toISOString(),
+      scanned: 1,
+      live: [
+        {
+          sessionId: "abc",
+          sessionIndex: 2,
+          title: "Fleet UI",
+          workspace: "/tmp",
+          signals: ["generating"],
+          frustrationRisk: { score: 0, reason: null },
+          lastBubble: "Updating styles.css",
+        },
+      ],
+      frustrationEvents: [],
+      orchestrationMatrix: [],
+      parallelWorkspaces: [],
+    },
+  });
+  assert.ok(thoughts.some((thought) => thought.source === "worker" && thought.text.includes("Refactoring")));
+  assert.ok(thoughts.some((thought) => thought.source === "chat" && thought.text.includes("styles.css")));
+});
+
+test("collectDashboardLiveSnapshot returns summary and thoughts", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-live-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [],
+      watcherPid: -1,
+      strategyReviewerPid: -1,
+    }),
+  );
+  const live = collectDashboardLiveSnapshot({ metaDir, pulseLimit: 2 });
+  assert.ok(live.activeSummary.headline);
+  assert.ok(Array.isArray(live.spawnThoughts));
+  assert.ok(live.fleetHealth);
+  assert.ok(live.worldModel);
 });

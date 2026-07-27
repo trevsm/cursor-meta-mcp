@@ -25,6 +25,7 @@ import {
 import {
   DEFAULT_SELF_IMPROVE_GOAL,
 } from "./strategy-review.js";
+import { pushGoal, setNorthStar } from "./world-model.js";
 
 export interface SelfImproveParams {
   cwd: string;
@@ -264,6 +265,13 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
   });
 
   const goal = params.goal?.trim() || DEFAULT_SELF_IMPROVE_GOAL;
+  try {
+    const worldMeta = join(homedir(), ".cursor-meta");
+    setNorthStar("Build persistent autonomous intelligence", worldMeta);
+    pushGoal(goal, worldMeta);
+  } catch {
+    /* world model is best-effort */
+  }
   let strategyReviewerPid: number | undefined;
 
   if (params.withStrategyReviewer ?? true) {

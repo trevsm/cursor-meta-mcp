@@ -11,6 +11,30 @@ export interface GitSyncStatus {
   error?: string;
 }
 
+/** Paths excluded from dirty detection (temp artifacts and local secrets). */
+export function isIgnorableWorkingTreePath(path: string): boolean {
+  const normalized = path.replace(/^"|"$/g, "").trim();
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  if (parts.some((part) => part === ".tmp" || part.startsWith(".tmp-"))) return true;
+  if (parts.some((part) => part === ".env" || part.startsWith(".env.") || part === "credentials.json")) {
+    return true;
+  }
+  return false;
+}
+
+/** Extract path(s) from one `git status --porcelain` line (handles renames). */
+export function pathsFromPorcelainLine(line: string): string[] {
+  const raw = line.length >= 3 ? line.slice(3).trim() : line.trim();
+  if (!raw) return [];
+  if (raw.includes(" -> ")) {
+    return raw
+      .split(" -> ")
+      .map((p) => p.replace(/^"|"$/g, "").trim())
+      .filter(Boolean);
+  }
+  return [raw.replace(/^"|"$/g, "").trim()].filter(Boolean);
+}
+
 function runGit(cwd: string, args: string[], opts?: { ignoreStderr?: boolean }): string {
   return execFileSync("git", args, {
     cwd,
@@ -50,14 +74,14 @@ export function getGitSyncStatus(cwd: string): GitSyncStatus {
     }
 
     const porcelain = runGit(cwd, ["status", "--porcelain"]);
-    const dirty = porcelain.length > 0;
+    const paths = porcelain
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => pathsFromPorcelainLine(line))
+      .filter((path) => path.length > 0 && !isIgnorableWorkingTreePath(path));
+    const dirty = paths.length > 0;
     const uncommittedSummary = dirty
-      ? porcelain
-          .split("\n")
-          .filter(Boolean)
-          .slice(0, 8)
-          .map((line) => line.slice(3))
-          .join(", ")
+      ? [...new Set(paths)].slice(0, 8).join(", ")
       : "(clean working tree)";
 
     return {
@@ -99,14 +123,15 @@ export function formatGitSyncStatusForPrompt(status: GitSyncStatus): string {
 
   const actions: string[] = [];
   if (status.behind > 0) actions.push("pull/rebase before new work");
-  if (status.dirty) actions.push("keep diffs small; commit only if explicitly asked");
-  if (status.unpushed) actions.push("push only if explicitly asked");
+  if (status.dirty) actions.push("commit verified changes");
+  if (status.unpushed) actions.push("push to origin");
+  if (actions.length === 0 && status.ahead === 0) actions.push("synced");
 
   return `Git state: ${parts.join("; ")}. Action: ${actions.join(", ")}.`;
 }
 
 export const SELF_IMPROVE_GIT_RULES = [
-  "Each tick: one high-value improvement → verify with npm test. Do not create git commits unless explicitly asked.",
+  "Each tick: one high-value improvement → npm test → git commit → git push to keep origin current.",
   "Never stage secrets (.env, credentials). Skip temp files (.tmp-*).",
-  "If git is behind origin, pull/rebase before new work. Prefer small verified diffs over large untested batches.",
+  "If git is ahead of origin or has uncommitted work, sync before starting new features.",
 ].join(" ");

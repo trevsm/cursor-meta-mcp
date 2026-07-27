@@ -96,6 +96,10 @@ test("summarizeSdkMessage covers SDK event shapes", () => {
     type: "thinking",
     message: "thinking…",
   });
+  assert.deepEqual(summarizeSdkMessage({ type: "thinking", text: "Need to inspect dashboard.ts first." }), {
+    type: "thinking",
+    message: "Need to inspect dashboard.ts first.",
+  });
   assert.deepEqual(summarizeSdkMessage({ type: "status", status: "running", message: "Working" }), {
     type: "status",
     message: "status running: Working",

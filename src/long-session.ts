@@ -9,6 +9,7 @@ import { recordBudgetEvent } from "./plan-budget.js";
 import { getIdeChatActivity, sendToIdeChat } from "./ide-chat-control.js";
 import { waitForChatIdle } from "./relentless-loop.js";
 import { isChatActive, lastAssistantTail } from "./watch-chat.js";
+import { appendEpisode } from "./world-model.js";
 
 export interface LongSessionParams {
   cwd: string;
@@ -71,7 +72,7 @@ export const DEFAULT_LONG_SESSION_PROMPT = [
   "Keep going. Do not stop or ask the user for moves.",
   "Self-improve this codebase autonomously: fix bugs, add tests, tighten heuristics, verify with npm test.",
   "Minimize scope per tick; ship small verified improvements.",
-  "Do not create git commits unless explicitly asked.",
+  "Each tick: verify with npm test, then commit and push verified work (skip .env and .tmp-*).",
   "When idle, pick the highest-value next improvement and execute it.",
 ].join(" ");
 
@@ -334,6 +335,23 @@ export async function runLongSession(params: LongSessionParams): Promise<LongSes
     state.ticks.push(entry);
     writeCheckpoint(state, checkpointPath);
     params.onTick?.(entry, state);
+
+    try {
+      appendEpisode(
+        {
+          at: entry.at,
+          actor: state.sessionId,
+          observe: entry.wasAlreadyIdle ? "chat idle" : "chat active",
+          action: entry.skipped ?? "tick complete",
+          verify: entry.lastAssistantTail?.slice(0, 200),
+          outcome: entry.error ? "failure" : entry.skipped ? "partial" : "success",
+          notes: entry.error,
+        },
+        join(homedir(), ".cursor-meta"),
+      );
+    } catch {
+      /* episode log is best-effort */
+    }
 
     if (entry.skipped !== "busy") {
       try {

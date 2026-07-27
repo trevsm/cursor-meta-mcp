@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cursor-meta fleet</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-dot" id="brand-dot"></div>
+      <div>
+        <h1>cursor-meta fleet</h1>
+        <div class="sub" id="updated">loading…</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="budget-pill" class="pill ok">budget</span>
+      <button id="refresh" type="button">Refresh</button>
+      <button id="relaunch" class="btn-primary" type="button">Relaunch fleet</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="live-panel">
+      <div class="live-header">
+        <div>
+          <h2 id="summary-headline">Standing by</h2>
+          <p class="live-meta" id="summary-meta">Waiting for first update…</p>
+        </div>
+        <div class="live-indicator" id="live-indicator">
+          <span class="live-dot"></span>
+          Live
+        </div>
+      </div>
+      <div class="summary-lines" id="summary-lines"></div>
+    </section>
+
+    <div class="layout">
+      <section class="panel thoughts-panel">
+        <div class="panel-head">
+          <h2>Spawn thoughts</h2>
+          <span class="count" id="thought-count">0</span>
+        </div>
+        <div class="thought-feed" id="thought-feed">
+          <div class="empty">No active spawns yet</div>
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="panel compact" id="fleet-panel">
+          <div class="panel-head"><h2>Fleet</h2></div>
+          <div class="fleet-status" id="fleet-status">Checking…</div>
+          <div class="progress-wrap" id="runtime-wrap" hidden>
+            <div class="progress-label">
+              <span>Runtime</span>
+              <span id="runtime-label">—</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="runtime-fill"></div></div>
+          </div>
+        </section>
+
+        <section class="panel compact">
+          <div class="panel-head"><h2>Metrics</h2></div>
+          <div class="metric-grid" id="metrics"></div>
+        </section>
+
+        <section class="panel compact">
+          <div class="panel-head"><h2>Processes</h2></div>
+          <div class="proc-list" id="processes"></div>
+        </section>
+      </aside>
+    </div>
+
+    <details class="panel details-panel">
+      <summary>Strategy, chats &amp; logs</summary>
+      <div class="details-grid">
+        <div>
+          <h3>Live IDE chats</h3>
+          <ul class="simple-list" id="live-chats"></ul>
+        </div>
+        <div>
+          <h3>Strategy review</h3>
+          <div id="strategy"></div>
+        </div>
+        <div>
+          <h3>Frustration signals</h3>
+          <ul class="simple-list" id="frustration"></ul>
+        </div>
+        <div class="full-width">
+          <h3>Logs</h3>
+          <div class="log-toolbar">
+            <select id="log-select"></select>
+          </div>
+          <pre id="log-view">Select a log…</pre>
+        </div>
+      </div>
+    </details>
+  </main>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
