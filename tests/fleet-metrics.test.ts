@@ -39,6 +39,7 @@ test("analyzeWorkerCheckpoint computes productive ratio", () => {
   assert.equal(metrics.errors, 1);
   assert.equal(metrics.softSkips, 1);
   assert.equal(metrics.lastCommitted, false);
+  assert.equal(metrics.lastPushed, false);
 });
 
 test("productive ratio ignores soft-skip-only sessions", () => {
@@ -64,7 +65,7 @@ test("productive ratio ignores soft-skip-only sessions", () => {
   assert.equal(isWorkerStalled({ pidAlive: true, checkpointPath: path, stallMs: 60_000 }), false);
 });
 
-test("analyzeWorkerCheckpoint sets lastCommitted from latest tick", () => {
+test("analyzeWorkerCheckpoint sets lastCommitted and lastPushed from latest tick", () => {
   const dir = mkdtempSync(join(tmpdir(), "fleet-metrics-commit-"));
   const path = join(dir, "worker.json");
   writeFileSync(
@@ -72,11 +73,16 @@ test("analyzeWorkerCheckpoint sets lastCommitted from latest tick", () => {
     JSON.stringify({
       ticks: [
         { at: "2026-07-27T00:00:00.000Z", outcome: { producedWork: false, committed: false } },
-        { at: "2026-07-27T00:01:00.000Z", outcome: { producedWork: true, committed: true, commits: 1 } },
+        {
+          at: "2026-07-27T00:01:00.000Z",
+          outcome: { producedWork: true, committed: true, pushed: true, commits: 1 },
+        },
       ],
     }),
   );
-  assert.equal(analyzeWorkerCheckpoint(path)?.lastCommitted, true);
+  const metrics = analyzeWorkerCheckpoint(path);
+  assert.equal(metrics?.lastCommitted, true);
+  assert.equal(metrics?.lastPushed, true);
 });
 
 test("analyzeWorkerCheckpoint returns null for missing or invalid files", () => {
@@ -121,6 +127,7 @@ test("meetsProductiveTickGate requires enough ticks", () => {
       softSkips: 0,
       testFailures: 0,
       lastCommitted: true,
+      lastPushed: false,
     }),
     false,
   );
@@ -135,6 +142,7 @@ test("meetsProductiveTickGate requires enough ticks", () => {
       softSkips: 0,
       testFailures: 0,
       lastCommitted: false,
+      lastPushed: false,
     }),
     true,
   );
@@ -150,6 +158,7 @@ test("meetsProductiveTickGate requires enough ticks", () => {
       softSkips: 5,
       testFailures: 0,
       lastCommitted: true,
+      lastPushed: false,
     }),
     false,
   );
@@ -167,6 +176,7 @@ test("relaunchBlockedReason stops zero-productivity relaunch loops", () => {
     softSkips: 0,
     testFailures: 0,
     lastCommitted: false,
+    lastPushed: false,
   };
   assert.match(relaunchBlockedReason(metrics, 2) ?? "", /Zero productive ticks/i);
   assert.match(

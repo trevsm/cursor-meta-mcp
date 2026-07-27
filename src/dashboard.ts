@@ -257,6 +257,7 @@ export function summarizeFleetProductivity(experiments: DashboardExperimentRow[]
       softSkips,
       testFailures: 0,
       lastCommitted: false,
+      lastPushed: false,
     }),
     gatePercent: PRODUCTIVE_TICK_GATE * 100,
   };

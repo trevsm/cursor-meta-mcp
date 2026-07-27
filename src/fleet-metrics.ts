@@ -16,6 +16,8 @@ export interface FleetTickMetrics {
   lastError?: string;
   /** True when the most recent tick produced a commit (merge gate). */
   lastCommitted: boolean;
+  /** True when the most recent tick pushed to origin. */
+  lastPushed: boolean;
 }
 
 export interface WorkerCheckpointState {
@@ -26,6 +28,7 @@ export interface WorkerCheckpointState {
     outcome?: {
       producedWork?: boolean;
       committed?: boolean;
+      pushed?: boolean;
       commits?: number;
       filesChanged?: number;
       tests?: { passed?: boolean };
@@ -76,6 +79,7 @@ export function analyzeWorkerCheckpoint(
       lastTickAt: last?.at,
       lastError: last?.error,
       lastCommitted: last?.outcome?.committed === true,
+      lastPushed: last?.outcome?.pushed === true,
     };
   } catch {
     return null;

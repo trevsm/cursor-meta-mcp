@@ -107,7 +107,7 @@ function pulseWorkers(excludeIndexes = [1]) {
 function summarizeCheckpoint(path) {
   if (!path || !existsSync(path)) return { exists: false };
   const metrics = analyzeWorkerCheckpoint(path);
-  if (!metrics) return { exists: true, ticks: 0, lastCommitted: false };
+  if (!metrics) return { exists: true, ticks: 0, lastCommitted: false, lastPushed: false };
   return {
     exists: true,
     ticks: metrics.ticks,
@@ -121,6 +121,7 @@ function summarizeCheckpoint(path) {
     lastTickAt: metrics.lastTickAt ?? null,
     lastError: metrics.lastError ?? null,
     lastCommitted: metrics.lastCommitted,
+    lastPushed: metrics.lastPushed,
   };
 }
 
