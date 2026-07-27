@@ -77,6 +77,7 @@ const expectedTools = [
   "meta_list_agent_runs",
   "meta_list_chats",
   "meta_list_local_agents",
+  "meta_mission",
   "meta_orchestrate_loop",
   "meta_orchestrate_pulse",
   "meta_relentless_loop",

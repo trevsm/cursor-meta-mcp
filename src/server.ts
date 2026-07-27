@@ -28,6 +28,7 @@ import {
 } from "./history.js";
 import { runRelentlessLoop } from "./relentless-loop.js";
 import { orchestratePulse } from "./orchestrate-pulse.js";
+import { runMission } from "./mission.js";
 import { orchestrateLoop } from "./orchestrate-loop.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import {
@@ -45,7 +46,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.3.4",
+  version: "0.4.0",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -750,6 +751,38 @@ export function createServer(
         return jsonResult(runConsciousnessPulse(params));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_mission",
+    {
+      title: "Run a mission until success criteria pass",
+      description:
+        "High-level primitive: state a goal and success criteria, then run the relentless worker/critic loop until approved or maxIterations. Hides tool orchestration behind one call.",
+      inputSchema: {
+        goal: z.string().min(1),
+        successCriteria: z.array(z.string().min(1)).optional(),
+        cwd: z.string().min(1),
+        target: z.enum(["sdk", "ide"]).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        sessionId: z.string().uuid().optional(),
+        maxIterations: z.number().int().min(1).max(20).optional(),
+        approvalScore: z.number().int().min(0).max(100).optional(),
+        model: z.string().optional(),
+        mode: modeSchema,
+        pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
+        idleStableMs: z.number().int().min(500).max(120_000).optional(),
+        waitTimeoutMs: z.number().int().min(5000).max(3_600_000).optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params, extra) => {
+      try {
+        return jsonResult(await runMission(service, params, runHooksFrom(extra)));
+      } catch (error) {
+        return errorResult(error);
       }
     },
   );

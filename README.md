@@ -16,6 +16,7 @@ Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for
 | **Sentiment analysis** | Multi-axis frustration/confusion scoring over chat history |
 | **Consciousness pulse** | Live scan for active chats, frustration risk, orchestration plays |
 | **Auto-orchestrate** | Execute pulse WATCH/CONTINUE/INTERCEPT/SPAWN recommendations |
+| **Mission** | One-call goal + success criteria → relentless loop until done |
 
 All history reads stay on disk. Model calls still go through Cursor's API (local runtime, not Cursor cloud VMs).
 
@@ -48,6 +49,7 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_consciousness_pulse` | Live orchestration scan with WATCH/INTERCEPT/CONTINUE recommendations |
 | `meta_orchestrate_pulse` | Run pulse scan and auto-execute allowed orchestration plays |
 | `meta_orchestrate_loop` | Repeat orchestrate pulse until idle or maxCycles |
+| `meta_mission` | Goal + success criteria → worker/critic loop until approved |
 | `meta_whoami` | Verify auth (API key or CLI login) |
 
 ## Requirements
@@ -102,6 +104,12 @@ Optional secrets file `~/.cursor/.env`:
 Reload Cursor (`Cmd+Shift+P` → **Reload Window**), then enable **cursor-meta** under **Customize → MCP**.
 
 ## Usage in chat
+
+**Start here** — one high-level call instead of picking tools:
+
+```
+Mission: add meta_mission with tests. Done when npm test passes and changes are committed.
+```
 
 Ask in natural language — the agent picks tools automatically:
 
