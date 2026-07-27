@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Honest loop fleet — one locked worker in an isolated worktree.
- * Preflights auth before spawn; falls back to IDE worker when SDK creds missing.
+ * Honest loop fleet — one locked SDK worker in an isolated worktree.
+ * Requires CURSOR_API_KEY; exits before spawn when the key is missing.
  */
 import { launchSelfImproveFleet } from "../src/self-improve.js";
 import { probeWorkerAuth, resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
@@ -18,9 +18,6 @@ if (!auth.apiKey) {
   );
   console.error("[honest-fleet] Create a key: https://cursor.com/dashboard/integrations?tab=api-keys");
   process.exit(1);
-}
-if (!auth.sdk && mode === "ide") {
-  console.error("[honest-fleet] SDK unavailable — launching IDE long-session worker instead.");
 }
 
 const manifest = await launchSelfImproveFleet({
