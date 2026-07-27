@@ -97,8 +97,12 @@ export function countActiveWorkers(manifest: FleetManifest | null): number {
 export function evaluateFleetSupervisor(manifest: FleetManifest | null): SupervisorDecision {
   const state = loadBudgetState();
   const activeWorkers = countActiveWorkers(manifest);
+  const fleetRunning =
+    activeWorkers > 0 ||
+    pidAlive(manifest?.watcherPid) ||
+    pidAlive(manifest?.strategyReviewerPid);
   const fleetStartedAt = resolveFleetStartedAt(manifest, state);
-  const snapshot = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
+  const snapshot = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt, running: fleetRunning });
 
   const reasons: string[] = [...snapshot.warnings];
   let relaunchAllowed = !snapshot.blockedActions.includes("relaunch_worker");

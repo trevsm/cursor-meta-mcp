@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSdkWorkerArgs, defaultSdkCheckpointPath, runSdkWorker, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
+import { buildSdkWorkerArgs, defaultSdkCheckpointPath, loadSdkCheckpoint, runSdkWorker, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
 import { FakeLocalAgentService } from "./helpers/fake-service.js";
 
 test("summarizeSdkWorker aggregates tick outcomes", () => {
@@ -112,6 +112,7 @@ test("buildSdkWorkerArgs forwards worker options", () => {
   assert.ok(args.includes("composer"));
   assert.ok(args.includes("--meta-dir"));
   assert.ok(args.includes("/meta"));
+  assert.ok(buildSdkWorkerArgs({ cwd: "/repo", resume: true }).includes("--resume"));
 });
 
 test("writeSdkCheckpoint persists worker state to disk", () => {
@@ -233,6 +234,51 @@ test("runSdkWorker resets consecutive error counter after a successful tick", as
     assert.equal(result.ticks.length, 10);
     assert.equal(result.ticks.filter((tick) => tick.error).length, 7);
     assert.equal(result.ticks[7]?.error, undefined);
+  } finally {
+    if (prevKey === undefined) delete process.env.CURSOR_API_KEY;
+    else process.env.CURSOR_API_KEY = prevKey;
+  }
+});
+
+test("runSdkWorker resume continues tick numbering from checkpoint", async () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "sdk-worker-resume-"));
+  const checkpointPath = join(metaDir, "worker.json");
+  writeSdkCheckpoint(
+    {
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      cwd: process.cwd(),
+      durationMs: 60_000,
+      maxTicks: 5,
+      prompt: "work",
+      ticks: [{ tick: 1, at: new Date().toISOString(), watchedMs: 1000, agentId: "agent-resume" }],
+      agentId: "agent-resume",
+      stoppedBecause: "duration",
+    },
+    checkpointPath,
+  );
+
+  const service = new FakeLocalAgentService();
+  const prevKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = "test-key";
+  try {
+    const result = await runSdkWorker({
+      cwd: process.cwd(),
+      metaDir,
+      checkpointPath,
+      service,
+      resume: true,
+      tickIntervalMs: 0,
+      durationMs: 120_000,
+      maxTicks: 3,
+      verifyTests: () => undefined,
+    });
+
+    assert.equal(result.ticks.length, 3);
+    assert.equal(result.ticks[0]?.tick, 1);
+    assert.equal(result.ticks[1]?.tick, 2);
+    assert.equal(result.ticks[2]?.tick, 3);
+    assert.equal(result.ticks[0]?.agentId, "agent-resume");
+    assert.equal(loadSdkCheckpoint(checkpointPath)?.stoppedBecause, "max_ticks");
   } finally {
     if (prevKey === undefined) delete process.env.CURSOR_API_KEY;
     else process.env.CURSOR_API_KEY = prevKey;

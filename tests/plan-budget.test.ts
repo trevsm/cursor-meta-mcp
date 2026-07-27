@@ -16,6 +16,9 @@ import {
   saveBudgetState,
   setPlanUsage,
   resetFleetBudgetClock,
+  resetFleetBudgetUsage,
+  resetFleetRuntimeClock,
+  resolveFleetElapsedMs,
   resolveFleetStartedAt,
 } from "../src/plan-budget.js";
 
@@ -122,10 +125,48 @@ test("resolveFleetStartedAt prefers budget fleet clock over manifest refresh tim
   assert.equal(resolveFleetStartedAt(null, { fleetStartedAt: started }), started);
 });
 
+test("resolveFleetElapsedMs pauses when fleet is stopped", () => {
+  const started = "2026-07-27T10:00:00.000Z";
+  const stopped = "2026-07-27T11:30:00.000Z";
+  const state = {
+    fleetStartedAt: started,
+    fleetStoppedAt: stopped,
+    fleetAccumulatedMs: 90 * 60_000,
+  };
+  assert.equal(resolveFleetElapsedMs(state, false), 90 * 60_000);
+  assert.ok(resolveFleetElapsedMs(state, true) > 90 * 60_000);
+});
+
+test("recordBudgetEvent fleet_stop accumulates running time", () => {
+  const path = tempBudgetPath();
+  const started = new Date(Date.now() - 45 * 60_000).toISOString();
+  saveBudgetState(
+    {
+      ...loadBudgetState(path),
+      fleetStartedAt: started,
+      fleetAccumulatedMs: 15 * 60_000,
+    },
+    path,
+  );
+
+  recordBudgetEvent(
+    { at: new Date().toISOString(), action: "fleet_stop", source: "test" },
+    undefined,
+    path,
+  );
+  const state = loadBudgetState(path);
+  assert.ok(state.fleetStoppedAt);
+  assert.ok((state.fleetAccumulatedMs ?? 0) >= 55 * 60_000);
+  assert.ok((state.fleetAccumulatedMs ?? 0) <= 65 * 60_000);
+  rmSync(join(path, ".."), { recursive: true, force: true });
+});
+
 test("resetFleetBudgetClock clears fleet clock and block flags", () => {
   const path = tempBudgetPath();
   const state = loadBudgetState(path);
   state.fleetStartedAt = new Date().toISOString();
+  state.fleetStoppedAt = new Date().toISOString();
+  state.fleetAccumulatedMs = 60_000;
   state.relaunchCount = 3;
   state.budgetBlocked = true;
   state.blockedReason = "max duration";
@@ -137,6 +178,8 @@ test("resetFleetBudgetClock clears fleet clock and block flags", () => {
 
   const reset = resetFleetBudgetClock(path);
   assert.equal(reset.fleetStartedAt, undefined);
+  assert.equal(reset.fleetStoppedAt, undefined);
+  assert.equal(reset.fleetAccumulatedMs, undefined);
   assert.equal(reset.relaunchCount, 0);
   assert.equal(reset.budgetBlocked, false);
   assert.equal(reset.blockedReason, undefined);
@@ -144,5 +187,44 @@ test("resetFleetBudgetClock clears fleet clock and block flags", () => {
     reset.events.filter((event) => event.action === "spawn_sdk" || event.action === "relaunch_worker").length,
     0,
   );
+  rmSync(join(path, ".."), { recursive: true, force: true });
+});
+
+test("resetFleetRuntimeClock clears runtime without relaunch or block flags", () => {
+  const path = tempBudgetPath();
+  const state = loadBudgetState(path);
+  state.fleetStartedAt = new Date().toISOString();
+  state.fleetStoppedAt = new Date().toISOString();
+  state.fleetAccumulatedMs = 45 * 60_000;
+  state.relaunchCount = 3;
+  state.budgetBlocked = true;
+  state.blockedReason = "max duration";
+  saveBudgetState(state, path);
+
+  const reset = resetFleetRuntimeClock(path);
+  assert.equal(reset.fleetStartedAt, undefined);
+  assert.equal(reset.fleetStoppedAt, undefined);
+  assert.equal(reset.fleetAccumulatedMs, undefined);
+  assert.equal(reset.relaunchCount, 3);
+  assert.equal(reset.budgetBlocked, true);
+  rmSync(join(path, ".."), { recursive: true, force: true });
+});
+
+test("resetFleetBudgetUsage clears spend counters and event ledger", () => {
+  const path = tempBudgetPath();
+  const state = loadBudgetState(path);
+  state.ideTicks = 42;
+  state.estimatedCents = 224;
+  state.sdkRuns = 3;
+  state.spawnCount = 5;
+  state.events.push({ at: new Date().toISOString(), action: "ide_tick" });
+  saveBudgetState(state, path);
+
+  const reset = resetFleetBudgetUsage(path);
+  assert.equal(reset.ideTicks, 0);
+  assert.equal(reset.estimatedCents, 0);
+  assert.equal(reset.sdkRuns, 0);
+  assert.equal(reset.spawnCount, 0);
+  assert.equal(reset.events.length, 0);
   rmSync(join(path, ".."), { recursive: true, force: true });
 });

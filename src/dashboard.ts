@@ -10,6 +10,7 @@ import {
 } from "./budget-supervisor.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { readDedicatedWorker } from "./fleet-control.js";
+import { inspectFleetResumeState } from "./fleet-lifecycle.js";
 import {
   friendlyExperimentName,
   friendlyEpisodeActor,
@@ -26,7 +27,7 @@ import {
 import { buildWorkerActivity, type WorkerActivityBreakdown } from "./dashboard-activity.js";
 import { buildFleetOverview } from "./dashboard-overview.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus, type GitSyncStatus } from "./git-sync.js";
-import { getBudgetSnapshot, loadBudgetState, resolveFleetStartedAt } from "./plan-budget.js";
+import { getBudgetSnapshot, loadBudgetState, resolveBudgetStatePath, resolveFleetElapsedMs, resolveFleetStartedAt } from "./plan-budget.js";
 import { readCheckpoint, summarizeLongSession, coerceStopReason, type LongSessionState } from "./long-session.js";
 import { recentRunThoughts, type RunEventRecord } from "./run-events.js";
 import { formatWorldModelForPrompt, listSkills, loadWorldModel, recentEpisodes, type WorldModel } from "./world-model.js";
@@ -139,8 +140,14 @@ export interface DashboardSnapshot {
     maxDurationMs: number;
     percent: number;
     remainingMs: number;
+    running: boolean;
   } | null;
   fleetProductivity: FleetProductivitySummary | null;
+  fleetControl: {
+    canResume: boolean;
+    resumeTickCount: number;
+    resumeStoppedBecause: string | null;
+  };
 }
 
 export function defaultMetaDir(): string {
@@ -168,6 +175,34 @@ export function pidAlive(pid: number | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+export function isFleetRunning(
+  manifest: ReturnType<typeof loadFleetManifest>,
+  aliveWorkers: number,
+): boolean {
+  return (
+    aliveWorkers > 0 ||
+    pidAlive(manifest?.watcherPid) ||
+    pidAlive(manifest?.strategyReviewerPid)
+  );
+}
+
+function buildFleetRuntime(
+  state: ReturnType<typeof loadBudgetState>,
+  maxDurationMs: number,
+  running: boolean,
+): DashboardSnapshot["fleetRuntime"] {
+  const fleetStartedAt = state.fleetStartedAt;
+  if (maxDurationMs <= 0 || !fleetStartedAt) return null;
+  const elapsedMs = resolveFleetElapsedMs(state, running);
+  return {
+    elapsedMs,
+    maxDurationMs,
+    percent: Math.min(100, (elapsedMs / maxDurationMs) * 100),
+    remainingMs: Math.max(0, maxDurationMs - elapsedMs),
+    running,
+  };
 }
 
 export function tailFile(path: string, maxLines = 80): string {
@@ -624,15 +659,16 @@ export function collectDashboardLiveSnapshot(options?: {
   const metaDir = options?.metaDir ?? defaultMetaDir();
   const experimentsDir = join(metaDir, "experiments");
   const manifest = loadFleetManifest(experimentsDir);
-  const state = loadBudgetState(join(metaDir, "plan-budget.json"));
-  const activeWorkers = countActiveWorkers(manifest);
-  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
-  const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
+  const state = loadBudgetState(resolveBudgetStatePath(metaDir));
   const watchStatus = readJsonSafe(join(experimentsDir, "watch-status.json"));
   const strategyStatus = readJsonSafe(join(experimentsDir, "strategy-status.json"));
   const pulse = cachedPulse(options);
   const experiments = buildExperimentRows(manifest?.experiments ?? [], watchStatus);
   const aliveCount = experiments.filter((row) => row.alive).length;
+  const fleetRunning = isFleetRunning(manifest, aliveCount);
+  const activeWorkers = countActiveWorkers(manifest);
+  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
+  const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt, running: fleetRunning });
   const manifestAt = manifest?.at ?? null;
   const manifestAgeMs = manifestAt ? Date.now() - Date.parse(manifestAt) : null;
   const staleManifest = aliveCount === 0 && (manifestAgeMs ?? 0) > 5 * 60_000;
@@ -698,11 +734,7 @@ export function collectDashboardSnapshot(options?: {
   const metaDir = options?.metaDir ?? defaultMetaDir();
   const experimentsDir = join(metaDir, "experiments");
   const manifest = loadFleetManifest(experimentsDir);
-  const state = loadBudgetState(join(metaDir, "plan-budget.json"));
-  const activeWorkers = countActiveWorkers(manifest);
-  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
-  const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt });
-  const supervisor = evaluateFleetSupervisor(manifest);
+  const state = loadBudgetState(resolveBudgetStatePath(metaDir));
   const watchStatus = readJsonSafe(join(experimentsDir, "watch-status.json"));
   const strategyStatus = readJsonSafe(join(experimentsDir, "strategy-status.json"));
 
@@ -713,22 +745,18 @@ export function collectDashboardSnapshot(options?: {
   const fleetCwd = manifest?.root?.trim() || join(homedir(), "Projects", "cursor-meta-mcp");
   const gitStatus = getGitSyncStatus(fleetCwd);
 
-  const elapsedMs = fleetStartedAt ? Date.now() - Date.parse(fleetStartedAt) : 0;
-  const maxDurationMs = budget.fleet?.maxDurationMs ?? 0;
-  const fleetRuntime =
-    maxDurationMs > 0 && fleetStartedAt
-      ? {
-          elapsedMs,
-          maxDurationMs,
-          percent: Math.min(100, (elapsedMs / maxDurationMs) * 100),
-          remainingMs: Math.max(0, maxDurationMs - elapsedMs),
-        }
-      : null;
-
   const aliveCount = experiments.filter((row) => row.alive).length;
+  const fleetRunning = isFleetRunning(manifest, aliveCount);
+  const activeWorkers = countActiveWorkers(manifest);
+  const fleetStartedAt = resolveFleetStartedAt(manifest, state);
+  const budget = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt, running: fleetRunning });
+  const supervisor = evaluateFleetSupervisor(manifest);
   const manifestAt = manifest?.at ?? null;
   const manifestAgeMs = manifestAt ? Date.now() - Date.parse(manifestAt) : null;
   const staleManifest = aliveCount === 0 && (manifestAgeMs ?? 0) > 5 * 60_000;
+  const resumeState = inspectFleetResumeState(experimentsDir);
+  const maxDurationMs = budget.fleet?.maxDurationMs ?? budget.limits.maxFleetDurationMs;
+  const fleetRuntime = buildFleetRuntime(state, maxDurationMs, fleetRunning);
 
   return {
     at: new Date().toISOString(),
@@ -753,5 +781,10 @@ export function collectDashboardSnapshot(options?: {
     gitSync: { ...gitStatus, summary: formatGitSyncStatusForPrompt(gitStatus) },
     fleetRuntime,
     fleetProductivity: summarizeFleetProductivity(experiments),
+    fleetControl: {
+      canResume: resumeState.ok,
+      resumeTickCount: resumeState.tickCount ?? 0,
+      resumeStoppedBecause: resumeState.stoppedBecause ?? null,
+    },
   };
 }

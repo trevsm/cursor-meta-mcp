@@ -2,24 +2,56 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>cursor-meta fleet</title>
-  <link rel="stylesheet" href="/styles.css?v=2" />
+  <link rel="stylesheet" href="/styles.css?v=8" />
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <div class="brand-dot" id="brand-dot"></div>
-      <div>
-        <h1>cursor-meta fleet</h1>
-        <div class="sub" id="updated">loading…</div>
+  <header class="app-header">
+    <div class="header-brand">
+      <h1>cursor-meta fleet</h1>
+      <div class="header-meta">
+        <div class="header-path" id="header-path">loading…</div>
+        <div class="header-refreshed" id="header-refreshed">Last refreshed —</div>
       </div>
     </div>
+
+    <div class="header-status-group">
+      <div class="fleet-status-chip" id="header-status-chip">
+        <span class="status-ring idle" id="header-status-ring" aria-hidden="true"><i data-lucide="circle"></i></span>
+        <div>
+          <div class="status-label" id="header-status-label">Idle</div>
+          <div class="status-sub" id="header-worker-count">0 workers running</div>
+        </div>
+      </div>
+      <span id="budget-pill" class="budget-badge ok">
+        <span id="budget-pill-icon" class="badge-icon"><i data-lucide="circle-check"></i></span>
+        <span id="budget-pill-text">BUDGET OK</span>
+      </span>
+    </div>
+
     <div class="header-actions">
-      <span id="budget-pill" class="pill ok">budget</span>
-      <button id="refresh" type="button">Refresh</button>
-      <button id="reset" class="btn-danger" type="button">Reset</button>
-      <button id="relaunch" class="btn-primary" type="button">Relaunch fleet</button>
+      <button id="refresh" class="btn-secondary btn-with-icon" type="button" aria-label="Refresh">
+        <span class="btn-icon-host"><i data-lucide="refresh-cw"></i></span>
+        <span class="btn-text">Refresh</span>
+      </button>
+      <button id="fleet-primary" class="btn-primary-solid btn-with-icon" type="button">
+        <span id="fleet-primary-icon" class="btn-icon-host"><i data-lucide="play"></i></span>
+        <span id="fleet-primary-label">Start fleet</span>
+      </button>
+      <div class="menu-wrap">
+        <button id="header-menu-toggle" class="btn-ghost btn-icon-only" type="button" aria-expanded="false" aria-haspopup="true" aria-label="Fleet menu">
+          <span class="btn-icon-host"><i data-lucide="ellipsis-vertical"></i></span>
+        </button>
+        <div id="header-menu" class="header-menu" hidden>
+          <button id="menu-start" type="button">Start fleet</button>
+          <button id="menu-stop" type="button">Stop fleet</button>
+          <button id="menu-resume" type="button">Resume fleet</button>
+          <div class="menu-divider"></div>
+          <button id="reset-runtime" type="button">Reset clock</button>
+          <button id="reset" class="menu-danger" type="button">Reset all</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -109,6 +141,7 @@
     </details>
   </main>
 
-  <script src="/app.js?v=2" type="module"></script>
+  <script src="/vendor/lucide.min.js"></script>
+  <script src="/app.js?v=9" type="module"></script>
 </body>
 </html>

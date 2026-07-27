@@ -1,5 +1,11 @@
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
 
+const fmtHeaderRefresh = (iso) => {
+  if (!iso) return "Last refreshed —";
+  const date = new Date(iso);
+  return `Last refreshed ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })} • ${date.toLocaleDateString()}`;
+};
+
 const fmtDuration = (ms) => {
   if (ms == null || ms < 0) return "—";
   const s = Math.floor(ms / 1000);
@@ -28,7 +34,155 @@ const badge = (kind) => `<span class="badge ${kind}">${kind}</span>`;
 
 let fullData = null;
 let lastLiveAt = null;
+let primaryAction = { path: "/api/start", label: "Start fleet", mode: "start" };
 const workerCardOpen = new Map();
+
+const LUCIDE_OPTS = { attrs: { "stroke-width": 1.75 } };
+
+function lucideApi() {
+  return globalThis.lucide;
+}
+
+function initLucideIcons(root = document) {
+  const api = lucideApi();
+  if (!api?.createIcons) return false;
+  api.createIcons({ ...LUCIDE_OPTS, root });
+  return true;
+}
+
+function whenLucideReady(run) {
+  if (initLucideIcons(document.querySelector(".app-header"))) {
+    run();
+    return;
+  }
+  let attempts = 0;
+  const timer = setInterval(() => {
+    attempts += 1;
+    if (initLucideIcons(document.querySelector(".app-header")) || attempts > 100) {
+      clearInterval(timer);
+      run();
+    }
+  }, 50);
+}
+
+function setLucideIcon(host, name) {
+  if (!host || !name) return;
+  const api = lucideApi();
+  if (!api?.createIcons) return;
+  host.replaceChildren();
+  const icon = document.createElement("i");
+  icon.dataset.lucide = name;
+  host.appendChild(icon);
+  api.createIcons({ ...LUCIDE_OPTS, root: host });
+}
+
+function closeHeaderMenu() {
+  const menu = document.getElementById("header-menu");
+  const toggle = document.getElementById("header-menu-toggle");
+  if (!menu || !toggle) return;
+  menu.hidden = true;
+  toggle.setAttribute("aria-expanded", "false");
+}
+
+function openHeaderMenu() {
+  const menu = document.getElementById("header-menu");
+  const toggle = document.getElementById("header-menu-toggle");
+  if (!menu || !toggle) return;
+  menu.hidden = false;
+  toggle.setAttribute("aria-expanded", "true");
+}
+
+function toggleHeaderMenu() {
+  const menu = document.getElementById("header-menu");
+  if (!menu) return;
+  if (menu.hidden) openHeaderMenu();
+  else closeHeaderMenu();
+}
+
+function fleetRunningFromHealth(fh) {
+  return (
+    (fh?.alive ?? 0) > 0 || fh?.watcherAlive === true || fh?.strategyReviewerAlive === true
+  );
+}
+
+function resolvePrimaryAction(data) {
+  const fh = data?.fleetHealth ?? {};
+  const fc = data?.fleetControl ?? {};
+  const running = fleetRunningFromHealth(fh);
+  if (running) return { path: "/api/stop", label: "Stop fleet", mode: "stop" };
+  if (fc.canResume) return { path: "/api/resume", label: "Resume fleet", mode: "resume" };
+  return { path: "/api/start", label: "Start fleet", mode: "start" };
+}
+
+function updateHeader(data) {
+  const fh = data?.fleetHealth ?? {};
+  const fc = data?.fleetControl ?? {};
+  const running = fleetRunningFromHealth(fh);
+  const workerCount = fh.alive ?? 0;
+
+  document.getElementById("header-path").textContent =
+    data?.manifest?.root ?? data?.metaDir ?? "—";
+  document.getElementById("header-refreshed").textContent = fmtHeaderRefresh(data?.at);
+
+  const ring = document.getElementById("header-status-ring");
+  const statusLabel = document.getElementById("header-status-label");
+  const workerLine = document.getElementById("header-worker-count");
+
+  let statusText = "Idle";
+  let ringClass = "idle";
+  let ringIcon = "circle";
+  if (running) {
+    if ((fh.total ?? 0) > 0 && workerCount < fh.total) {
+      statusText = "Degraded";
+      ringClass = "degraded";
+      ringIcon = "circle-alert";
+    } else {
+      statusText = "Running";
+      ringClass = "running";
+      ringIcon = "circle-check";
+    }
+  }
+  ring.className = `status-ring ${ringClass}`;
+  setLucideIcon(ring, ringIcon);
+  statusLabel.textContent = statusText;
+  workerLine.textContent = `${workerCount} worker${workerCount === 1 ? "" : "s"} running`;
+
+  const budgetStatus = data?.budget?.status ?? "ok";
+  const pillEl = document.getElementById("budget-pill");
+  const pillText = document.getElementById("budget-pill-text");
+  pillEl.className = `budget-badge ${budgetStatus}`;
+  pillText.textContent =
+    budgetStatus === "blocked" ? "BUDGET BLOCKED" : budgetStatus === "warn" ? "BUDGET WARN" : "BUDGET OK";
+  setLucideIcon(
+    document.getElementById("budget-pill-icon"),
+    budgetStatus === "blocked" ? "circle-x" : budgetStatus === "warn" ? "circle-alert" : "circle-check",
+  );
+
+  primaryAction = resolvePrimaryAction(data);
+  const primaryBtn = document.getElementById("fleet-primary");
+  const primaryLabel = document.getElementById("fleet-primary-label");
+  primaryLabel.textContent = primaryAction.label;
+  primaryBtn.classList.toggle("stop", primaryAction.mode === "stop");
+  primaryBtn.disabled = false;
+  setLucideIcon(
+    document.getElementById("fleet-primary-icon"),
+    primaryAction.mode === "stop" ? "square" : "play",
+  );
+
+  const menuStart = document.getElementById("menu-start");
+  const menuStop = document.getElementById("menu-stop");
+  const menuResume = document.getElementById("menu-resume");
+  if (menuStart) menuStart.disabled = running || primaryAction.mode === "start";
+  if (menuStop) menuStop.disabled = !running || primaryAction.mode === "stop";
+  if (menuResume) {
+    menuResume.disabled = running || !fc.canResume || primaryAction.mode === "resume";
+    menuResume.title = fc.canResume
+      ? `Continue from tick ${fc.resumeTickCount ?? 0}${
+          fc.resumeStoppedBecause ? ` (${fc.resumeStoppedBecause})` : ""
+        }`
+      : "No checkpoint to resume";
+  }
+}
 
 async function loadLog(name) {
   if (!name) return;
@@ -168,21 +322,18 @@ function renderLive(data) {
 
   const state = fleetState(data.fleetHealth);
   const overviewStatus = summary.status ?? state;
-  document.getElementById("brand-dot").className = `brand-dot ${overviewStatus === "idle" ? state : overviewStatus}`;
+  void overviewStatus;
+
+  if (fullData) {
+    updateHeader({ ...fullData, fleetHealth: data.fleetHealth, at: data.at ?? fullData.at });
+  }
 }
 
 function renderFull(data) {
   fullData = data;
-  document.getElementById("updated").textContent =
-    `Full refresh ${fmtTime(data.at)} · ${data.manifest?.root ?? data.metaDir}`;
-
-  const budgetStatus = data.budget?.status ?? "ok";
-  const pillEl = document.getElementById("budget-pill");
-  pillEl.className = `pill ${budgetStatus}`;
-  pillEl.textContent = `budget ${budgetStatus}`;
+  updateHeader(data);
 
   const fh = data.fleetHealth ?? {};
-  const state = fleetState(fh);
   const fleetLabel = `${fh.alive} / ${fh.total} alive`;
   const healthBits = [
     fh.watcherAlive ? "watcher ✓" : "watcher ✗",
@@ -201,8 +352,10 @@ function renderFull(data) {
   if (rt?.maxDurationMs > 0) {
     rtWrap.hidden = false;
     document.getElementById("runtime-fill").style.width = `${rt.percent.toFixed(1)}%`;
-    document.getElementById("runtime-label").textContent =
-      `${fmtDuration(rt.elapsedMs)} elapsed · ${fmtDuration(rt.remainingMs)} left`;
+    const paused = rt.running === false;
+    document.getElementById("runtime-label").textContent = paused
+      ? `${fmtDuration(rt.elapsedMs)} elapsed · paused · ${fmtDuration(rt.remainingMs)} left`
+      : `${fmtDuration(rt.elapsedMs)} elapsed · ${fmtDuration(rt.remainingMs)} left`;
   } else {
     rtWrap.hidden = true;
   }
@@ -344,21 +497,22 @@ function disarmResetButton(btn) {
   resetArmed = false;
   if (resetArmTimer) clearTimeout(resetArmTimer);
   resetArmTimer = null;
-  btn.textContent = "Reset";
+  btn.textContent = "Reset all";
   btn.classList.remove("armed");
 }
 
 async function resetDashboard() {
+  closeHeaderMenu();
   const btn = document.getElementById("reset");
   if (!btn) return;
 
   if (!resetArmed) {
     resetArmed = true;
-    btn.textContent = "Confirm reset";
+    btn.textContent = "Confirm reset all";
     btn.classList.add("armed");
     resetArmTimer = setTimeout(() => disarmResetButton(btn), 5000);
     document.getElementById("summary-meta").textContent =
-      "Click Confirm reset within 5s to wipe fleet logs, checkpoints, and budget clock.";
+      "Click Confirm reset all within 5s to wipe fleet logs, checkpoints, and budget clock.";
     return;
   }
 
@@ -377,32 +531,97 @@ async function resetDashboard() {
     alert(error.message ?? String(error));
   } finally {
     btn.disabled = false;
-    btn.textContent = "Reset";
+    btn.textContent = "Reset all";
   }
 }
 
-async function relaunchFleet() {
-  const btn = document.getElementById("relaunch");
+async function resetFleetRuntime() {
+  closeHeaderMenu();
+  const btn = document.getElementById("reset-runtime");
+  if (!btn) return;
+
   btn.disabled = true;
-  btn.textContent = "Launching…";
+  btn.textContent = "Resetting…";
   try {
-    const res = await fetch("/api/relaunch", { method: "POST" });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error ?? "Launch failed");
+    const res = await fetch("/api/reset-runtime", { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? `Reset clock failed (${res.status})`);
+    document.getElementById("summary-meta").textContent = "Runtime clock reset — checkpoints and logs unchanged.";
     await refreshAll();
   } catch (error) {
+    document.getElementById("summary-meta").textContent = `Reset clock failed: ${error.message ?? error}`;
     alert(error.message ?? String(error));
   } finally {
     btn.disabled = false;
-    btn.textContent = "Relaunch fleet";
+    btn.textContent = "Reset clock";
+  }
+}
+
+async function postFleetAction(path, busyLabel, triggerBtn) {
+  closeHeaderMenu();
+  const labels = {
+    "/api/start": "Start fleet",
+    "/api/stop": "Stop fleet",
+    "/api/resume": "Resume fleet",
+  };
+  const defaultLabel = labels[path] ?? "Run";
+  const btn = triggerBtn ?? document.getElementById("fleet-primary");
+  const labelEl = document.getElementById("fleet-primary-label");
+  const previousLabel = labelEl?.textContent ?? defaultLabel;
+  if (btn) {
+    btn.disabled = true;
+    if (labelEl) labelEl.textContent = busyLabel;
+  }
+  try {
+    const res = await fetch(path, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? `${defaultLabel} failed (${res.status})`);
+    document.getElementById("summary-meta").textContent = `${defaultLabel} complete.`;
+    await refreshAll();
+  } catch (error) {
+    document.getElementById("summary-meta").textContent = `${defaultLabel} failed: ${error.message ?? error}`;
+    alert(error.message ?? String(error));
+  } finally {
+    if (btn) btn.disabled = false;
+    if (fullData) updateHeader(fullData);
+    else if (labelEl) labelEl.textContent = previousLabel;
   }
 }
 
 document.getElementById("refresh").addEventListener("click", refreshAll);
 document.getElementById("reset").addEventListener("click", resetDashboard);
-document.getElementById("relaunch").addEventListener("click", relaunchFleet);
+document.getElementById("reset-runtime").addEventListener("click", resetFleetRuntime);
+document.getElementById("fleet-primary").addEventListener("click", () => {
+  const busy =
+    primaryAction.mode === "stop"
+      ? "Stopping…"
+      : primaryAction.mode === "resume"
+        ? "Resuming…"
+        : "Starting…";
+  postFleetAction(primaryAction.path, busy);
+});
+document.getElementById("menu-start").addEventListener("click", () =>
+  postFleetAction("/api/start", "Starting…"),
+);
+document.getElementById("menu-stop").addEventListener("click", () =>
+  postFleetAction("/api/stop", "Stopping…"),
+);
+document.getElementById("menu-resume").addEventListener("click", () =>
+  postFleetAction("/api/resume", "Resuming…"),
+);
+document.getElementById("header-menu-toggle").addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleHeaderMenu();
+});
+document.addEventListener("click", (event) => {
+  const wrap = document.querySelector(".menu-wrap");
+  if (!wrap || wrap.contains(event.target)) return;
+  closeHeaderMenu();
+});
 document.getElementById("log-select").addEventListener("change", (e) => loadLog(e.target.value));
 
-refreshAll();
+whenLucideReady(() => {
+  refreshAll();
+});
 setInterval(refreshLive, 2000);
 setInterval(refreshFull, 8000);

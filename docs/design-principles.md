@@ -4,7 +4,7 @@ How cursor-meta-mcp is meant to evolve — mapped to *A Philosophy of Software D
 
 ## North star
 
-Build **persistent autonomous intelligence** that ships **verified diffs**, not plausible summaries. Complexity is only justified when it makes the next tick more reliable or the operator more informed.
+Build **persistent autonomous intelligence** that ships **verified diffs**, not plausible summaries — with **deterministic human gates** on high-stakes actions (HumanLayer / CodeLayer alignment). See [humanlayer-alignment.md](./humanlayer-alignment.md).
 
 ## Ousterhout principles we adopt
 

@@ -1,4 +1,4 @@
-import { mkdirSync, openSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,8 @@ export interface SdkWorkerParams {
   service?: LocalAgentService;
   verifyTests?: (cwd: string) => TestOutcome | undefined;
   onTick?: (tick: SdkWorkerTick, state: SdkWorkerState) => void;
+  /** Load an existing checkpoint and continue tick numbering. */
+  resume?: boolean;
 }
 
 export interface SdkWorkerTick {
@@ -141,22 +143,51 @@ export async function runSdkWorkerTick(
   }
 }
 
+export function loadSdkCheckpoint(path: string): SdkWorkerState | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as SdkWorkerState;
+  } catch {
+    return null;
+  }
+}
+
 export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerResult> {
   if (!params.cwd.trim()) throw new Error("cwd is required.");
 
-  const startedAtMs = Date.now();
-  const state: SdkWorkerState = {
-    startedAt: new Date(startedAtMs).toISOString(),
-    cwd: params.cwd.trim(),
-    durationMs: params.durationMs ?? DEFAULT_DURATION_MS,
-    maxTicks: params.maxTicks ?? DEFAULT_MAX_TICKS,
-    prompt: params.prompt?.trim() || DEFAULT_SDK_WORKER_PROMPT,
-    ticks: [],
-  };
-
   const checkpointPath = params.checkpointPath ?? defaultSdkCheckpointPath();
+  let state: SdkWorkerState | undefined;
+  let startedAtMs = Date.now();
+
+  if (params.resume) {
+    const existing = loadSdkCheckpoint(checkpointPath);
+    if (existing?.ticks?.length) {
+      state = {
+        ...existing,
+        cwd: params.cwd.trim(),
+        stoppedBecause: undefined,
+      };
+      if (params.durationMs != null) state.durationMs = params.durationMs;
+      if (params.maxTicks != null) state.maxTicks = params.maxTicks;
+      if (params.prompt?.trim()) state.prompt = params.prompt.trim();
+      startedAtMs = Date.parse(state.startedAt);
+      if (!Number.isFinite(startedAtMs)) startedAtMs = Date.now();
+    }
+  }
+
+  if (!state) {
+    state = {
+      startedAt: new Date(startedAtMs).toISOString(),
+      cwd: params.cwd.trim(),
+      durationMs: params.durationMs ?? DEFAULT_DURATION_MS,
+      maxTicks: params.maxTicks ?? DEFAULT_MAX_TICKS,
+      prompt: params.prompt?.trim() || DEFAULT_SDK_WORKER_PROMPT,
+      ticks: [],
+    };
+    archiveWorkerCheckpointIfNeeded(checkpointPath);
+  }
+
   state.checkpointPath = checkpointPath;
-  archiveWorkerCheckpointIfNeeded(checkpointPath);
   writeSdkCheckpoint(state, checkpointPath);
   const tickIntervalMs = params.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const metaDir = params.metaDir ?? metaHome();
@@ -170,11 +201,13 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     params.verifyTests ??
     (process.env.CURSOR_META_SKIP_TICK_TESTS === "1" ? undefined : (cwd: string) => runTests({ cwd }));
 
-  let agentId: string | undefined;
+  let agentId: string | undefined = state.agentId;
   let stoppedBecause: SdkWorkerStopReason = "duration";
   let consecutiveErrors = 0;
+  const startTick =
+    state.ticks.length > 0 ? (state.ticks.at(-1)?.tick ?? state.ticks.length) + 1 : 1;
 
-  for (let tick = 1; tick <= state.maxTicks; tick += 1) {
+  for (let tick = startTick; tick <= state.maxTicks; tick += 1) {
     if (Date.now() - startedAtMs >= state.durationMs) {
       stoppedBecause = "duration";
       break;
@@ -311,6 +344,7 @@ export function buildSdkWorkerArgs(params: SdkWorkerParams): string[] {
   if (params.prompt) args.push("--prompt", params.prompt);
   if (params.model) args.push("--model", params.model);
   if (params.metaDir) args.push("--meta-dir", params.metaDir);
+  if (params.resume) args.push("--resume");
   return args;
 }
 

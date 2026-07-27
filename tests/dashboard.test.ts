@@ -154,12 +154,47 @@ test("collectDashboardSnapshot fleetRuntime uses budget fleetStartedAt not manif
       strategyReviewerPid: -1,
     }),
   );
-  saveBudgetState({ ...loadBudgetState(budgetPath), fleetStartedAt }, budgetPath);
+  saveBudgetState(
+    { ...loadBudgetState(budgetPath), fleetStartedAt, fleetAccumulatedMs: 60 * 60_000 },
+    budgetPath,
+  );
 
   const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
   assert.ok(snapshot.fleetRuntime);
-  assert.ok(snapshot.fleetRuntime!.elapsedMs >= 59 * 60_000);
-  assert.ok(snapshot.fleetRuntime!.elapsedMs < 65 * 60_000);
+  assert.equal(snapshot.fleetRuntime!.running, false);
+  assert.equal(snapshot.fleetRuntime!.elapsedMs, 60 * 60_000);
+});
+
+test("collectDashboardSnapshot fleetRuntime pauses after fleet_stop", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dashboard-runtime-stop-"));
+  const experimentsDir = defaultExperimentsDir(metaDir);
+  mkdirSync(experimentsDir, { recursive: true });
+  const budgetPath = join(metaDir, "plan-budget.json");
+  const fleetStartedAt = new Date(Date.now() - 90 * 60_000).toISOString();
+  const fleetStoppedAt = new Date(Date.now() - 30 * 60_000).toISOString();
+  saveBudgetState(
+    {
+      ...loadBudgetState(budgetPath),
+      fleetStartedAt,
+      fleetStoppedAt,
+      fleetAccumulatedMs: 60 * 60_000,
+    },
+    budgetPath,
+  );
+  writeFileSync(
+    join(experimentsDir, "manifest.json"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      experiments: [{ name: "sdk-worker-1", pid: -1 }],
+      watcherPid: -1,
+      strategyReviewerPid: -1,
+    }),
+  );
+
+  const snapshot = collectDashboardSnapshot({ metaDir, pulseLimit: 3 });
+  assert.ok(snapshot.fleetRuntime);
+  assert.equal(snapshot.fleetRuntime!.running, false);
+  assert.equal(snapshot.fleetRuntime!.elapsedMs, 60 * 60_000);
 });
 
 test("collectDashboardSnapshot marks staleManifest when fleet dead and manifest old", () => {

@@ -1,5 +1,6 @@
 dist/
 node_modules/
+dashboard/vendor/
 .env
 .env.*
 !.env.example

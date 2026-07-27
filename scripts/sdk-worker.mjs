@@ -28,6 +28,7 @@ const params = {
   prompt,
   model: argValue("--model"),
   metaDir: argValue("--meta-dir"),
+  resume: process.argv.includes("--resume"),
 };
 
 console.error(

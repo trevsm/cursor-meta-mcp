@@ -26,18 +26,353 @@ body {
   color: var(--text);
 }
 
-header {
-  display: flex;
-  justify-content: space-between;
+header,
+.app-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand actions"
+    "status status";
+  gap: 12px 14px;
   align-items: center;
-  gap: 16px;
-  padding: 14px 20px;
+  padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--border);
   background: rgba(9, 11, 15, 0.92);
   backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.header-brand {
+  grid-area: brand;
+  min-width: 0;
+}
+
+.header-brand h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.header-meta {
+  margin-top: 4px;
+  display: grid;
+  gap: 2px;
+}
+
+.header-path,
+.header-refreshed {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-path {
+  white-space: nowrap;
+}
+
+.header-refreshed {
+  white-space: normal;
+}
+
+.header-status-group {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.fleet-status-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.status-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #5f6b80;
+}
+
+.status-ring svg {
+  width: 18px;
+  height: 18px;
+}
+
+.status-ring.running {
+  color: var(--ok);
+}
+
+.status-ring.degraded {
+  color: var(--warn);
+}
+
+.status-ring.idle {
+  color: #5f6b80;
+}
+
+.status-label {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.status-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.budget-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.badge-icon,
+.btn-icon-host {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.badge-icon svg,
+.btn-icon-host svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-icon-only .btn-icon-host svg {
+  width: 16px;
+  height: 16px;
+}
+
+.budget-badge.ok {
+  color: #7dffb8;
+  border-color: rgba(61, 214, 140, 0.45);
+  background: rgba(61, 214, 140, 0.08);
+}
+
+.budget-badge.warn {
+  color: #ffd68a;
+  border-color: rgba(245, 185, 66, 0.45);
+  background: rgba(245, 185, 66, 0.08);
+}
+
+.budget-badge.blocked {
+  color: #ffb4b8;
+  border-color: rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.08);
+}
+
+.header-actions {
+  grid-area: actions;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-self: end;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.btn-with-icon,
+.btn-icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-icon-only {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  border-color: #3a4354;
+  background: var(--surface-2);
+}
+
+.btn-primary-solid {
+  background: #2f6fed;
+  border: 1px solid #3b79f2;
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-primary-solid:hover {
+  background: #3b79f2;
+  border-color: #4d88ff;
+}
+
+.btn-primary-solid.stop {
+  background: rgba(240, 113, 120, 0.16);
+  border-color: rgba(240, 113, 120, 0.45);
+  color: #ffb4b8;
+}
+
+.btn-primary-solid.stop:hover {
+  background: rgba(240, 113, 120, 0.24);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.menu-wrap {
+  position: relative;
+}
+
+.header-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #12161d;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  z-index: 20;
+}
+
+.header-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+
+.header-menu button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.header-menu button:disabled {
+  opacity: 0.4;
+}
+
+.header-menu button.menu-danger {
+  color: #ffb4b8;
+}
+
+.header-menu button.armed {
+  background: rgba(240, 113, 120, 0.16);
+  color: #fff;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
+}
+
+@media (min-width: 960px) {
+  .app-header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "brand status actions";
+    gap: 20px 24px;
+    padding: 16px 24px;
+  }
+
+  .header-status-group {
+    justify-self: center;
+    width: auto;
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .header-actions .btn-text {
+    display: none;
+  }
+
+  .header-actions .btn-with-icon {
+    gap: 0;
+    padding-inline: 10px;
+  }
+
+  #fleet-primary {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 160px;
+    padding-inline: 12px;
+  }
+
+  #fleet-primary-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .budget-badge {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
+
+  .header-menu {
+    right: 0;
+    left: auto;
+    min-width: min(220px, calc(100vw - 24px));
+  }
+}
+
+@media (max-width: 480px) {
+  .header-brand h1 {
+    font-size: 16px;
+  }
+
+  .header-path,
+  .header-refreshed {
+    font-size: 11px;
+  }
+
+  .status-label {
+    font-size: 13px;
+  }
 }
 
 .brand { display: flex; align-items: center; gap: 12px; }
@@ -71,12 +406,10 @@ h1 {
 
 .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
-.header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
 main {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   display: grid;
   gap: 16px;
 }
@@ -180,6 +513,79 @@ main {
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+  main {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .live-panel {
+    padding: 14px 16px;
+  }
+
+  .live-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .live-header h2 {
+    font-size: 18px;
+  }
+
+  .live-indicator {
+    align-self: flex-start;
+  }
+
+  .fleet-overview {
+    font-size: 14px;
+    max-width: none;
+  }
+
+  .progress-label {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .progress-label span:last-child {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .panel {
+    padding: 12px 14px;
+  }
+
+  .thought-feed {
+    max-height: 240px;
+  }
+
+  pre {
+    max-height: 220px;
+    font-size: 10px;
+  }
+
+  .proc {
+    grid-template-columns: auto 1fr;
+  }
+
+  .proc .pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 480px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .panel {
@@ -621,9 +1027,26 @@ select, button {
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-button { cursor: pointer; font-weight: 500; }
+button {
+  cursor: pointer;
+  font-weight: 500;
+  min-height: 36px;
+}
+
+@media (max-width: 640px) {
+  button {
+    min-height: 40px;
+  }
+
+  .btn-icon-only {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { saveFleetManifest } from "./budget-supervisor.js";
 import { stopFleetProcesses } from "./fleet-control.js";
 import { metaHome } from "./meta-home.js";
-import { budgetStatePath, recordBudgetEvent, resetFleetBudgetClock } from "./plan-budget.js";
+import { recordBudgetEvent, resetFleetBudgetUsage, resolveBudgetStatePath } from "./plan-budget.js";
 import { pruneStaleLocks } from "./process-lock.js";
 
 export interface FleetResetResult {
@@ -27,15 +27,20 @@ export function wipeFleetDashboardState(options?: {
 }): FleetResetResult {
   const meta = options?.metaDir ?? metaHome();
   const experimentsDir = join(meta, "experiments");
+  const budgetPath = resolveBudgetStatePath(meta);
   const { killed: stoppedPids } = stopFleetProcesses(experimentsDir);
 
-  resetFleetBudgetClock(budgetStatePath());
-  recordBudgetEvent({
-    at: new Date().toISOString(),
-    action: "fleet_stop",
-    source: "dashboard_reset",
-    detail: "Dashboard reset wiped fleet experiment artifacts",
-  });
+  resetFleetBudgetUsage(budgetPath);
+  recordBudgetEvent(
+    {
+      at: new Date().toISOString(),
+      action: "fleet_stop",
+      source: "dashboard_reset",
+      detail: "Dashboard reset wiped fleet experiment artifacts",
+    },
+    undefined,
+    budgetPath,
+  );
   pruneStaleLocks(["watch-experiments", "strategy-review-loop", "fleet-launch"], experimentsDir);
 
   const removedFiles: string[] = [];

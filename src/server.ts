@@ -42,6 +42,14 @@ import {
   runSentimentAnalysis,
 } from "./sentiment-analysis.js";
 import { launchSelfImproveFleet } from "./self-improve.js";
+import { adaptAgiMission } from "./agi-adaptation.js";
+import { launchAgiMission } from "./agi-mission.js";
+import {
+  listApprovals,
+  listPendingApprovals,
+  requestHumanApproval,
+  resolveHumanApproval,
+} from "./human-gate.js";
 import {
   getBudgetSnapshot,
   loadBudgetState,
@@ -923,6 +931,170 @@ export function createServer(
         return jsonResult(
           await runStrategyReview(service, { ...params, useLlm: params.useLlm ?? true }, runHooksFrom(extra)),
         );
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_request_approval",
+    {
+      title: "Request human approval or feedback (HumanLayer)",
+      description:
+        "Structured human-in-the-loop gate. Blocks high-stakes actions until the conductor resolves via meta_resolve_approval. kind=require_approval for yes/no gates; kind=human_as_tool for advice/feedback (12-Factor #7).",
+      inputSchema: {
+        question: z.string().min(1),
+        action: z.string().min(1),
+        kind: z.enum(["require_approval", "human_as_tool"]).optional(),
+        context: z.string().optional(),
+        urgency: z.enum(["low", "medium", "high"]).optional(),
+        format: z.enum(["yes_no", "free_text", "multiple_choice"]).optional(),
+        choices: z.array(z.string().min(1)).optional(),
+        cwd: z.string().min(1).optional(),
+        sessionId: z.string().uuid().optional(),
+        runId: z.string().uuid().optional(),
+        idempotencyKey: z.string().min(1).optional(),
+        timeoutMs: z.number().int().min(60_000).max(86_400_000).optional(),
+      },
+      annotations: { openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(requestHumanApproval(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_resolve_approval",
+    {
+      title: "Resolve a pending human approval",
+      description:
+        "Approve or deny a pending meta_request_approval. Denial feedback is returned to workers on next intercept.",
+      inputSchema: {
+        id: z.string().uuid(),
+        approved: z.boolean().optional(),
+        feedback: z.string().optional(),
+        resolvedBy: z.string().optional(),
+        cwd: z.string().min(1).optional(),
+      },
+      annotations: { destructiveHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(resolveHumanApproval(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_list_approvals",
+    {
+      title: "List human approval requests",
+      description: "List pending or recent approval requests for the active AGI project.",
+      inputSchema: {
+        cwd: z.string().min(1).optional(),
+        pendingOnly: z.boolean().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (params) => {
+      try {
+        const requests = params.pendingOnly
+          ? listPendingApprovals(params.cwd)
+          : listApprovals(params.cwd, params.limit ?? 20);
+        return jsonResult({ requests, pending: requests.filter((r) => r.status === "pending").length });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_agi",
+    {
+      title: "Start AGI mode on any project",
+      description:
+        "One-call AGI orchestration for the current project: preflight auth, persist the user task, launch autonomous workers + watcher + strategy reviewer (+ optional pulse orchestrator). Writes ~/.cursor-meta/active-agi.json and per-project fleet state under ~/.cursor-meta/projects/. Use from the conductor chat after the user states a task.",
+      inputSchema: {
+        cwd: z.string().min(1),
+        task: z.string().min(1),
+        excludeSessionIndex: z.number().int().min(1).optional(),
+        durationMs: z.number().int().min(60_000).max(86_400_000).optional(),
+        withOrchestrator: z.boolean().optional(),
+        withWatcher: z.boolean().optional(),
+        withStrategyReviewer: z.boolean().optional(),
+        strategyReviewIntervalMs: z.number().int().min(60_000).max(3_600_000).optional(),
+        workerMode: z.enum(["ide", "sdk", "hybrid"]).optional(),
+        parallelWorkers: z.number().int().min(0).max(8).optional(),
+        stopExisting: z.boolean().optional(),
+        freshStart: z.boolean().optional(),
+        resumeWorkers: z.boolean().optional(),
+        dashboardPort: z.number().int().min(1024).max(65535).optional(),
+        prompt: z.string().min(1).optional(),
+        architecture: z
+          .object({
+            workerMode: z.enum(["ide", "sdk", "hybrid"]).optional(),
+            parallelWorkers: z.number().int().min(0).max(8).optional(),
+            withOrchestrator: z.boolean().optional(),
+            withWatcher: z.boolean().optional(),
+            withStrategyReviewer: z.boolean().optional(),
+            strategyReviewIntervalMs: z.number().int().min(60_000).max(3_600_000).optional(),
+            allowMetaToolingChanges: z.boolean().optional(),
+            maxAdaptationsPerHour: z.number().int().min(1).max(24).optional(),
+            humanGateMode: z.enum(["strict", "standard", "yolo"]).optional(),
+          })
+          .optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(await launchAgiMission(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_agi_adapt",
+    {
+      title: "Adapt AGI orchestration when snags appear",
+      description:
+        "Monitor-detect-adapt-relaunch loop for active AGI missions. Reads strategy-status and watcher signals, proposes bounded topology changes (worker mode, orchestrator, strategy cadence, mission pivot), records adaptations, and optionally relaunches the fleet. Conductor uses meta_tooling proposals to patch cursor-meta-mcp when infra is the blocker.",
+      inputSchema: {
+        auto: z.boolean().optional(),
+        reason: z.string().min(1).optional(),
+        missionPivot: z.string().min(1).optional(),
+        relaunch: z.boolean().optional(),
+        proposalIds: z.array(z.string().min(1)).optional(),
+        approvalId: z.string().uuid().optional(),
+        architecture: z
+          .object({
+            workerMode: z.enum(["ide", "sdk", "hybrid"]).optional(),
+            parallelWorkers: z.number().int().min(0).max(8).optional(),
+            withOrchestrator: z.boolean().optional(),
+            withWatcher: z.boolean().optional(),
+            withStrategyReviewer: z.boolean().optional(),
+            strategyReviewIntervalMs: z.number().int().min(60_000).max(3_600_000).optional(),
+            allowMetaToolingChanges: z.boolean().optional(),
+            maxAdaptationsPerHour: z.number().int().min(1).max(24).optional(),
+            humanGateMode: z.enum(["strict", "standard", "yolo"]).optional(),
+          })
+          .optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        return jsonResult(await adaptAgiMission(params));
       } catch (error) {
         return errorResult(error);
       }

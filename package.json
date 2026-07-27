@@ -32,7 +32,8 @@
     "fleet:preflight": "node --import tsx scripts/fleet-preflight.mjs",
     "watch-experiments": "node --import tsx scripts/watch-experiments.mjs",
     "strategy-review": "node --import tsx scripts/strategy-review-loop.mjs --once",
-    "dashboard": "node --import tsx scripts/dashboard-server.mjs"
+    "dashboard": "node --import tsx scripts/dashboard-server.mjs",
+    "agi": "node --import tsx scripts/agi.mjs"
   },
   "keywords": [
     "mcp",
@@ -46,6 +47,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^11.10.0",
     "cursor-history": "^0.9.1",
+    "lucide": "^1.27.0",
     "zod": "^3.25.1"
   },
   "devDependencies": {

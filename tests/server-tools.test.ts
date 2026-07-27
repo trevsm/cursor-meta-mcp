@@ -17,6 +17,8 @@ test("registers all meta_* tools", async () => {
     const names = tools.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       "meta_abort_chat",
+      "meta_agi",
+      "meta_agi_adapt",
       "meta_cancel_run",
       "meta_consciousness_pulse",
       "meta_continue_from_chat",
@@ -30,6 +32,7 @@ test("registers all meta_* tools", async () => {
       "meta_list_active_chats",
       "meta_list_active_runs",
       "meta_list_agent_runs",
+      "meta_list_approvals",
       "meta_list_chats",
       "meta_list_local_agents",
       "meta_long_session",
@@ -38,6 +41,8 @@ test("registers all meta_* tools", async () => {
       "meta_orchestrate_pulse",
       "meta_plan_budget",
       "meta_relentless_loop",
+      "meta_request_approval",
+      "meta_resolve_approval",
       "meta_search_chats",
       "meta_self_improve",
       "meta_send_to_chat",
@@ -299,6 +304,20 @@ test("meta_long_session requires session target when spawning", async () => {
   });
   assert.equal(missing.isError, true);
   assert.match(textResult(missing), /sessionIndex or sessionId/);
+});
+
+test("meta_agi schema requires cwd and task", async () => {
+  const service = new FakeLocalAgentService();
+  await withMcpClient(service, async (client) => {
+    const tools = await client.listTools();
+    const tool = tools.tools.find((entry) => entry.name === "meta_agi");
+    assert.ok(tool);
+    const props = (tool.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    assert.ok("cwd" in props);
+    assert.ok("task" in props);
+    assert.ok("excludeSessionIndex" in props);
+    assert.ok("withOrchestrator" in props);
+  });
 });
 
 test("meta_self_improve schema includes fleet options", async () => {

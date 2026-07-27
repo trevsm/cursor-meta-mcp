@@ -60,6 +60,10 @@ export interface SelfImproveParams {
   prompt?: string;
   /** Stop any prior fleet from manifest before launching (default true). */
   stopExisting?: boolean;
+  /** Reset budget clock when stopping prior fleet (default true). Set false for resume. */
+  freshStart?: boolean;
+  /** Continue SDK workers from existing checkpoints instead of wiping them. */
+  resumeWorkers?: boolean;
   /** Max wait for dedicated chat in SQLite after create (default 120s). */
   dedicatedChatWaitMs?: number;
   /** Worker backend: IDE tabs, headless SDK, or both. Default sdk for honest loop. */
@@ -231,7 +235,9 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
   if (params.stopExisting ?? true) {
     stopFleetProcesses(metaDir);
     pruneStaleLocks(FLEET_LOCK_NAMES, metaDir);
-    resetFleetBudgetClock();
+    if (params.freshStart ?? true) {
+      resetFleetBudgetClock();
+    }
   }
 
   // Serialize launches. Two fleets racing each other spawn untracked duplicate loops.
@@ -362,6 +368,7 @@ async function launchFleetProcesses(
         checkpointPath,
         prompt,
         metaDir: metaHome(),
+        resume: params.resumeWorkers ?? false,
       };
       const spawned = spawnSdkWorker(sdkCfg);
       recordSpawn("spawn_fleet_worker", name);
@@ -385,6 +392,7 @@ async function launchFleetProcesses(
       checkpointPath,
       prompt,
       metaDir: metaHome(),
+      resume: params.resumeWorkers ?? false,
     });
     recordSpawn("spawn_fleet_worker", name);
     experiments.push({

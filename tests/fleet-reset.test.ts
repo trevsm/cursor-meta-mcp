@@ -25,7 +25,17 @@ test("wipeFleetDashboardState clears logs, checkpoints, and manifest", () => {
       watcherPid: 999998,
     }),
   );
-  writeFileSync(join(metaDir, "plan-budget.json"), JSON.stringify({ limits: {}, events: [], fleetStartedAt: new Date().toISOString() }));
+  writeFileSync(
+    join(metaDir, "plan-budget.json"),
+    JSON.stringify({
+      limits: {},
+      events: [{ at: new Date().toISOString(), action: "ide_tick" }],
+      fleetStartedAt: new Date().toISOString(),
+      ideTicks: 42,
+      estimatedCents: 224,
+      sdkRuns: 3,
+    }),
+  );
 
   const result = wipeFleetDashboardState({ metaDir, root: "/repo" });
   assert.equal(result.budgetReset, true);
@@ -33,6 +43,17 @@ test("wipeFleetDashboardState clears logs, checkpoints, and manifest", () => {
   assert.ok(result.removedFiles.includes("sdk-worker-1.json"));
   assert.ok(!existsSync(join(experimentsDir, "watch.log")));
   assert.ok(!existsSync(join(experimentsDir, "sdk-worker-1.json")));
+
+  const budget = JSON.parse(readFileSync(join(metaDir, "plan-budget.json"), "utf8")) as {
+    ideTicks: number;
+    estimatedCents: number;
+    sdkRuns: number;
+    fleetStartedAt?: string;
+  };
+  assert.equal(budget.ideTicks, 0);
+  assert.equal(budget.estimatedCents, 0);
+  assert.equal(budget.sdkRuns, 0);
+  assert.equal(budget.fleetStartedAt, undefined);
 
   const manifest = JSON.parse(readFileSync(join(experimentsDir, "manifest.json"), "utf8")) as {
     experiments: unknown[];

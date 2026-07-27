@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { metaPath } from "./meta-home.js";
+import { metaHome, metaPath } from "./meta-home.js";
 
 export type BudgetAction =
   | "spawn_sdk"
@@ -51,6 +51,8 @@ export interface BudgetState {
   relaunchCount: number;
   fleetStartedAt?: string;
   fleetStoppedAt?: string;
+  /** Wall-clock ms accumulated before the current fleetStartedAt segment (pause/resume). */
+  fleetAccumulatedMs?: number;
   budgetBlocked: boolean;
   blockedReason?: string;
   events: BudgetEvent[];
@@ -150,8 +152,15 @@ function defaultState(): BudgetState {
   };
 }
 
+export function resolveBudgetStatePath(metaDir?: string): string {
+  const override = process.env.CURSOR_META_BUDGET_PATH?.trim();
+  if (override) return override;
+  const root = metaDir?.trim() || metaHome();
+  return join(root, "plan-budget.json");
+}
+
 export function budgetStatePath(): string {
-  return process.env.CURSOR_META_BUDGET_PATH ?? metaPath("plan-budget.json");
+  return resolveBudgetStatePath();
 }
 
 export function loadBudgetState(path = budgetStatePath()): BudgetState {
@@ -242,9 +251,36 @@ export function resolveFleetStartedAt(
   return state.fleetStartedAt ?? manifest?.at;
 }
 
+/** Elapsed fleet wall time; pauses when `running` is false. */
+export function resolveFleetElapsedMs(
+  state: Pick<BudgetState, "fleetStartedAt" | "fleetStoppedAt" | "fleetAccumulatedMs">,
+  running: boolean,
+): number {
+  const accumulated = state.fleetAccumulatedMs ?? 0;
+  if (!state.fleetStartedAt) return accumulated;
+
+  const startAt = Date.parse(state.fleetStartedAt);
+  if (!Number.isFinite(startAt)) return accumulated;
+
+  if (running) {
+    return accumulated + Math.max(0, Date.now() - startAt);
+  }
+
+  if (state.fleetAccumulatedMs != null) return state.fleetAccumulatedMs;
+
+  if (state.fleetStoppedAt) {
+    const stopAt = Date.parse(state.fleetStoppedAt);
+    if (Number.isFinite(stopAt)) {
+      return accumulated + Math.max(0, stopAt - startAt);
+    }
+  }
+
+  return accumulated;
+}
+
 export function getBudgetSnapshot(
   state: BudgetState,
-  fleet?: { activeWorkers: number; fleetStartedAt?: string },
+  fleet?: { activeWorkers: number; fleetStartedAt?: string; running?: boolean },
 ): BudgetSnapshot {
   const { limits } = state;
   const warnings: string[] = [];
@@ -289,7 +325,8 @@ export function getBudgetSnapshot(
   let fleetSection: BudgetSnapshot["fleet"];
   const fleetStartedAt = fleet?.fleetStartedAt ?? state.fleetStartedAt;
   if (fleetStartedAt) {
-    const fleetElapsedMs = Date.now() - Date.parse(fleetStartedAt);
+    const fleetRunning = fleet?.running ?? (fleet?.activeWorkers ?? 0) > 0;
+    const fleetElapsedMs = resolveFleetElapsedMs(state, fleetRunning);
     const percentOfMaxDuration = (fleetElapsedMs / limits.maxFleetDurationMs) * 100;
     fleetSection = {
       activeWorkers: fleet?.activeWorkers ?? 0,
@@ -420,6 +457,13 @@ export function recordBudgetEvent(
       state.blockedReason = undefined;
       break;
     case "fleet_stop":
+      if (state.fleetStartedAt) {
+        const stopAt = Date.parse(event.at);
+        const startAt = Date.parse(state.fleetStartedAt);
+        if (Number.isFinite(stopAt) && Number.isFinite(startAt)) {
+          state.fleetAccumulatedMs = (state.fleetAccumulatedMs ?? 0) + Math.max(0, stopAt - startAt);
+        }
+      }
       state.fleetStoppedAt = event.at;
       break;
     case "kill_workers":
@@ -473,6 +517,15 @@ export function setPlanUsage(used: number, limit?: number, source: "env" | "manu
   return state;
 }
 
+export function resetFleetRuntimeClock(path = budgetStatePath()): BudgetState {
+  const state = loadBudgetState(path);
+  state.fleetStartedAt = undefined;
+  state.fleetStoppedAt = undefined;
+  state.fleetAccumulatedMs = undefined;
+  saveBudgetState(state, path);
+  return state;
+}
+
 export function resetFleetBudgetClock(path = budgetStatePath()): BudgetState {
   const state = loadBudgetState(path);
   const cutoff = Date.now() - HOUR_MS;
@@ -482,9 +535,30 @@ export function resetFleetBudgetClock(path = budgetStatePath()): BudgetState {
     return !SPAWN_ACTIONS.includes(event.action as BudgetAction);
   });
   state.fleetStartedAt = undefined;
+  state.fleetStoppedAt = undefined;
+  state.fleetAccumulatedMs = undefined;
   state.relaunchCount = 0;
   state.budgetBlocked = false;
   state.blockedReason = undefined;
+  saveBudgetState(state, path);
+  return state;
+}
+
+/** Zero fleet spend counters and event ledger — for dashboard hard reset. */
+export function resetFleetBudgetUsage(path = budgetStatePath()): BudgetState {
+  const state = loadBudgetState(path);
+  state.sdkRuns = 0;
+  state.sdkDurationMs = 0;
+  state.ideTicks = 0;
+  state.estimatedCents = 0;
+  state.spawnCount = 0;
+  state.relaunchCount = 0;
+  state.fleetStartedAt = undefined;
+  state.fleetStoppedAt = undefined;
+  state.fleetAccumulatedMs = undefined;
+  state.budgetBlocked = false;
+  state.blockedReason = undefined;
+  state.events = [];
   saveBudgetState(state, path);
   return state;
 }
