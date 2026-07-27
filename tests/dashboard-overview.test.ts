@@ -185,6 +185,31 @@ test("buildFleetOverview normalizes raw sdk stream status text", () => {
   assert.match(overview.paragraph, /running tick 3/i);
 });
 
+test("buildFleetOverview normalizes thinking stream status text", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "active",
+        statusText: "thinking…",
+        ticksCompleted: 5,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.match(overview.headline, /tick 6 in progress/i);
+  assert.match(overview.paragraph, /running tick 6/i);
+});
+
 test("buildFleetOverview reports productivity gate misses", () => {
   const overview = buildFleetOverview({
     fleetHealth: healthyFleet,
