@@ -102,6 +102,30 @@ test("runAgentCliPrompt requires login and forwards args", async () => {
     "composer-2.5",
     "hello",
   ]);
+  // argv must not go through /bin/sh — multi-line genome prompts use `;`/`()`
+  assert.equal((promptCall.arguments[2] as { shell?: boolean } | undefined)?.shell, undefined);
+});
+
+test("runAgentCliPrompt keeps shell metacharacters in a single argv slot", async () => {
+  const dangerous =
+    "Minimize scope per tick; ship small verified improvements.\nOperating constitution (follow every tick):";
+  const before = spawnMock.mock.calls.length;
+  spawnMock.mock.mockImplementation((_command, args) =>
+    mockSpawnResult(args[0] === "status" ? "Logged in as cli@example.com\n" : "ok\n")(
+      _command,
+      args,
+      {},
+    ),
+  );
+
+  await runAgentCliPrompt({ prompt: dangerous, cwd: process.cwd() });
+  const promptCall = spawnMock.mock.calls
+    .slice(before)
+    .find((call) => call.arguments[1]?.includes("-p"));
+  assert.ok(promptCall);
+  const args = promptCall.arguments[1] as string[];
+  assert.equal(args.at(-1), dangerous);
+  assert.equal((promptCall.arguments[2] as { shell?: boolean } | undefined)?.shell, undefined);
 });
 
 test("createAgentChat returns a UUID", async () => {

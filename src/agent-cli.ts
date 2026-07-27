@@ -24,7 +24,9 @@ async function agentBinExists(): Promise<boolean> {
 export async function isAgentCliLoggedIn(): Promise<boolean> {
   if (!(await agentBinExists())) return false;
   return new Promise((resolve) => {
-    const child = spawn(AGENT_BIN, ["status"], { stdio: ["ignore", "pipe", "pipe"], shell: true });
+    // Never shell:true — prompts contain `;`/`()`/`\n` and would be executed by sh
+    // (e.g. "Minimize scope; ship small…" → `/bin/sh: ship: command not found`).
+    const child = spawn(AGENT_BIN, ["status"], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -54,7 +56,6 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(AGENT_BIN, args, {
       cwd,
-      shell: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
