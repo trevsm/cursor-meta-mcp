@@ -179,8 +179,25 @@ test("heuristicStrategyReview killExperiments targets stale sdk-workers", () => 
     "Implemented fix and npm test passes.",
   );
   assert.ok(verdict.issues.includes("stale_workers"));
+  assert.ok(verdict.issues.includes("low_productive_ratio"));
   assert.deepEqual(verdict.killExperiments, ["sdk-worker-a"]);
   assert.deepEqual(verdict.kill, []);
+});
+
+test("heuristicStrategyReview flags low productive ratio without hard errors", () => {
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      gitDiffStat: " src/foo.ts | 4 ++",
+      transcriptTail: "Implemented fix and npm test passes.",
+      workerSummary:
+        "worker-dedicated #7: ticks=6 attempted=5 productive=1 ratio=20% errors=0 soft=1 stopped=running last=ok",
+    },
+    "Implemented fix and npm test passes.",
+  );
+  assert.ok(verdict.issues.includes("low_productive_ratio"));
+  assert.equal(verdict.issues.includes("stale_workers"), false);
+  assert.match(verdict.pivot ?? "", /30% gate/i);
 });
 
 test("gatherStrategyContext uses default success criteria", () => {

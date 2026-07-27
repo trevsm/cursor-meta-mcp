@@ -8,7 +8,7 @@ import { getChatById, getChatByIndex } from "./history-store.js";
 import { loadSessionSummary, loadSessionSummaryById } from "./history.js";
 import { isMetaDiscussion, isStrategySessionTitle } from "./meta-discussion.js";
 import { defaultSuccessCriteria } from "./mission.js";
-import { analyzeWorkerCheckpoint } from "./fleet-metrics.js";
+import { analyzeWorkerCheckpoint, PRODUCTIVE_TICK_GATE } from "./fleet-metrics.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
 import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes } from "./world-model.js";
 
@@ -121,7 +121,7 @@ function summarizeWorkers(
       continue;
     }
     lines.push(
-      `${worker.name} #${worker.sessionIndex ?? "?"}: ticks=${metrics.ticks} attempted=${metrics.ticks - metrics.softSkips} productive=${metrics.productiveTicks} ratio=${(metrics.productiveRatio * 100).toFixed(0)}% errors=${metrics.errors} soft=${metrics.softSkips} stopped=${metrics.stoppedBecause ?? "running"} last=${metrics.lastError ?? "ok"}`,
+      `${worker.name} #${worker.sessionIndex ?? "?"}: ticks=${metrics.ticks} attempted=${attemptedTickCount(metrics)} productive=${metrics.productiveTicks} ratio=${(metrics.productiveRatio * 100).toFixed(0)}% errors=${metrics.errors} soft=${metrics.softSkips} stopped=${metrics.stoppedBecause ?? "running"} last=${metrics.lastError ?? "ok"}`,
     );
   }
   return lines.join("\n");
@@ -361,6 +361,20 @@ export function heuristicStrategyReview(
     pivot =
       pivot ??
       "Relaunch or intercept dead/errored workers. Prefer soft-skip resilience for missing sessions; keep shipping verified code.";
+  }
+
+  const lowProdWorkers = context.workerSummary.split("\n").filter((line) => {
+    const attempted = /attempted=(\d+)/.exec(line);
+    const ratio = /ratio=(\d+)%/.exec(line);
+    if (!attempted || !ratio) return false;
+    return Number(attempted[1]) >= 3 && Number(ratio[1]) < PRODUCTIVE_TICK_GATE * 100;
+  });
+  if (lowProdWorkers.length > 0) {
+    score -= 15;
+    issues.push("low_productive_ratio");
+    pivot =
+      pivot ??
+      `Productive-tick ratio below ${PRODUCTIVE_TICK_GATE * 100}% gate. Force one verified git change + test:fast per tick; do not scale parallelism.`;
   }
 
   const onTrack = score >= 70 && issues.length === 0;
