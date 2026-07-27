@@ -209,6 +209,32 @@ test("buildWorkerActivity maps unknown live event types to other", () => {
   assert.equal(rows[0]?.liveEvents[0]?.kind, "other");
 });
 
+test("buildWorkerActivity maps error live event kind", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-error-kind-"));
+  const agentId = "agent-error-kind";
+  appendRunEvent(
+    "run-error",
+    { type: "error", message: "transport dropped" },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.liveEvents[0]?.kind, "error");
+});
+
 test("buildWorkerActivity caps live events at eight newest rows", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-cap-"));
   const runsDir = join(metaDir, "runs");

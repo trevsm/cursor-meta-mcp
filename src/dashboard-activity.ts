@@ -84,6 +84,7 @@ function mapLiveEventKind(type: string): WorkerLiveEvent["kind"] {
   if (type === "assistant") return "assistant";
   if (type === "tool_call") return "tool";
   if (type === "status") return "status";
+  if (type === "error") return "error";
   return "other";
 }
 
