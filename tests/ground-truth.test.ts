@@ -21,6 +21,13 @@ test("detectCompletionClaims ignores negated commit language", () => {
   assert.equal(claims.claimedTestsPass, true);
 });
 
+test("detectCompletionClaims ignores negated push language", () => {
+  assert.equal(detectCompletionClaims("I haven't pushed yet.").claimedPushed, false);
+  assert.equal(detectCompletionClaims("Not pushed to origin.").claimedPushed, false);
+  assert.equal(detectCompletionClaims("I didn't push.").claimedPushed, false);
+  assert.equal(detectCompletionClaims("Committed and pushed to origin.").claimedPushed, true);
+});
+
 test("detectCompletionClaims ignores haven't/didn't commit and imperative complete", () => {
   assert.equal(detectCompletionClaims("I haven't committed these changes.").claimedCommitted, false);
   assert.equal(detectCompletionClaims("I didn't commit yet.").claimedCommitted, false);
