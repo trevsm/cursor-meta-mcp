@@ -118,3 +118,47 @@ test("executeOrchestrationPlay runs continue via watch chat", async () => {
   assert.equal(result.action, "CONTINUE");
   assert.equal(watchIdeChat.mock.callCount(), 1);
 });
+
+test("executeOrchestrationPlay errors on unknown workspace", async () => {
+  const result = await executeOrchestrationPlay(
+    { ...entry, workspace: "unknown" },
+    entry.plays[1] as OrchestrationPlay,
+    { dryRun: false },
+  );
+  assert.match(result.error ?? "", /Workspace unknown/);
+});
+
+test("executeOrchestrationPlay errors when continue play has no prompt", async () => {
+  const result = await executeOrchestrationPlay(
+    entry,
+    { action: "CONTINUE", tool: "meta_watch_chat", why: "continue" },
+    { dryRun: false },
+  );
+  assert.match(result.error ?? "", /missing prompt/);
+});
+
+test("executeOrchestrationPlay errors when spawn requested without SDK service", async () => {
+  const result = await executeOrchestrationPlay(
+    entry,
+    {
+      action: "SPAWN_SPECIALIST",
+      tool: "meta_spawn_local_agent",
+      why: "verify",
+      prompt: "Check tests.",
+    },
+    { dryRun: false, allowSpawn: true },
+  );
+  assert.match(result.error ?? "", /requires SDK agent service/);
+});
+
+test("executeOrchestrationPlay runs watch when not dry-run", async () => {
+  watchIdeChat.mock.resetCalls();
+
+  const result = await executeOrchestrationPlay(
+    entry,
+    entry.plays[0] as OrchestrationPlay,
+    { dryRun: false },
+  );
+  assert.equal(result.action, "WATCH");
+  assert.equal(watchIdeChat.mock.callCount(), 1);
+});
