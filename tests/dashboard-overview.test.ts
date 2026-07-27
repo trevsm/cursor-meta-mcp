@@ -132,3 +132,29 @@ test("buildFleetOverview reports sdk worker errors and dead fleet", () => {
   assert.equal(deadOverview.status, "bad");
   assert.match(deadOverview.headline, /Fleet stopped/i);
 });
+
+test("buildFleetOverview warns when fleet is degraded", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: { ...healthyFleet, total: 3, alive: 2 },
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "idle",
+        statusText: "Tick 4 complete, awaiting next interval",
+        ticksCompleted: 4,
+        recentTicks: [],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.equal(overview.status, "warn");
+  assert.match(overview.paragraph, /degraded — 2 of 3 workers are alive/i);
+  assert.match(overview.headline, /idle after tick 4/i);
+});
