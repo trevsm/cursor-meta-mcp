@@ -478,3 +478,52 @@ test("buildWorkerActivity marks stopped fleet watcher as dead", () => {
   assert.equal(rows[0]?.statusText, "Stopped");
   assert.match(rows[0]?.role ?? "", /Patrols workers/);
 });
+
+test("buildWorkerActivity shows starting status for new sdk workers", () => {
+  const rows = buildWorkerActivity([
+    {
+      name: "sdk-worker-1",
+      displayName: "Self-improve worker #1",
+      pid: 1,
+      alive: true,
+      checkpoint: { exists: true, ticks: 0 },
+    },
+  ]);
+
+  assert.equal(rows[0]?.status, "idle");
+  assert.equal(rows[0]?.statusText, "Starting…");
+  assert.equal(rows[0]?.ticksCompleted, 0);
+});
+
+test("buildWorkerActivity keeps only the five most recent checkpoint ticks", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-recent-"));
+  const cpDir = join(metaDir, "experiments");
+  mkdirSync(cpDir, { recursive: true });
+  const checkpointPath = join(cpDir, "sdk-worker-1.json");
+  writeFileSync(
+    checkpointPath,
+    JSON.stringify({
+      ticks: Array.from({ length: 7 }, (_, index) => ({
+        tick: index + 1,
+        at: `2026-07-27T1${index}:00:00.000Z`,
+        lastAssistantTail: `Tick ${index + 1} — work item ${index + 1}`,
+        outcome: { producedWork: true, commits: 1 },
+      })),
+    }),
+  );
+
+  const rows = buildWorkerActivity([
+    {
+      name: "sdk-worker-1",
+      displayName: "Self-improve worker #1",
+      pid: 1,
+      alive: true,
+      checkpointPath,
+      checkpoint: { exists: true, ticks: 7, lastTick: { tick: 7 } },
+    },
+  ]);
+
+  assert.equal(rows[0]?.recentTicks.length, 5);
+  assert.equal(rows[0]?.recentTicks[0]?.tick, 7);
+  assert.equal(rows[0]?.recentTicks.at(-1)?.tick, 3);
+});
