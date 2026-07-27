@@ -221,6 +221,22 @@ test("relaunchBlockedReason stops zero-productivity relaunch loops", () => {
   assert.equal(relaunchBlockedReason(null), null);
 });
 
+test("analyzeWorkerCheckpoint clears stale stoppedBecause when session has no ticks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "fleet-metrics-stale-stop-"));
+  const path = join(dir, "worker.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      startedAt: "2026-07-27T15:00:00.000Z",
+      stoppedBecause: "error",
+      ticks: [{ at: "2026-07-27T11:00:00.000Z", error: "stale from prior session" }],
+    }),
+  );
+  const metrics = analyzeWorkerCheckpoint(path);
+  assert.equal(metrics?.ticks, 0);
+  assert.equal(metrics?.stoppedBecause, undefined);
+});
+
 test("isWorkerStalled detects silent zero-productivity workers", () => {
   assert.equal(isWorkerStalled({ pidAlive: false, checkpointPath: "/tmp/x" }), false);
   assert.equal(isWorkerStalled({ pidAlive: true }), false);
