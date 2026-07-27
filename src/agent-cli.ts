@@ -75,6 +75,52 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
   });
 }
 
+export async function createAgentChat(): Promise<string> {
+  if (!(await isAgentCliLoggedIn())) {
+    throw new Error(
+      "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login",
+    );
+  }
+  const chatId = await runAgentCommand(["create-chat"]);
+  if (!/^[0-9a-f-]{36}$/i.test(chatId)) {
+    throw new Error(`Unexpected create-chat output: ${chatId}`);
+  }
+  return chatId;
+}
+
+export async function runAgentCliResume(params: {
+  chatId: string;
+  prompt: string;
+  cwd: string;
+  workspace?: string;
+  mode?: "agent" | "plan" | "ask";
+  model?: string;
+}): Promise<AgentCliRunResult> {
+  if (!(await isAgentCliLoggedIn())) {
+    throw new Error(
+      "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login",
+    );
+  }
+
+  const args = ["-p", "--trust", "--resume", params.chatId, "--output-format", "text"];
+  if (params.mode === "plan" || params.mode === "ask") {
+    args.push("--mode", params.mode);
+  }
+  if (params.workspace) {
+    args.push("--workspace", params.workspace);
+  }
+  if (params.model) {
+    args.push("--model", params.model);
+  }
+  args.push(params.prompt);
+
+  const result = await runAgentCommand(args, params.cwd);
+  return {
+    status: "finished",
+    result,
+  };
+}
+
 export async function runAgentCliPrompt(params: {
   prompt: string;
   cwd: string;
@@ -87,14 +133,10 @@ export async function runAgentCliPrompt(params: {
     );
   }
 
-  const args = [
-    "-p",
-    "--trust",
-    "--output-format",
-    "text",
-    "--mode",
-    params.mode ?? "agent",
-  ];
+  const args = ["-p", "--trust", "--output-format", "text"];
+  if (params.mode === "plan" || params.mode === "ask") {
+    args.push("--mode", params.mode);
+  }
   if (params.model) {
     args.push("--model", params.model);
   }

@@ -55,6 +55,32 @@ export interface FollowUpParams {
   cwd?: string;
 }
 
+export interface InterceptAgentParams extends FollowUpParams {
+  cancelFirst?: boolean;
+  runId?: string;
+}
+
+export interface ActiveRunSummary {
+  agentId: string;
+  runId: string;
+  status: string;
+  cwd?: string;
+  createdAt?: number;
+}
+
+function toActiveRunSummary(
+  run: { id: string; agentId: string; status: string; createdAt?: number },
+  cwd?: string,
+): ActiveRunSummary {
+  return {
+    agentId: run.agentId,
+    runId: run.id,
+    status: run.status,
+    cwd,
+    createdAt: run.createdAt,
+  };
+}
+
 export interface AgentRunResult {
   agentId: string;
   runId: string;
@@ -82,6 +108,8 @@ export interface LocalAgentService {
   listModels(): Promise<Array<{ id: string; displayName: string; description?: string }>>;
   runLocalAgent(params: RunLocalAgentParams, hooks?: RunHooks): Promise<AgentRunResult>;
   followUp(params: FollowUpParams, hooks?: RunHooks): Promise<AgentRunResult>;
+  interceptAgent(params: InterceptAgentParams, hooks?: RunHooks): Promise<AgentRunResult>;
+  listActiveRuns(params: ListLocalAgentsParams): Promise<{ items: ActiveRunSummary[] }>;
   listLocalAgents(params: ListLocalAgentsParams): Promise<unknown>;
   getAgent(params: QueryRunParams): Promise<unknown>;
   listRuns(params: QueryRunParams): Promise<unknown>;
@@ -332,6 +360,51 @@ export class CursorLocalService implements LocalAgentService {
     } finally {
       await disposeAgent(agent);
     }
+  }
+
+  async interceptAgent(params: InterceptAgentParams, hooks?: RunHooks): Promise<AgentRunResult> {
+    if (params.cancelFirst ?? true) {
+      if (params.runId) {
+        await this.cancelRun({ agentId: params.agentId, runId: params.runId, cwd: params.cwd });
+      } else {
+        await this.cancelActiveRunsForAgent(params.agentId, params.cwd);
+      }
+    }
+    return this.followUp(params, hooks);
+  }
+
+  private async cancelActiveRunsForAgent(agentId: string, cwd?: string): Promise<void> {
+    if (agentId === "cli-session" || agentId.startsWith("bc-")) return;
+    const runs = await this.listRuns({ agentId, cwd });
+    const items = (runs as { items?: Array<{ id: string; status: string }> }).items ?? [];
+    for (const run of items) {
+      if (run.status === "running") {
+        await this.cancelRun({ agentId, runId: run.id, cwd });
+      }
+    }
+  }
+
+  async listActiveRuns(params: ListLocalAgentsParams): Promise<{ items: ActiveRunSummary[] }> {
+    const agents = (await this.listLocalAgents(params)) as {
+      items?: Array<{ agentId: string; status?: string; cwd?: string }>;
+    };
+    const active: ActiveRunSummary[] = [];
+
+    for (const agent of agents.items ?? []) {
+      const agentCwd = agent.cwd ?? params.cwd;
+      const runs = await this.listRuns({ agentId: agent.agentId, cwd: agentCwd });
+      const items =
+        (runs as { items?: Array<{ id: string; agentId: string; status: string; createdAt?: number }> })
+          .items ?? [];
+
+      for (const run of items) {
+        if (run.status === "running") {
+          active.push(toActiveRunSummary(run, agentCwd));
+        }
+      }
+    }
+
+    return { items: active };
   }
 
   async followUp(params: FollowUpParams, hooks?: RunHooks): Promise<AgentRunResult> {

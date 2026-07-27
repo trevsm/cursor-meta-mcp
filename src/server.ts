@@ -10,6 +10,14 @@ import { z } from "zod";
 import type { AgentRunResult, LocalAgentService, RunHooks } from "./cursor-local.js";
 import { describeError } from "./errors.js";
 import {
+  abortIdeChat,
+  createIdeChat,
+  getIdeChatActivity,
+  interceptIdeChat,
+  listActiveIdeChats,
+  sendToIdeChat,
+} from "./ide-chat-control.js";
+import {
   exportChat,
   historyErrorMessage,
   listChats,
@@ -18,6 +26,11 @@ import {
   searchChats,
   showChat,
 } from "./history.js";
+import { runRelentlessLoop } from "./relentless-loop.js";
+import {
+  resolveSentimentSessionIndex,
+  runSentimentAnalysis,
+} from "./sentiment-analysis.js";
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
@@ -28,7 +41,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.1.0",
+  version: "0.3.0",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -112,6 +125,20 @@ const remoteMcpServerSchema = z
   .strict();
 
 const mcpServerSchema = z.union([stdioMcpServerSchema, remoteMcpServerSchema]);
+
+const sessionSelectorSchema = {
+  sessionIndex: z.number().int().min(1).optional(),
+  sessionId: z.string().uuid().optional(),
+};
+
+const ideChatControlSchema = {
+  ...sessionSelectorSchema,
+  prompt: z.string().min(1),
+  cwd: z.string().min(1).optional(),
+  workspace: z.string().min(1).optional(),
+  model: z.string().optional(),
+  mode: modeSchema,
+};
 
 const localAgentInputSchema = {
   prompt: z.string().min(1).describe("Instruction for the local Cursor agent."),
@@ -373,6 +400,262 @@ export function createServer(
       try {
         await service.cancelRun({ agentId: "unused", runId, cwd });
         return jsonResult({ cancelled: true, runId });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_list_active_chats",
+    {
+      title: "List active IDE chats",
+      description:
+        "List Cursor IDE chats with recent activity or in-flight tool/generation signals from local storage.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        workspace: z.string().min(1).optional(),
+        withinMs: z.number().int().min(1000).max(86_400_000).optional(),
+        includeIdle: z.boolean().optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult({ sessions: listActiveIdeChats(args) });
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_get_chat_activity",
+    {
+      title: "Get IDE chat activity",
+      description:
+        "Inspect whether a Cursor IDE chat appears active, blocked, or recently updated.",
+      inputSchema: sessionSelectorSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionIndex, sessionId }) => {
+      try {
+        if (!sessionIndex && !sessionId) {
+          return errorResult(new Error("Provide sessionIndex or sessionId."));
+        }
+        return jsonResult(getIdeChatActivity({ sessionIndex, sessionId }));
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_send_to_chat",
+    {
+      title: "Send message to IDE chat",
+      description:
+        "Send a new user message to an existing Cursor IDE chat via the Agent CLI (--resume composerId). Requires ~/.local/bin/agent login.",
+      inputSchema: ideChatControlSchema,
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        if (!params.sessionIndex && !params.sessionId) {
+          return errorResult(new Error("Provide sessionIndex or sessionId."));
+        }
+        return jsonResult(await sendToIdeChat(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_abort_chat",
+    {
+      title: "Abort IDE chat generation",
+      description:
+        "Best-effort stop for an in-flight Cursor IDE chat by marking composer state aborted in local storage.",
+      inputSchema: sessionSelectorSchema,
+      annotations: { destructiveHint: true },
+    },
+    async ({ sessionIndex, sessionId }) => {
+      try {
+        if (!sessionIndex && !sessionId) {
+          return errorResult(new Error("Provide sessionIndex or sessionId."));
+        }
+        return jsonResult(await abortIdeChat({ sessionIndex, sessionId }));
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_intercept_chat",
+    {
+      title: "Intercept IDE chat",
+      description:
+        "Stop an in-flight IDE chat (best effort) and immediately send a new steering message via Agent CLI --resume.",
+      inputSchema: {
+        ...ideChatControlSchema,
+        abortFirst: z.boolean().optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        if (!params.sessionIndex && !params.sessionId) {
+          return errorResult(new Error("Provide sessionIndex or sessionId."));
+        }
+        return jsonResult(await interceptIdeChat(params));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_create_chat",
+    {
+      title: "Create IDE chat",
+      description:
+        "Create a new empty Cursor chat via the Agent CLI and return its composerId for follow-up sends.",
+      inputSchema: {},
+      annotations: { destructiveHint: false, openWorldHint: true },
+    },
+    async () => {
+      try {
+        return jsonResult(await createIdeChat());
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_list_agent_runs",
+    {
+      title: "List SDK agent runs",
+      description: "List runs for a local SDK agent by agentId.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        cwd: z.string().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ agentId, cwd }) => {
+      try {
+        return jsonResult(await service.listRuns({ agentId, cwd }));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_list_active_runs",
+    {
+      title: "List active SDK runs",
+      description: "List in-progress local SDK agent runs for a workspace.",
+      inputSchema: {
+        cwd: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ cwd, limit }) => {
+      try {
+        return jsonResult(await service.listActiveRuns({ cwd, limit }));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_intercept_agent",
+    {
+      title: "Intercept SDK agent",
+      description:
+        "Cancel an in-progress SDK run (optional) and send a steering follow-up prompt to the same agent.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        prompt: z.string().min(1),
+        cwd: z.string().min(1).optional(),
+        model: z.string().optional(),
+        runId: z.string().min(1).optional(),
+        cancelFirst: z.boolean().optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params, extra) => {
+      try {
+        return formatRun(await service.interceptAgent(params, runHooksFrom(extra)));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_sentiment_analysis",
+    {
+      title: "Analyze chat sentiment",
+      description:
+        "Multi-axis sentiment analysis over local Cursor chat history: frustration, confusion, satisfaction, valence. Surfaces false-completion patterns (user pushback after agent claimed done).",
+      inputSchema: {
+        workspace: z.string().min(1).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        sessionId: z.string().uuid().optional(),
+        topMessages: z.number().int().min(1).max(100).optional(),
+        topSessions: z.number().int().min(1).max(50).optional(),
+        includeClassificationInput: z.boolean().optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ sessionIndex, sessionId, ...rest }) => {
+      try {
+        const resolvedIndex = resolveSentimentSessionIndex(sessionIndex, sessionId);
+        return jsonResult(
+          runSentimentAnalysis({
+            ...rest,
+            sessionIndex: resolvedIndex,
+          }),
+        );
+      } catch (error) {
+        return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_relentless_loop",
+    {
+      title: "Relentless self-critique loop",
+      description:
+        "Run a task, judge the output with a separate critic pass, and keep iterating until approved or maxIterations. Supports SDK agents (default) or IDE chats (sessionIndex/sessionId + watch until idle).",
+      inputSchema: {
+        task: z.string().min(1),
+        cwd: z.string().min(1),
+        target: z.enum(["sdk", "ide"]).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        sessionId: z.string().uuid().optional(),
+        maxIterations: z.number().int().min(1).max(20).optional(),
+        approvalScore: z.number().int().min(0).max(100).optional(),
+        rubric: z.string().optional(),
+        model: z.string().optional(),
+        mode: modeSchema,
+        pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
+        idleStableMs: z.number().int().min(500).max(120_000).optional(),
+        waitTimeoutMs: z.number().int().min(5000).max(3_600_000).optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params, extra) => {
+      try {
+        return jsonResult(await runRelentlessLoop(service, params, runHooksFrom(extra)));
       } catch (error) {
         return errorResult(error);
       }

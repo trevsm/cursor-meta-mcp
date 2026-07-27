@@ -1,7 +1,7 @@
 {
   "name": "cursor-meta-mcp",
-  "version": "0.1.0",
-  "description": "Local-only MCP server: browse Cursor chat history and spawn local SDK agents",
+  "version": "0.3.0",
+  "description": "Local-only MCP server: browse Cursor chat history, steer IDE chats, and spawn/intercept local SDK agents",
   "type": "module",
   "bin": {
     "cursor-meta-mcp": "./dist/index.js"
@@ -16,7 +16,12 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --import tsx tests/server.test.ts"
+    "test": "node --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=80 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --import tsx tests/**/*.test.ts",
+    "test:coverage": "npm test",
+    "sentiment": "node scripts/sentiment-analysis.mjs",
+    "sentiment:classify": "node scripts/sentiment-classify.mjs",
+    "relentless": "node scripts/relentless-loop.mjs",
+    "pulse": "node scripts/consciousness-pulse.mjs"
   },
   "keywords": [
     "mcp",

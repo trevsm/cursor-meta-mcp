@@ -36,11 +36,19 @@ export interface SearchHit {
 }
 
 function globalStorageDir(): string {
+  const override = process.env.CURSOR_META_STATE_DB;
+  if (override) return override.replace(/[/\\][^/\\]+$/, "");
   return join(homedir(), "Library", "Application Support", "Cursor", "User", "globalStorage");
 }
 
+function globalDbFile(): string {
+  const override = process.env.CURSOR_META_STATE_DB;
+  if (override) return override;
+  return join(globalStorageDir(), "state.vscdb");
+}
+
 function openGlobalDb(): Database.Database {
-  return new Database(join(globalStorageDir(), "state.vscdb"), { readonly: true });
+  return new Database(globalDbFile(), { readonly: true });
 }
 
 function openSearchDb(): Database.Database {
