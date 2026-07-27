@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSdkWorkerArgs, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
+import { buildSdkWorkerArgs, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
+import { FakeLocalAgentService } from "./helpers/fake-service.js";
 
 test("summarizeSdkWorker aggregates tick outcomes", () => {
   const summary = summarizeSdkWorker({
@@ -107,4 +108,20 @@ test("writeSdkCheckpoint persists worker state to disk", () => {
   assert.equal(saved.cwd, "/repo");
   assert.equal(saved.ticks.length, 1);
   assert.equal(saved.stoppedBecause, "duration");
+});
+
+test("runSdkWorkerTick tags SDK runs with fleet agent name", async () => {
+  const service = new FakeLocalAgentService();
+  const first = await runSdkWorkerTick(service, { cwd: "/repo" }, 1, "work");
+  assert.equal(service.lastRunParams?.name, SDK_FLEET_AGENT_NAME);
+  assert.equal(first.agentId, "agent-test-1");
+
+  const followUp = await runSdkWorkerTick(
+    service,
+    { cwd: "/repo", agentId: "agent-test-1" },
+    2,
+    "continue",
+  );
+  assert.equal(service.lastFollowUpParams?.name, SDK_FLEET_AGENT_NAME);
+  assert.equal(followUp.agentId, "agent-test-1");
 });
