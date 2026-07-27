@@ -32,6 +32,12 @@ import { runMission } from "./mission.js";
 import { orchestrateLoop } from "./orchestrate-loop.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import {
+  defaultCheckpointPath,
+  readCheckpoint,
+  runLongSession,
+  spawnLongSession,
+} from "./long-session.js";
+import {
   resolveSentimentSessionIndex,
   runSentimentAnalysis,
 } from "./sentiment-analysis.js";
@@ -46,7 +52,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.4.0",
+  version: "0.5.0",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -739,7 +745,7 @@ export function createServer(
     {
       title: "Consciousness pulse scan",
       description:
-        "Live orchestration scan: active chats, frustration fossils, and recommended WATCH/INTERCEPT/CONTINUE/SPAWN actions using local composer state.",
+        "Live orchestration scan: active chats, frustration signals, and recommended WATCH/INTERCEPT/CONTINUE/SPAWN actions. Meta/strategy discussion is damped to avoid false intercepts.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional(),
         workspace: z.string().min(1).optional(),
@@ -813,6 +819,50 @@ export function createServer(
     async (params, extra) => {
       try {
         return jsonResult(await runRelentlessLoop(service, params, runHooksFrom(extra)));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_long_session",
+    {
+      title: "Long-running IDE session",
+      description:
+        "Keep an IDE chat working autonomously for a wall-clock duration: wait for idle, send follow-up, repeat. Use spawn=true (default) to detach a background process with checkpoint + log files. Use spawn=false only for short experiments (MCP may timeout).",
+      inputSchema: {
+        cwd: z.string().min(1),
+        sessionIndex: z.number().int().min(1).optional(),
+        sessionId: z.string().uuid().optional(),
+        durationMs: z.number().int().min(60_000).max(86_400_000).optional(),
+        maxTicks: z.number().int().min(1).max(5000).optional(),
+        tickIntervalMs: z.number().int().min(1000).max(600_000).optional(),
+        waitTimeoutMs: z.number().int().min(60_000).max(86_400_000).optional(),
+        pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
+        idleStableMs: z.number().int().min(500).max(120_000).optional(),
+        prompt: z.string().min(1).optional(),
+        checkpointPath: z.string().min(1).optional(),
+        spawn: z.boolean().optional(),
+        readCheckpoint: z.boolean().optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        if (params.readCheckpoint) {
+          const path =
+            params.checkpointPath ??
+            defaultCheckpointPath(params.sessionId, params.sessionIndex);
+          return jsonResult(readCheckpoint(path));
+        }
+        if (params.spawn ?? true) {
+          if (params.sessionIndex == null && !params.sessionId) {
+            return errorResult("Provide sessionIndex or sessionId.");
+          }
+          return jsonResult(spawnLongSession(params));
+        }
+        return jsonResult(await runLongSession(params));
       } catch (error) {
         return errorResult(error);
       }

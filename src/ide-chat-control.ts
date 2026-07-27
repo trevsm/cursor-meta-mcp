@@ -41,12 +41,22 @@ async function requireCliLogin(): Promise<void> {
   }
 }
 
-function resolveSessionId(params: { sessionId?: string; sessionIndex?: number }): {
+function resolveSessionId(
+  params: { sessionId?: string; sessionIndex?: number },
+  opts: { allowMissingActivity?: boolean } = {},
+): {
   sessionId: string;
   activity?: ChatActivity;
 } {
   if (params.sessionId) {
-    return { sessionId: params.sessionId, activity: getChatActivity(params.sessionId) };
+    try {
+      return { sessionId: params.sessionId, activity: getChatActivity(params.sessionId) };
+    } catch (error) {
+      if (opts.allowMissingActivity) {
+        return { sessionId: params.sessionId };
+      }
+      throw error;
+    }
   }
   if (params.sessionIndex != null) {
     const activity = getChatActivityByIndex(params.sessionIndex);
@@ -57,7 +67,7 @@ function resolveSessionId(params: { sessionId?: string; sessionIndex?: number })
 
 export async function sendToIdeChat(params: SendToIdeChatParams): Promise<IdeChatActionResult> {
   await requireCliLogin();
-  const { sessionId, activity } = resolveSessionId(params);
+  const { sessionId, activity } = resolveSessionId(params, { allowMissingActivity: true });
   const cwd = params.cwd ?? activity?.workspace;
   if (!cwd || cwd === "unknown") {
     throw new Error("cwd or workspace is required when the chat workspace is unknown.");

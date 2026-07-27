@@ -109,6 +109,17 @@ test("parseJudgeVerdict approves high score", () => {
   assert.equal(verdict.approved, true);
 });
 
+test("parseJudgeVerdict rejects missing nextPrompt when not approved", () => {
+  assert.throws(
+    () => parseJudgeVerdict('{"approved":false,"score":40,"issues":["gap"],"nextPrompt":""}', 85),
+    /nextPrompt/,
+  );
+});
+
+test("parseJudgeVerdict throws on missing JSON", () => {
+  assert.throws(() => parseJudgeVerdict("no json here"), /missing JSON/);
+});
+
 test("runRelentlessLoop stops after approval", async () => {
   const service = new RelentlessFakeService(
     ["first attempt"],

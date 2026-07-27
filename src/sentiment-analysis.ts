@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 
 import { getSessionIndexForId, listChatSummaries } from "./history-store.js";
+import { isMetaDiscussion } from "./meta-discussion.js";
 
 export interface SentimentScores {
   valence: number;
@@ -199,7 +200,11 @@ export function analyzeUserMessage(
     satisfaction = Math.max(satisfaction, 0.5);
   }
   if (/^nevermind on/i.test(trimmed)) frustration = Math.min(frustration, 0.2);
-  if (/\b(keep chugging|keep going|carry on)\b/i.test(trimmed) && !/\b(broken|wrong|not working)\b/i.test(trimmed)) {
+  if (isMetaDiscussion(trimmed)) {
+    frustration = Math.min(frustration, 0.12);
+    confusion = Math.max(confusion, 0.35);
+  }
+  if (/\b(keep chugging|keep going|carry on|dont stop|don't stop)\b/i.test(trimmed) && !/\b(broken|wrong|not working)\b/i.test(trimmed)) {
     frustration = Math.min(frustration, 0.1);
   }
   if (/\beverytime i was frustrated\b|\bsentiment analysis\b/i.test(trimmed)) {

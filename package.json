@@ -1,6 +1,6 @@
 {
   "name": "cursor-meta-mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Local-only MCP server: browse Cursor chat history, steer IDE chats, and spawn/intercept local SDK agents",
   "type": "module",
   "bin": {
@@ -21,7 +21,9 @@
     "sentiment": "node scripts/sentiment-analysis.mjs",
     "sentiment:classify": "node scripts/sentiment-classify.mjs",
     "relentless": "node scripts/relentless-loop.mjs",
-    "pulse": "node scripts/consciousness-pulse.mjs"
+    "pulse": "node scripts/consciousness-pulse.mjs",
+    "long-session": "node scripts/long-session.mjs",
+    "experiments": "node scripts/launch-experiments.mjs"
   },
   "keywords": [
     "mcp",

@@ -4,6 +4,9 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 
 import { getSessionIndexForId } from "./history-store.js";
+import { isMetaDiscussion, isOrchestrationExempt } from "./meta-discussion.js";
+
+export { isMetaDiscussion } from "./meta-discussion.js";
 
 export type OrchestrationAction = "WATCH" | "INTERCEPT" | "CONTINUE" | "SPAWN_SPECIALIST";
 
@@ -33,6 +36,7 @@ export interface PulseSessionEntry {
   signals: string[];
   frustrationRisk: FrustrationRisk;
   lastBubble?: string;
+  orchestrationExempt?: boolean;
 }
 
 export interface PulseParallelWorkspace {
@@ -56,9 +60,11 @@ export interface ConsciousnessPulseReport {
 }
 
 const FRUSTRATION_AFTER_DONE =
-  /\b(still not working|still broken|doesn't work|bad\. no\.|^still\.?$|maybe we just can)\b/i;
+  /\b(still not working|still broken|doesn't work|bad\. no\.|maybe we just can)\b/i;
 const AGENT_CLAIMED_DONE =
   /\b(fixed|done|complete|deployed|should work|ready|resolved|success)\b/i;
+const PUSHBACK_AFTER_DONE =
+  /\b(still not working|still broken|still wrong|still getting|didn't work|not working|not right|that's wrong|this is wrong)\b/i;
 
 function globalDbFile(): string {
   const override = process.env.CURSOR_META_STATE_DB;
@@ -80,22 +86,28 @@ export function activitySignalsFromComposer(
   return signals;
 }
 
+
 export function frustrationRiskFromBubbles(bubbles: PulseBubble[]): FrustrationRisk {
   const lastUser = [...bubbles].reverse().find((bubble) => bubble.type === "user");
   const lastAsst = [...bubbles].reverse().find((bubble) => bubble.type === "assistant");
   if (!lastUser) return { score: 0, reason: null };
 
-  if (FRUSTRATION_AFTER_DONE.test(lastUser.text)) {
+  const userText = lastUser.text.trim();
+  if (isMetaDiscussion(userText)) {
+    return { score: 0, reason: null };
+  }
+
+  if (FRUSTRATION_AFTER_DONE.test(userText)) {
     return { score: 0.95, reason: "post_failure_rejection" };
   }
   if (
     lastAsst &&
-    AGENT_CLAIMED_DONE.test(lastAsst.text) &&
-    /\b(still|but|wrong|not)\b/i.test(lastUser.text)
+    AGENT_CLAIMED_DONE.test(lastAsst.text.slice(-500)) &&
+    PUSHBACK_AFTER_DONE.test(userText)
   ) {
     return { score: 0.85, reason: "false_completion_response" };
   }
-  if (/^still\.?$/i.test(lastUser.text.trim())) {
+  if (/^still\.?$/i.test(userText)) {
     return { score: 0.92, reason: "terse_still" };
   }
 
@@ -119,7 +131,7 @@ export function orchestrationPlays(
     });
   }
 
-  if (risk.score >= 0.8) {
+  if (risk.score >= 0.8 && risk.reason !== null) {
     plays.push({
       action: "INTERCEPT",
       tool: "meta_intercept_chat",
@@ -130,6 +142,10 @@ export function orchestrationPlays(
   }
 
   if (signals.length === 0 && risk.score < 0.3) {
+    const lastUser = [...bubbles].reverse().find((bubble) => bubble.type === "user");
+    if (isOrchestrationExempt(lastUser?.text ?? "", title)) {
+      return plays;
+    }
     const lastAsst = [...bubbles].reverse().find((bubble) => bubble.type === "assistant");
     if (lastAsst?.text.includes("Want me to") || lastAsst?.text.includes("Next step")) {
       plays.push({
@@ -141,13 +157,17 @@ export function orchestrationPlays(
     }
   }
 
-  if (workspace.includes("faciliq") && signals.length > 0) {
+  if (workspace.includes("faciliq") && signals.length > 0 && !isOrchestrationExempt("", title)) {
     plays.push({
       action: "SPAWN_SPECIALIST",
       tool: "meta_spawn_local_agent",
       why: "Parallel headless verifier while IDE chat runs — cross-check without blocking UI",
       prompt: `Verify the changes in "${title}" independently. Run tests, read diffs, report blockers only.`,
     });
+  }
+
+  if (isOrchestrationExempt("", title)) {
+    return plays.filter((play) => play.action === "WATCH");
   }
 
   return plays;
@@ -233,6 +253,7 @@ export function runConsciousnessPulse(params: ConsciousnessPulseParams = {}): Co
       const bubbles = parseRecentBubbles(bubbleRows);
       const signals = activitySignalsFromComposer(composer, bubbles);
       const risk = frustrationRiskFromBubbles(bubbles);
+      const lastUser = [...bubbles].reverse().find((bubble) => bubble.type === "user");
 
       const entry: PulseSessionEntry = {
         sessionId: row.composerId,
@@ -242,6 +263,7 @@ export function runConsciousnessPulse(params: ConsciousnessPulseParams = {}): Co
         signals,
         frustrationRisk: risk,
         lastBubble: bubbles.at(-1)?.text?.slice(0, 120),
+        orchestrationExempt: isOrchestrationExempt(lastUser?.text ?? "", title),
       };
 
       if (signals.length > 0) pulse.live.push(entry);

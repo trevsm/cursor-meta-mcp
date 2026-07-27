@@ -36,6 +36,24 @@ test("analyzeUserMessage flags terse still after claimed done", () => {
   assert.equal(scores.label, "frustrated");
 });
 
+test("analyzeUserMessage dampens meta discussion after claimed done", () => {
+  const scores = analyzeUserMessage("this is still low level though?", {
+    afterClaimedDone: true,
+    userMsgIndex: 4,
+    raw: "this is still low level though?",
+  });
+  assert.ok(scores.frustration < 0.3);
+});
+
+test("analyzeUserMessage dampens keep going directives", () => {
+  const scores = analyzeUserMessage("keep going, dont stop", {
+    afterClaimedDone: false,
+    userMsgIndex: 2,
+    raw: "keep going, dont stop",
+  });
+  assert.ok(scores.frustration <= 0.1);
+});
+
 test("analyzeUserMessage downgrades directive frustration", () => {
   const scores = analyzeUserMessage(
     "Implement the sentiment MCP tool with tests and update the README documentation for the new endpoint.",

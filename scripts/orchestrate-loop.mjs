@@ -28,6 +28,9 @@ const params = {
   maxActions: argValue("--max-actions") ? Number(argValue("--max-actions")) : undefined,
   maxCycles: argValue("--max-cycles") ? Number(argValue("--max-cycles")) : 3,
   intervalMs: argValue("--interval-ms") ? Number(argValue("--interval-ms")) : 15_000,
+  stopWhenIdle: !flag("--keep-running"),
+  allowContinue: flag("--allow-continue") || undefined,
+  allowWatch: flag("--allow-watch") || undefined,
   excludeSessionIndexes: excludeRaw ? [Number(excludeRaw)] : undefined,
 };
 

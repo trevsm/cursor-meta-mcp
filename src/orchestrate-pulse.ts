@@ -192,8 +192,9 @@ export function filterOrchestrationMatrix(
 export async function orchestratePulse(
   params: OrchestratePulseParams = {},
   service?: LocalAgentService,
+  runPulse: (params: ConsciousnessPulseParams) => ConsciousnessPulseReport = runConsciousnessPulse,
 ): Promise<OrchestratePulseResult> {
-  const pulse = runConsciousnessPulse(params);
+  const pulse = runPulse(params);
   const matrix = filterOrchestrationMatrix(pulse.orchestrationMatrix, params);
   const filteredPulse = {
     ...pulse,

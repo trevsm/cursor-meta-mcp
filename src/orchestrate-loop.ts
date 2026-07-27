@@ -35,6 +35,10 @@ function sleep(ms: number): Promise<void> {
 export async function orchestrateLoop(
   params: OrchestrateLoopParams = {},
   service?: LocalAgentService,
+  runOrchestrate: (
+    params: OrchestratePulseParams,
+    service?: LocalAgentService,
+  ) => Promise<OrchestratePulseResult> = orchestratePulse,
 ): Promise<OrchestrateLoopResult> {
   const maxCycles = params.maxCycles ?? 8;
   const intervalMs = params.intervalMs ?? 45_000;
@@ -42,7 +46,7 @@ export async function orchestrateLoop(
   const history: OrchestrateLoopCycle[] = [];
 
   for (let cycle = 1; cycle <= maxCycles; cycle += 1) {
-    const result = await orchestratePulse(params, service);
+    const result = await runOrchestrate(params, service);
     const matrixCount = result.pulse.orchestrationMatrix.length;
     const executedCount = result.executed.length;
     const errorCount = result.executed.filter((action) => action.error).length;

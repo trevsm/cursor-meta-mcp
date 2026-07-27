@@ -151,6 +151,51 @@ test("executeOrchestrationPlay errors when spawn requested without SDK service",
   assert.match(result.error ?? "", /requires SDK agent service/);
 });
 
+test("executeOrchestrationPlay runs spawn with SDK service", async () => {
+  watchIdeChat.mock.resetCalls();
+  interceptIdeChat.mock.resetCalls();
+
+  const fakeService = {
+    runLocalAgent: mock.fn(async () => ({ agentId: "verifier", runId: "r1", status: "finished" })),
+  };
+
+  const result = await executeOrchestrationPlay(
+    entry,
+    {
+      action: "SPAWN_SPECIALIST",
+      tool: "meta_spawn_local_agent",
+      why: "verify",
+      prompt: "Check tests.",
+    },
+    { dryRun: false, allowSpawn: true },
+    fakeService as never,
+  );
+  assert.equal(result.action, "SPAWN_SPECIALIST");
+  assert.equal(fakeService.runLocalAgent.mock.callCount(), 1);
+});
+
+test("executeOrchestrationPlay errors when intercept play has no prompt", async () => {
+  const result = await executeOrchestrationPlay(
+    entry,
+    { action: "INTERCEPT", tool: "meta_intercept_chat", why: "frustration" },
+    { dryRun: false },
+  );
+  assert.match(result.error ?? "", /missing prompt/);
+});
+
+test("executeOrchestrationPlay surfaces tool errors", async () => {
+  interceptIdeChat.mock.mockImplementationOnce(async () => {
+    throw new Error("IDE unavailable");
+  });
+
+  const result = await executeOrchestrationPlay(
+    entry,
+    entry.plays[1] as OrchestrationPlay,
+    { dryRun: false },
+  );
+  assert.equal(result.error, "IDE unavailable");
+});
+
 test("executeOrchestrationPlay runs watch when not dry-run", async () => {
   watchIdeChat.mock.resetCalls();
 

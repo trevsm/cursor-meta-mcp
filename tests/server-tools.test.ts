@@ -32,6 +32,7 @@ test("registers all meta_* tools", async () => {
       "meta_list_agent_runs",
       "meta_list_chats",
       "meta_list_local_agents",
+      "meta_long_session",
       "meta_mission",
       "meta_orchestrate_loop",
       "meta_orchestrate_pulse",
