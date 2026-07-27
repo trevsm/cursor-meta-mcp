@@ -19,9 +19,9 @@ const DONE_CLAIM =
 const TESTS_PASS_CLAIM =
   /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout (?:claiming )?)(?<!\bdo not say )(?<!\bthat )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\bensure )(?<!\bmake )(?<!\bneed )(?<!\bhelp )\b(?:all tests pass(?:ed)?(?!\s+in\b)|(?<!\ball )tests pass(?:ed)?(?!\s+in\b)|npm (?:run )?test(?::fast)? pass(?:ed)?|test suite pass(?:es|ed)?|tests are passing(?!\s+in\b))\b/i;
 const COMMIT_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )\bcommitted\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )(?<!\bwas )(?<!\bhave )\bcommitted(?!\s+(?:earlier|locally|already|yesterday)\b)\b/i;
 const PUSH_CLAIM =
-  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )\b(pushed to origin|pushed)\b/i;
+  /(?<!\bnot )(?<!\bno )(?<!\bhaven'?t )(?<!\bdidn'?t )(?<!\bnever claim )(?<!\bwithout )(?<!\bdo not say )(?<!\bonce )(?<!\bwhen )(?<!\bif )(?<!\bafter )(?<!\buntil )(?<!\bbefore )(?<!\balready )(?<!\bpreviously )\b(?:pushed to origin|pushed(?!\s+earlier\b))\b/i;
 
 /** Extract completion claims from the assistant tail of a tick. */
 export function detectCompletionClaims(text: string | undefined): CompletionClaims {
