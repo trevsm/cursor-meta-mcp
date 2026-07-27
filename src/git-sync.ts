@@ -15,6 +15,7 @@ export interface GitSyncStatus {
 export function isIgnorableWorkingTreePath(path: string): boolean {
   const normalized = path.replace(/^"|"$/g, "").trim();
   const parts = normalized.split(/[\\/]/).filter(Boolean);
+  // Match `.tmp` / `.tmp-*` only (not unrelated `.tmpdir`-style names).
   if (parts.some((part) => part === ".tmp" || part.startsWith(".tmp-"))) return true;
   if (parts.some((part) => part === ".env" || part.startsWith(".env.") || part === "credentials.json")) {
     return true;
