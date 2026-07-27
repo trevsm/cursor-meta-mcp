@@ -27,6 +27,7 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_export_chat` | Export a session as markdown or json |
 | `meta_list_active_chats` | List recently active or in-flight IDE chats |
 | `meta_get_chat_activity` | Inspect activity signals for one IDE chat |
+| `meta_watch_chat` | Poll until idle, optionally send follow-up |
 | `meta_send_to_chat` | Send a message to an IDE chat (`agent --resume`) |
 | `meta_abort_chat` | Best-effort stop for in-flight IDE generation |
 | `meta_intercept_chat` | Abort + send a steering message to an IDE chat |
@@ -111,6 +112,8 @@ Spawn a local agent in ~/Projects/my-app to summarize the README
 Continue from chat #8 and finish the remaining todos
 
 List active IDE chats and intercept chat #1 with "stop exploring, implement the MCP changes now"
+
+Watch chat #3 until idle, then send "continue with the next step"
 
 Cancel SDK run run-abc and steer agent agent-xyz to fix tests only
 

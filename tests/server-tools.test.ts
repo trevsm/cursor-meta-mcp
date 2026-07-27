@@ -37,6 +37,7 @@ test("registers all meta_* tools", async () => {
       "meta_sentiment_analysis",
       "meta_show_chat",
       "meta_spawn_local_agent",
+      "meta_watch_chat",
       "meta_whoami",
     ]);
   });
@@ -257,6 +258,12 @@ test("meta_list_active_runs and meta_list_agent_runs delegate to service", async
 
 test("meta_get_chat_activity validates session selector", async () => {
   const missing = await callMetaTool(new FakeLocalAgentService(), "meta_get_chat_activity", {});
+  assert.equal(missing.isError, true);
+  assert.match(textResult(missing), /Provide sessionIndex or sessionId/);
+});
+
+test("meta_watch_chat validates session selector", async () => {
+  const missing = await callMetaTool(new FakeLocalAgentService(), "meta_watch_chat", {});
   assert.equal(missing.isError, true);
   assert.match(textResult(missing), /Provide sessionIndex or sessionId/);
 });

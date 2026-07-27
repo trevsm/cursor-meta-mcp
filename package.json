@@ -1,6 +1,6 @@
 {
   "name": "cursor-meta-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local-only MCP server: browse Cursor chat history, steer IDE chats, and spawn/intercept local SDK agents",
   "type": "module",
   "bin": {

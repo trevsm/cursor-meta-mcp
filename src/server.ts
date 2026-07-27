@@ -31,6 +31,7 @@ import {
   resolveSentimentSessionIndex,
   runSentimentAnalysis,
 } from "./sentiment-analysis.js";
+import { watchIdeChat } from "./watch-chat.js";
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
@@ -41,7 +42,7 @@ export interface ServerInfo {
 
 const DEFAULT_SERVER_INFO: ServerInfo = {
   name: "cursor-meta-mcp",
-  version: "0.3.0",
+  version: "0.3.1",
 };
 
 function runHooksFrom(extra: ToolExtra): RunHooks {
@@ -446,6 +447,38 @@ export function createServer(
         return jsonResult(getIdeChatActivity({ sessionIndex, sessionId }));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_watch_chat",
+    {
+      title: "Watch IDE chat until idle",
+      description:
+        "Poll chat activity until the IDE session is idle, then optionally send a follow-up prompt. Replaces manual watcher loops.",
+      inputSchema: {
+        ...sessionSelectorSchema,
+        followUpPrompt: z.string().min(1).optional(),
+        cwd: z.string().min(1).optional(),
+        workspace: z.string().min(1).optional(),
+        model: z.string().optional(),
+        mode: modeSchema,
+        pollIntervalMs: z.number().int().min(500).max(60_000).optional(),
+        idleStableMs: z.number().int().min(500).max(120_000).optional(),
+        timeoutMs: z.number().int().min(5000).max(3_600_000).optional(),
+        sendIfAlreadyIdle: z.boolean().optional(),
+      },
+      annotations: { destructiveHint: true, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        if (!params.sessionIndex && !params.sessionId) {
+          return errorResult(new Error("Provide sessionIndex or sessionId."));
+        }
+        return jsonResult(await watchIdeChat(params));
+      } catch (error) {
+        return errorResult(error);
       }
     },
   );
