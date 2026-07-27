@@ -275,3 +275,36 @@ test("buildFleetOverview uses tick summary lines as active headlines", () => {
   assert.equal(overview.headline, "Tick 11 — hardened sdk-worker auth preflight");
   assert.match(overview.paragraph, /The fleet worker is up and healthy/i);
 });
+
+test("buildFleetOverview humanShippedTick omits test count when only pass flag set", () => {
+  const overview = buildFleetOverview({
+    fleetHealth: healthyFleet,
+    manifest: null,
+    strategyStatus: null,
+    workerActivity: [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        alive: true,
+        role: "Ships verified diffs",
+        status: "idle",
+        statusText: "Tick 3 complete",
+        ticksCompleted: 3,
+        recentTicks: [
+          {
+            tick: 3,
+            producedWork: true,
+            commits: 1,
+            filesChanged: 2,
+            testsPassed: true,
+            workSummary: "Ground-truth heuristic tightening",
+          },
+        ],
+        liveEvents: [],
+      },
+    ],
+    productivity: null,
+  });
+
+  assert.match(overview.paragraph, /Latest work: Tick 3 shipped 1 commit, 2 files changed, tests passed/);
+});
