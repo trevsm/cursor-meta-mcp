@@ -17,6 +17,7 @@ Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for
 | **Consciousness pulse** | Live scan for active chats, frustration risk, orchestration plays |
 | **Auto-orchestrate** | Execute pulse WATCH/CONTINUE/INTERCEPT/SPAWN recommendations |
 | **Mission** | One-call goal + success criteria → relentless loop until done |
+| **Long session** | Keep an IDE chat working for a wall-clock duration with checkpoints |
 
 All history reads stay on disk. Model calls still go through Cursor's API (local runtime, not Cursor cloud VMs).
 
@@ -50,6 +51,7 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_orchestrate_pulse` | Run pulse scan and auto-execute allowed orchestration plays |
 | `meta_orchestrate_loop` | Repeat orchestrate pulse until idle or maxCycles |
 | `meta_mission` | Goal + success criteria → worker/critic loop until approved |
+| `meta_long_session` | Keep an IDE chat working for a duration (spawn + checkpoint by default) |
 | `meta_whoami` | Verify auth (API key or CLI login) |
 
 ## Requirements

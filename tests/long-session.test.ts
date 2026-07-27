@@ -26,6 +26,7 @@ mock.module("../src/watch-chat.js", {
 
 const {
   DEFAULT_LONG_SESSION_PROMPT,
+  countsTowardConsecutiveErrors,
   readCheckpoint,
   runLongSession,
   runLongSessionTick,
@@ -140,19 +141,61 @@ test("summarizeLongSession aggregates tick stats", () => {
     durationMs: 600_000,
     maxTicks: 10,
     prompt: "go",
+    checkpointPath: "/tmp/custom-checkpoint.json",
     ticks: [
       { tick: 1, at: "t", watchedMs: 100, wasAlreadyIdle: true },
       { tick: 2, at: "t", watchedMs: 300, wasAlreadyIdle: false },
       { tick: 3, at: "t", watchedMs: 50, wasAlreadyIdle: false, skipped: "busy", error: "chat_busy" },
-      { tick: 4, at: "t", watchedMs: 50, wasAlreadyIdle: true, skipped: "timeout", error: "Timed out waiting for chat" },
+      {
+        tick: 4,
+        at: "t",
+        watchedMs: 50,
+        wasAlreadyIdle: true,
+        skipped: "timeout",
+        error: "Timed out waiting for chat",
+      },
     ],
-  }, "/tmp/custom-checkpoint.json");
+  });
   assert.equal(summary.ticks, 4);
   assert.equal(summary.avgWatchMs, 125);
   assert.equal(summary.errors, 0);
   assert.equal(summary.busySkips, 1);
   assert.equal(summary.timeouts, 1);
   assert.equal(summary.checkpointPath, "/tmp/custom-checkpoint.json");
+});
+
+test("countsTowardConsecutiveErrors ignores busy skips", () => {
+  assert.equal(
+    countsTowardConsecutiveErrors({
+      tick: 1,
+      at: "t",
+      watchedMs: 1,
+      wasAlreadyIdle: false,
+      skipped: "busy",
+      error: "chat_busy",
+    }),
+    false,
+  );
+  assert.equal(
+    countsTowardConsecutiveErrors({
+      tick: 2,
+      at: "t",
+      watchedMs: 1,
+      wasAlreadyIdle: true,
+      skipped: "timeout",
+      error: "Timed out waiting for chat",
+    }),
+    true,
+  );
+  assert.equal(
+    countsTowardConsecutiveErrors({
+      tick: 3,
+      at: "t",
+      watchedMs: 1,
+      wasAlreadyIdle: true,
+    }),
+    false,
+  );
 });
 
 test("buildLongSessionArgs maps params to CLI flags", async () => {
