@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSdkWorkerArgs, defaultSdkCheckpointPath, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
+import { buildSdkWorkerArgs, defaultSdkCheckpointPath, runSdkWorker, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
 import { FakeLocalAgentService } from "./helpers/fake-service.js";
 
 test("summarizeSdkWorker aggregates tick outcomes", () => {
@@ -169,4 +169,36 @@ test("runSdkWorkerTick tags initial runLocalAgent with fleet agent name", async 
   assert.equal(service.lastRunParams?.name, SDK_FLEET_AGENT_NAME);
   assert.match(entry.error ?? "", /No auth available/);
   assert.equal(entry.agentId, undefined);
+});
+
+test("runSdkWorker stops after eight consecutive transport errors", async () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "sdk-worker-consec-"));
+  const checkpointPath = join(metaDir, "worker.json");
+  const service = new FakeLocalAgentService();
+  service.runError = new Error("Connection lost");
+  service.followUpError = new Error("Connection lost");
+
+  const prevKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = "test-key";
+  try {
+    const result = await runSdkWorker({
+      cwd: process.cwd(),
+      metaDir,
+      checkpointPath,
+      service,
+      tickIntervalMs: 0,
+      durationMs: 60_000,
+      maxTicks: 20,
+      verifyTests: () => undefined,
+    });
+
+    assert.equal(result.stoppedBecause, "consecutive_errors");
+    assert.equal(result.ticks.length, 8);
+    assert.ok(result.ticks.every((tick) => /Connection lost/.test(tick.error ?? "")));
+    const saved = JSON.parse(readFileSync(checkpointPath, "utf8")) as { stoppedBecause?: string };
+    assert.equal(saved.stoppedBecause, "consecutive_errors");
+  } finally {
+    if (prevKey === undefined) delete process.env.CURSOR_API_KEY;
+    else process.env.CURSOR_API_KEY = prevKey;
+  }
 });
