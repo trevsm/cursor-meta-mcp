@@ -6,11 +6,46 @@ import { test } from "node:test";
 
 import {
   analyzeWorkerCheckpoint,
+  attemptedTickCount,
   isWorkerStalled,
   meetsProductiveTickGate,
   PRODUCTIVE_TICK_GATE,
   relaunchBlockedReason,
 } from "../src/fleet-metrics.js";
+
+test("attemptedTickCount derives from ticks minus soft skips when field absent", () => {
+  assert.equal(
+    attemptedTickCount({
+      ticks: 7,
+      productiveTicks: 2,
+      productiveRatio: 1,
+      commits: 2,
+      filesChanged: 2,
+      errors: 0,
+      softSkips: 5,
+      testFailures: 0,
+      lastCommitted: true,
+      lastPushed: false,
+    }),
+    2,
+  );
+  assert.equal(
+    attemptedTickCount({
+      ticks: 4,
+      attemptedTicks: 3,
+      productiveTicks: 1,
+      productiveRatio: 1 / 3,
+      commits: 1,
+      filesChanged: 1,
+      errors: 0,
+      softSkips: 1,
+      testFailures: 0,
+      lastCommitted: true,
+      lastPushed: false,
+    }),
+    3,
+  );
+});
 
 test("analyzeWorkerCheckpoint computes productive ratio", () => {
   const dir = mkdtempSync(join(tmpdir(), "fleet-metrics-"));
