@@ -172,6 +172,32 @@ test("buildWorkerActivity maps assistant and status live event kinds", () => {
   assert.ok(kinds.includes("status"));
 });
 
+test("buildWorkerActivity maps unknown live event types to other", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-other-kind-"));
+  const agentId = "agent-other-kind";
+  appendRunEvent(
+    "run-system",
+    { type: "system", message: "Agent initialized (model gpt-5)." },
+    { metaDir, agentId, label: "self-improve-fleet" },
+  );
+
+  const rows = buildWorkerActivity(
+    [
+      {
+        name: "sdk-worker-1",
+        displayName: "Self-improve worker #1",
+        pid: 1,
+        alive: true,
+        agentId,
+        checkpoint: { exists: true, ticks: 1, lastTick: { tick: 1 } },
+      },
+    ],
+    { metaDir },
+  );
+
+  assert.equal(rows[0]?.liveEvents[0]?.kind, "other");
+});
+
 test("buildWorkerActivity ignores live events from other agent ids", () => {
   const metaDir = mkdtempSync(join(tmpdir(), "dash-activity-other-"));
   appendRunEvent(
