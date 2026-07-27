@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,8 @@ import { test } from "node:test";
 
 import {
   collectFleetPids,
+  killExperimentByName,
+  killExperimentsByName,
   readDedicatedWorker,
   stopFleetProcesses,
   stopKnownFleetProcesses,
@@ -88,4 +91,39 @@ test("stopFleetProcesses finds manifest under experiments-style metaDir", () => 
   const result = stopFleetProcesses(meta);
   assert.ok(result.manifest);
   assert.deepEqual(result.killed, []);
+});
+
+test("killExperimentByName and killExperimentsByName handle missing and dead pids", () => {
+  const manifest: FleetManifest = {
+    at: new Date().toISOString(),
+    experiments: [
+      { name: "sdk-worker-a", pid: 99_999_997 },
+      { name: "sdk-worker-b" },
+    ],
+  };
+  assert.equal(killExperimentByName(manifest, "missing").killed, false);
+  assert.equal(killExperimentByName(manifest, "sdk-worker-b").killed, false);
+  assert.deepEqual(killExperimentsByName(manifest, ["sdk-worker-a", "missing"]), []);
+});
+
+test("killExperimentsByName SIGTERMs live experiment pids", () => {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: "ignore",
+    detached: true,
+  });
+  child.unref();
+  assert.ok(child.pid);
+  const manifest: FleetManifest = {
+    at: new Date().toISOString(),
+    experiments: [{ name: "sdk-worker-live", pid: child.pid }],
+  };
+  try {
+    assert.deepEqual(killExperimentsByName(manifest, ["sdk-worker-live"]), [child.pid]);
+  } finally {
+    try {
+      process.kill(child.pid, "SIGKILL");
+    } catch {
+      /* already dead */
+    }
+  }
 });

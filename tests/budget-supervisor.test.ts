@@ -16,6 +16,17 @@ function tempMetaDir(): string {
   return mkdtempSync(join(tmpdir(), "budget-supervisor-"));
 }
 
+test("countActiveWorkers includes sdk-worker experiments", () => {
+  const manifest: FleetManifest = {
+    at: new Date().toISOString(),
+    experiments: [
+      { name: "sdk-worker-1", pid: process.pid },
+      { name: "strategy-review-loop", pid: process.pid },
+    ],
+  };
+  assert.equal(countActiveWorkers(manifest), 1);
+});
+
 test("countActiveWorkers ignores supervisors", () => {
   const manifest: FleetManifest = {
     at: new Date().toISOString(),

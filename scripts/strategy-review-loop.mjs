@@ -11,7 +11,7 @@ import { basename, join } from "node:path";
 
 import { CursorLocalService } from "../src/cursor-local.js";
 import { interceptIdeChat } from "../src/ide-chat-control.js";
-import { killExperimentBySessionIndex } from "../src/fleet-control.js";
+import { killExperimentBySessionIndex, killExperimentsByName } from "../src/fleet-control.js";
 import { experimentsDir } from "../src/meta-home.js";
 import { acquireLockWithCleanup } from "../src/process-lock.js";
 import {
@@ -66,7 +66,7 @@ function loadManifest() {
 
 function workerCheckpointsFromManifest(manifest) {
   return (manifest?.experiments ?? [])
-    .filter((exp) => exp.name.startsWith("worker"))
+    .filter((exp) => exp.name.startsWith("worker") || exp.name.startsWith("sdk-worker"))
     .map((exp) => ({
       name: exp.name,
       sessionIndex: exp.sessionIndex,
@@ -126,6 +126,13 @@ async function applyVerdict(verdict, manifest, cwd, excludeSession) {
     }
   }
 
+  if (manifest && verdict.killExperiments?.length) {
+    const killedPids = killExperimentsByName(manifest, verdict.killExperiments);
+    for (const pid of killedPids) {
+      actions.push({ type: "kill_experiment_pid", pid });
+    }
+  }
+
   return actions;
 }
 
@@ -160,6 +167,7 @@ async function reviewOnce(params) {
     pivot: result.verdict.pivot,
     spawn: result.verdict.spawn,
     kill: result.verdict.kill,
+    killExperiments: result.verdict.killExperiments,
     actions,
   };
 

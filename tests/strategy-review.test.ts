@@ -100,6 +100,7 @@ test("parseStrategyVerdict parses full JSON", () => {
   assert.equal(verdict.score, 55);
   assert.equal(verdict.pivot, "Fix tests");
   assert.deepEqual(verdict.kill, [2]);
+  assert.deepEqual(verdict.killExperiments, []);
 });
 
 test("buildStrategyReviewPrompt includes mission and git diff", () => {
@@ -164,6 +165,22 @@ test("heuristicStrategyReview flags workers stopped with consecutive_errors", ()
   assert.ok(verdict.issues.includes("stale_workers"));
   assert.deepEqual(verdict.kill, [42]);
   assert.match(verdict.pivot ?? "", /Relaunch|workers/i);
+});
+
+test("heuristicStrategyReview killExperiments targets stale sdk-workers", () => {
+  const verdict = heuristicStrategyReview(
+    {
+      ...baseContext,
+      gitDiffStat: " src/foo.ts | 4 ++",
+      transcriptTail: "Implemented fix and npm test passes.",
+      workerSummary:
+        "sdk-worker-a #?: ticks=4 productive=0 ratio=0% errors=4 soft=0 stopped=error last=auth",
+    },
+    "Implemented fix and npm test passes.",
+  );
+  assert.ok(verdict.issues.includes("stale_workers"));
+  assert.deepEqual(verdict.killExperiments, ["sdk-worker-a"]);
+  assert.deepEqual(verdict.kill, []);
 });
 
 test("gatherStrategyContext uses default success criteria", () => {

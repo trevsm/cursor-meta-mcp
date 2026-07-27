@@ -463,6 +463,16 @@ export function setPlanUsage(used: number, limit?: number, source: "env" | "manu
   return state;
 }
 
+export function resetFleetBudgetClock(path = budgetStatePath()): BudgetState {
+  const state = loadBudgetState(path);
+  state.fleetStartedAt = undefined;
+  state.relaunchCount = 0;
+  state.budgetBlocked = false;
+  state.blockedReason = undefined;
+  saveBudgetState(state, path);
+  return state;
+}
+
 export function blockBudget(reason: string): BudgetState {
   return recordBudgetEvent({
     at: new Date().toISOString(),

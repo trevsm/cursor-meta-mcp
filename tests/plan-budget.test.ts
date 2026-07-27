@@ -15,6 +15,7 @@ import {
   recordSpawn,
   saveBudgetState,
   setPlanUsage,
+  resetFleetBudgetClock,
 } from "../src/plan-budget.js";
 
 function tempBudgetPath(): string {
@@ -109,5 +110,22 @@ test("run_complete accumulates duration and estimated cents", () => {
   assert.equal(snapshot.local.sdkRuns, 1);
   assert.equal(snapshot.local.sdkDurationMs, 12_000);
   assert.equal(snapshot.local.estimatedCents, 7);
+  rmSync(join(path, ".."), { recursive: true, force: true });
+});
+
+test("resetFleetBudgetClock clears fleet clock and block flags", () => {
+  const path = tempBudgetPath();
+  const state = loadBudgetState(path);
+  state.fleetStartedAt = new Date().toISOString();
+  state.relaunchCount = 3;
+  state.budgetBlocked = true;
+  state.blockedReason = "max duration";
+  saveBudgetState(state, path);
+
+  const reset = resetFleetBudgetClock(path);
+  assert.equal(reset.fleetStartedAt, undefined);
+  assert.equal(reset.relaunchCount, 0);
+  assert.equal(reset.budgetBlocked, false);
+  assert.equal(reset.blockedReason, undefined);
   rmSync(join(path, ".."), { recursive: true, force: true });
 });

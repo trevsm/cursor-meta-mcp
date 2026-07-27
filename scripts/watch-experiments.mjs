@@ -20,10 +20,17 @@ import {
   saveFleetManifest,
   shouldAllowRelaunch,
 } from "../src/budget-supervisor.js";
-import { experimentsDir } from "../src/meta-home.js";
+import {
+  analyzeWorkerCheckpoint,
+  isWorkerStalled,
+  relaunchBlockedReason,
+} from "../src/fleet-metrics.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
+import { envForWorkers, resolveWorkerNodeBin } from "../src/load-env.js";
+import { experimentsDir, metaHome } from "../src/meta-home.js";
 import { recordSpawn } from "../src/plan-budget.js";
 import { acquireLockWithCleanup } from "../src/process-lock.js";
+import { spawnSdkWorker } from "../src/sdk-worker.js";
 
 const META_DIR = experimentsDir();
 const ROOT = process.cwd();
@@ -80,28 +87,6 @@ function loadManifest() {
   return loadFleetManifest(META_DIR);
 }
 
-function summarizeCheckpoint(path) {
-  const state = readJson(path);
-  if (!state) return { exists: false };
-  const ticks = state.ticks ?? [];
-  const last = ticks.at(-1);
-  return {
-    exists: true,
-    ticks: ticks.length,
-    stoppedBecause: state.stoppedBecause ?? null,
-    lastTick: last
-      ? {
-          tick: last.tick,
-          at: last.at,
-          skipped: last.skipped,
-          error: last.error,
-          watchedMs: last.watchedMs,
-          outcome: last.outcome ?? undefined,
-        }
-      : null,
-  };
-}
-
 function pulseWorkers(excludeIndexes = [1]) {
   try {
     const report = runConsciousnessPulse({ limit: 30, workspace: "cursor-meta-mcp" });
@@ -119,13 +104,50 @@ function pulseWorkers(excludeIndexes = [1]) {
   }
 }
 
-function relaunchExperiment(exp) {
+function summarizeCheckpoint(path) {
+  const metrics = analyzeWorkerCheckpoint(path);
+  if (!metrics) return { exists: false };
+  return {
+    exists: true,
+    ticks: metrics.ticks,
+    productiveTicks: metrics.productiveTicks,
+    productiveRatio: metrics.productiveRatio,
+    commits: metrics.commits,
+    errors: metrics.errors,
+    softSkips: metrics.softSkips,
+    stoppedBecause: metrics.stoppedBecause ?? null,
+    lastTickAt: metrics.lastTickAt ?? null,
+    lastError: metrics.lastError ?? null,
+    lastCommitted: metrics.lastCommitted,
+  };
+}
+
+function relaunchSdkWorker(exp, manifest) {
+  const checkpoint = readJson(exp.checkpointPath);
+  const worktree = readJson(join(META_DIR, `${exp.name}.worktree.json`));
+  const spawned = spawnSdkWorker({
+    cwd: worktree?.path ?? manifest?.root ?? ROOT,
+    checkpointPath: exp.checkpointPath,
+    metaDir: metaHome(),
+    prompt: checkpoint?.prompt,
+    durationMs: checkpoint?.durationMs,
+    maxTicks: checkpoint?.maxTicks,
+  });
+  return spawned.pid;
+}
+
+function relaunchExperiment(exp, manifest) {
   appendLog(`[${new Date().toISOString()}] relaunch ${exp.name}`);
   recordSpawn("relaunch_worker", exp.name);
+
+  if (exp.name.startsWith("sdk-worker")) {
+    return relaunchSdkWorker(exp, manifest);
+  }
+
   if (exp.name === "orchestrator-loop") {
     const logPath = exp.logPath ?? join(META_DIR, "orchestrator.log");
     const child = spawn(
-      process.execPath,
+      resolveWorkerNodeBin(),
       [
         "scripts/orchestrate-loop.mjs",
         "--workspace",
@@ -142,7 +164,7 @@ function relaunchExperiment(exp) {
         "--allow-continue",
         "--allow-watch",
       ],
-      { cwd: ROOT, detached: true, stdio: "ignore", env: process.env },
+      { cwd: ROOT, detached: true, stdio: "ignore", env: envForWorkers() },
     );
     child.unref();
     return child.pid ?? -1;
@@ -178,11 +200,12 @@ function relaunchExperiment(exp) {
     "Autonomous worker: improve cursor-meta-mcp, run npm test, no user questions. Keep going.",
   );
 
-  const child = spawn(process.execPath, args, {
+  const nodeBin = resolveWorkerNodeBin();
+  const child = spawn(nodeBin, args, {
     cwd: ROOT,
     detached: true,
     stdio: "ignore",
-    env: process.env,
+    env: envForWorkers(),
   });
   child.unref();
   return child.pid ?? -1;
@@ -219,7 +242,7 @@ async function watchOnce(manifest, relaunch) {
 
     const wtPath = join(META_DIR, `${exp.name}.worktree.json`);
     const worktree = readJson(wtPath);
-    if (worktree && manifest?.root && checkpoint?.lastTick?.outcome?.committed) {
+    if (worktree && manifest?.root && checkpoint?.exists && checkpoint.lastCommitted) {
       try {
         entry.merge = mergeWorkerBranch(manifest.root, worktree);
       } catch (error) {
@@ -233,15 +256,29 @@ async function watchOnce(manifest, relaunch) {
     }
 
     const staleError =
-      checkpoint?.exists && checkpoint.stoppedBecause === "error" && checkpoint.lastTick?.at;
-    const staleMs = staleError ? Date.now() - Date.parse(checkpoint.lastTick.at) : 0;
-    const wantsRelaunch = relaunch && (!alive || (staleError && staleMs > 3 * 60_000));
+      checkpoint?.exists && checkpoint.stoppedBecause === "error" && checkpoint.lastTickAt;
+    const staleMs = staleError ? Date.now() - Date.parse(checkpoint.lastTickAt) : 0;
+    const stalled = isWorkerStalled({
+      pidAlive: alive,
+      checkpointPath: exp.checkpointPath,
+    });
+    const productivityBlock = relaunchBlockedReason(
+      analyzeWorkerCheckpoint(exp.checkpointPath),
+      exp.relaunchCount ?? 0,
+    );
+    const wantsRelaunch =
+      relaunch &&
+      (!alive || (staleError && staleMs > 3 * 60_000) || stalled);
+
+    if (productivityBlock) {
+      entry.productivityGate = productivityBlock;
+    }
 
     if (wantsRelaunch) {
       const gate = shouldAllowRelaunch(manifest, exp);
-      if (!gate.allowed) {
+      if (!gate.allowed || productivityBlock) {
         entry.relaunchBlocked = true;
-        entry.relaunchBlockedReason = gate.reason;
+        entry.relaunchBlockedReason = productivityBlock ?? gate.reason;
         snapshot.experiments.push(entry);
         continue;
       }
@@ -253,7 +290,7 @@ async function watchOnce(manifest, relaunch) {
           /* already dead */
         }
       }
-      const newPid = relaunchExperiment(exp);
+      const newPid = relaunchExperiment(exp, manifest);
       exp.relaunchCount = (exp.relaunchCount ?? 0) + 1;
       entry.relaunched = true;
       entry.newPid = newPid;

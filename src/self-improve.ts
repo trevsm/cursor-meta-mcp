@@ -17,6 +17,7 @@ import {
 } from "./git-sync.js";
 import { spawnLongSession, type LongSessionParams } from "./long-session.js";
 import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
+import { formatGenomeForPrompt, ensureGenome } from "./genome.js";
 import { formatLearningsForPrompt } from "./learnings.js";
 import { spawnSdkWorker, type SdkWorkerParams } from "./sdk-worker.js";
 import { experimentsDir, metaHome } from "./meta-home.js";
@@ -25,6 +26,7 @@ import {
   defaultBudgetLimits,
   recordBudgetEvent,
   recordSpawn,
+  resetFleetBudgetClock,
 } from "./plan-budget.js";
 import { acquireLock, pruneStaleLocks, releaseLock } from "./process-lock.js";
 import {
@@ -115,7 +117,10 @@ function packageRoot(): string {
 /** Enrich worker prompt with live pulse signals so workers avoid duplicate/meta work. */
 export function buildSelfImprovePrompt(cwd: string, base?: string, metaDir?: string): string {
   const lines = [base?.trim() || SELF_IMPROVE_BASE_PROMPT, ""];
-  const lessons = formatLearningsForPrompt(metaDir ?? metaHome());
+  const meta = metaDir ?? metaHome();
+  const genome = formatGenomeForPrompt(meta);
+  if (genome) lines.push(genome);
+  const lessons = formatLearningsForPrompt(meta);
   if (lessons) lines.push(lessons);
   const gitStatus = getGitSyncStatus(cwd);
   lines.push(formatGitSyncStatusForPrompt(gitStatus), "");
@@ -226,6 +231,7 @@ export async function launchSelfImproveFleet(params: SelfImproveParams): Promise
   if (params.stopExisting ?? true) {
     stopFleetProcesses(metaDir);
     pruneStaleLocks(FLEET_LOCK_NAMES, metaDir);
+    resetFleetBudgetClock();
   }
 
   // Serialize launches. Two fleets racing each other spawn untracked duplicate loops.
@@ -433,6 +439,7 @@ async function launchFleetProcesses(
 
   try {
     const worldMeta = metaHome();
+    ensureGenome(worldMeta);
     setNorthStar("Build persistent autonomous intelligence", worldMeta);
     pushGoal(goal, worldMeta);
   } catch {

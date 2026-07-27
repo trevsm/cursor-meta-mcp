@@ -61,6 +61,25 @@ export function killExperimentBySessionIndex(
   return { killed: killPid(exp.pid), pid: exp.pid, name: exp.name };
 }
 
+/** SIGTERM a manifest experiment by name (headless sdk-worker actuation). */
+export function killExperimentByName(
+  manifest: FleetManifest,
+  name: string,
+): { killed: boolean; pid?: number; name?: string } {
+  const exp = manifest.experiments.find((row) => row.name === name);
+  if (!exp?.pid) return { killed: false, name };
+  return { killed: killPid(exp.pid), pid: exp.pid, name: exp.name };
+}
+
+export function killExperimentsByName(manifest: FleetManifest, names: string[]): number[] {
+  const killed: number[] = [];
+  for (const name of names) {
+    const result = killExperimentByName(manifest, name);
+    if (result.killed && result.pid) killed.push(result.pid);
+  }
+  return killed;
+}
+
 export function readDedicatedWorker(metaDir: string): { sessionId?: string; sessionIndex?: number | null } | null {
   const path = join(metaDir, "dedicated-worker.json");
   if (!existsSync(path)) return null;

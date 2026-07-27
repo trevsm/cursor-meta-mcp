@@ -8,6 +8,7 @@ import { getChatById, getChatByIndex } from "./history-store.js";
 import { loadSessionSummary, loadSessionSummaryById } from "./history.js";
 import { isMetaDiscussion, isStrategySessionTitle } from "./meta-discussion.js";
 import { defaultSuccessCriteria } from "./mission.js";
+import { analyzeWorkerCheckpoint } from "./fleet-metrics.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
 import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes } from "./world-model.js";
 
@@ -24,6 +25,8 @@ export interface StrategyVerdict {
   pivot: string | null;
   spawn: StrategySpawnPlan | null;
   kill: number[];
+  /** Headless worker experiment names to SIGTERM (sdk-worker-*). */
+  killExperiments: string[];
 }
 
 export interface StrategyReviewParams {
@@ -112,25 +115,14 @@ function summarizeWorkers(
   if (checkpoints.length === 0) return "(no worker checkpoints)";
   const lines: string[] = [];
   for (const worker of checkpoints) {
-    if (!worker.checkpointPath || !existsSync(worker.checkpointPath)) {
+    const metrics = analyzeWorkerCheckpoint(worker.checkpointPath);
+    if (!metrics) {
       lines.push(`${worker.name} #${worker.sessionIndex ?? "?"}: no checkpoint`);
       continue;
     }
-    try {
-      const state = JSON.parse(readFileSync(worker.checkpointPath, "utf8")) as {
-        ticks?: Array<{ error?: string; skipped?: string }>;
-        stoppedBecause?: string;
-      };
-      const ticks = state.ticks ?? [];
-      const errors = ticks.filter((tick) => tick.error && tick.skipped == null).length;
-      const softSkips = ticks.filter((tick) => tick.skipped != null).length;
-      const last = ticks.at(-1);
-      lines.push(
-        `${worker.name} #${worker.sessionIndex ?? "?"}: ticks=${ticks.length} errors=${errors} soft=${softSkips} stopped=${state.stoppedBecause ?? "running"} last=${last?.skipped ?? last?.error ?? "ok"}`,
-      );
-    } catch {
-      lines.push(`${worker.name}: unreadable checkpoint`);
-    }
+    lines.push(
+      `${worker.name} #${worker.sessionIndex ?? "?"}: ticks=${metrics.ticks} productive=${metrics.productiveTicks} ratio=${(metrics.productiveRatio * 100).toFixed(0)}% errors=${metrics.errors} soft=${metrics.softSkips} stopped=${metrics.stoppedBecause ?? "running"} last=${metrics.lastError ?? "ok"}`,
+    );
   }
   return lines.join("\n");
 }
@@ -244,9 +236,12 @@ export function parseStrategyVerdict(text: string, approvalScore = 70): Strategy
   const kill = Array.isArray(parsed.kill)
     ? parsed.kill.filter((item): item is number => typeof item === "number")
     : [];
+  const killExperiments = Array.isArray(parsed.killExperiments)
+    ? parsed.killExperiments.filter((item): item is string => typeof item === "string")
+    : [];
   const onTrack = parsed.onTrack === true && score >= approvalScore;
 
-  return { onTrack, score, issues, recommendation, pivot, spawn, kill };
+  return { onTrack, score, issues, recommendation, pivot, spawn, kill, killExperiments };
 }
 
 function recentUserTexts(sessionIndex?: number, sessionId?: string): string[] {
@@ -282,6 +277,7 @@ export function heuristicStrategyReview(
   const userTexts = recentUserTexts(opts.sessionIndex, opts.sessionId);
   const title = sessionTitle(opts.sessionIndex, opts.sessionId);
   const kill: number[] = [];
+  const killExperiments: string[] = [];
   let pivot: string | null = null;
   let spawn: StrategySpawnPlan | null = null;
 
@@ -357,8 +353,10 @@ export function heuristicStrategyReview(
     score -= 20;
     issues.push("stale_workers");
     for (const line of staleWorkers) {
-      const match = /#(\d+)/.exec(line);
-      if (match) kill.push(Number(match[1]));
+      const sessionMatch = /#(\d+)/.exec(line);
+      if (sessionMatch) kill.push(Number(sessionMatch[1]));
+      const nameMatch = /^(sdk-worker[^\s:#]+)/.exec(line.trim());
+      if (nameMatch) killExperiments.push(nameMatch[1]);
     }
     pivot =
       pivot ??
@@ -388,6 +386,7 @@ export function heuristicStrategyReview(
     pivot: onTrack ? null : pivot,
     spawn: onTrack ? null : spawn,
     kill,
+    killExperiments,
   };
 }
 
@@ -438,6 +437,7 @@ export async function runStrategyReview(
     pivot: llmVerdict.pivot ?? heuristic.pivot,
     spawn: llmVerdict.spawn ?? heuristic.spawn,
     kill: [...new Set([...heuristic.kill, ...llmVerdict.kill])],
+    killExperiments: [...new Set([...heuristic.killExperiments, ...llmVerdict.killExperiments])],
   };
 
   return {

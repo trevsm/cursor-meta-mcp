@@ -66,7 +66,7 @@ function killPid(pid: number | undefined): boolean {
 }
 
 export function isWorkerExperiment(name: string): boolean {
-  return name.startsWith("worker-");
+  return name.startsWith("worker-") || name.startsWith("sdk-worker");
 }
 
 export function loadFleetManifest(metaDir?: string): FleetManifest | null {
