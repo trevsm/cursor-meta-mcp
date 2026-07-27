@@ -102,13 +102,17 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export function normalizeGoalKey(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 /** Collapse raced duplicate active goals with the same text (keep earliest). */
 export function dedupeActiveGoals(goals: WorldGoal[]): WorldGoal[] {
   const seen = new Map<string, string>();
   const now = new Date().toISOString();
   return goals.map((goal) => {
     if (goal.status !== "active") return goal;
-    const key = goal.text.trim().replace(/\s+/g, " ").toLowerCase();
+    const key = normalizeGoalKey(goal.text);
     if (seen.has(key)) {
       return {
         ...goal,
@@ -162,7 +166,10 @@ export function setNorthStar(text: string, metaDir?: string): WorldModel {
 export function pushGoal(text: string, metaDir?: string, parentId?: string): WorldGoal {
   const model = loadWorldModel(metaDir);
   const trimmed = text.trim();
-  const existing = model.goals.find((row) => row.status === "active" && row.text === trimmed);
+  const key = normalizeGoalKey(trimmed);
+  const existing = model.goals.find(
+    (row) => row.status === "active" && normalizeGoalKey(row.text) === key,
+  );
   if (existing) {
     // Persist load-time dedupe so raced duplicate actives are abandoned on disk.
     saveGoals(metaDir, model.northStar, model.goals);

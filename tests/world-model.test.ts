@@ -103,6 +103,10 @@ test("dedupeActiveGoals abandons raced duplicate actives", () => {
   ]);
   assert.equal(rows[0]?.status, "active");
   assert.equal(rows[1]?.status, "abandoned");
+
+  const first = pushGoal("Normalize Goal Keys", metaDir);
+  const again = pushGoal("  normalize   goal   keys ", metaDir);
+  assert.equal(again.id, first.id);
 });
 
 test("extractSkillFromEpisode saves successful procedures", () => {
