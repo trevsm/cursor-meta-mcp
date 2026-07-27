@@ -58,6 +58,13 @@ export function lessonFromTickError(error: string | undefined): string | null {
   if (/timed out waiting for chat/i.test(msg)) {
     return "Chat idle wait timed out — reduce tick scope or increase waitTimeoutMs";
   }
+  if (
+    /\/bin\/sh:.*command not found|syntax error near unexpected token|Passing args to a child process with shell option true/i.test(
+      msg,
+    )
+  ) {
+    return "Never spawn Agent CLI with shell:true — prompts with ;/`()` are executed by sh; pass argv without a shell";
+  }
   return `Tick infra failure: ${msg.slice(0, 200)}`;
 }
 

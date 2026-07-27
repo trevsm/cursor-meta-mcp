@@ -11,7 +11,6 @@ const result = spawnSync("npm", ["test"], {
   cwd: root,
   encoding: "utf8",
   env: process.env,
-  shell: true,
 });
 
 const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;

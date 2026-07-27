@@ -98,3 +98,15 @@ test("recordTickLesson writes from tick infra errors", () => {
   assert.equal(dup, null);
   assert.equal(readFileSync(join(metaDir, "world", "learnings.md"), "utf8").split("\n").filter(Boolean).length, 1);
 });
+
+test("recordTickLesson maps shell-metacharacter CLI failures", () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "learnings-shell-"));
+  const lesson = recordTickLesson({
+    metaDir,
+    error:
+      "/bin/sh: ship: command not found\n/bin/sh: -c: line 2: syntax error near unexpected token `('",
+  });
+  assert.ok(lesson);
+  assert.match(lesson, /shell:true/i);
+  assert.match(formatLearningsForPrompt(metaDir), /argv without a shell/i);
+});
