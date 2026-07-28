@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 
 import {
   blockMission,
@@ -14,6 +14,11 @@ import {
 } from "./orbit-ledger.js";
 
 export const ORBIT_ENV = "CURSOR_META_ORBIT";
+
+/** Fleet manifests live in `<project-meta>/experiments`; Orbit lives one level up. */
+export function orbitMetaDirForFleet(fleetMetaDir: string): string {
+  return basename(fleetMetaDir) === "experiments" ? dirname(fleetMetaDir) : fleetMetaDir;
+}
 
 /** True when orbit mission mode is active for this worker run. */
 export function orbitEnabled(metaDir?: string, cwd?: string): boolean {

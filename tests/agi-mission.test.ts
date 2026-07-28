@@ -56,10 +56,14 @@ test("launchAgiMission persists active session and launches fleet", async () => 
     goal: string;
     prompt: string;
     cwd: string;
+    useOrbit: boolean;
+    orbitMetaDir: string;
   };
   assert.equal(fleetParams.goal, "Build checkout flow with tests");
   assert.match(fleetParams.prompt, /Mission: Build checkout flow with tests/);
   assert.equal(fleetParams.cwd, "/Users/me/Projects/storefront");
+  assert.equal(fleetParams.useOrbit, true);
+  assert.equal(fleetParams.orbitMetaDir, result.session.projectMetaDir);
 
   const active = readActiveAgiSession();
   assert.equal(active?.task, "Build checkout flow with tests");

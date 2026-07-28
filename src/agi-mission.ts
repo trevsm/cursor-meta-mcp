@@ -187,9 +187,12 @@ export async function launchAgiMission(
   writeActiveAgiSession(session);
 
   const workerPrompt = params.prompt?.trim() || buildAgiWorkerPrompt(task);
+  const orbitMetaDir = projectMetaDir(cwd);
   const manifest = await launch({
     cwd,
     metaDir: experimentsDir,
+    orbitMetaDir,
+    useOrbit: true,
     goal: task,
     prompt: workerPrompt,
     excludeSessionIndex: params.excludeSessionIndex ?? 1,

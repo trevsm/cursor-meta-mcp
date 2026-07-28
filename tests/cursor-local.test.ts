@@ -46,6 +46,14 @@ mock.module("../src/agent-cli.js", {
   },
 });
 
+mock.module("../src/fleet-model.js", {
+  namedExports: {
+    FLEET_AGENT_MODEL: "composer-2.5",
+    fleetAgentModel: (override?: string) => override ?? "composer-2.5",
+    fleetModelRequiresCli: () => false,
+  },
+});
+
 const { CursorLocalService, summarizeSdkMessage } = await import("../src/cursor-local.js");
 
 function makeRun(result: {
@@ -283,6 +291,8 @@ test("CursorLocalService reports missing auth clearly", async () => {
 });
 
 test("CursorLocalService aborts in-flight SDK runs", async () => {
+  isAgentCliLoggedIn.mock.mockImplementation(async () => false);
+  shouldUseAgentCliFallback.mock.mockImplementation(() => false);
   const run = makeRun({ id: "run-abort" });
   agentCreate.mock.mockImplementation(async () => ({
     agentId: "agent-sdk-1",
@@ -302,6 +312,8 @@ test("CursorLocalService aborts in-flight SDK runs", async () => {
 });
 
 test("CursorLocalService ignores stream failures while waiting for completion", async () => {
+  isAgentCliLoggedIn.mock.mockImplementation(async () => false);
+  shouldUseAgentCliFallback.mock.mockImplementation(() => false);
   const run = {
     id: "run-stream-fail",
     supports: () => true,
@@ -334,6 +346,8 @@ test("CursorLocalService ignores stream failures while waiting for completion", 
 });
 
 test("CursorLocalService interceptAgent cancels active runs before follow-up", async () => {
+  isAgentCliLoggedIn.mock.mockImplementation(async () => false);
+  shouldUseAgentCliFallback.mock.mockImplementation(() => false);
   const runningRun = {
     id: "run-active",
     agentId: "agent-sdk-1",

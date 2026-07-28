@@ -93,7 +93,7 @@ Add to `~/.cursor/mcp.json`:
       "envFile": "${userHome}/.cursor/.env",
       "env": {
         "CURSOR_API_KEY": "${env:CURSOR_API_KEY}",
-        "CURSOR_META_DEFAULT_MODEL": "composer-2.5"
+        "CURSOR_META_DEFAULT_MODEL": "composer-2.5-fast"
       }
     }
   }

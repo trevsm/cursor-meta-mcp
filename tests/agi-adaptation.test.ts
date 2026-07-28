@@ -31,6 +31,7 @@ const {
   sessionArchitecture,
 } = await import("../src/agi-adaptation.js");
 const { DEFAULT_AGI_ARCHITECTURE } = await import("../src/agi-architecture.js");
+const { claimNextMission, fileMission, readMissions } = await import("../src/orbit-ledger.js");
 
 test("proposeAgiAdaptations disables orchestrator on meta loops", () => {
   const session = {
@@ -115,7 +116,6 @@ test("adaptAgiMission freezes auto adaptations while supervisor layers are froze
     runId: "00000000-0000-4000-8000-000000000021",
     architecture: DEFAULT_AGI_ARCHITECTURE,
   });
-
   launchSelfImproveFleet.mock.resetCalls();
   const frozen = await adaptAgiMission({ auto: true }, launchSelfImproveFleet);
   assert.equal(frozen.ok, true);
@@ -142,6 +142,16 @@ test("adaptAgiMission applies manual architecture overrides when frozen", async 
     runId: "00000000-0000-4000-8000-000000000031",
     architecture: DEFAULT_AGI_ARCHITECTURE,
   });
+  const initial = fileMission(
+    {
+      station: "app",
+      title: "Build API",
+      intent: "Build API",
+      verify: "npm test",
+    },
+    projectMetaDir,
+  );
+  claimNextMission("app", "sdk-worker-1", projectMetaDir);
 
   launchSelfImproveFleet.mock.resetCalls();
   const result = await adaptAgiMission(
@@ -153,4 +163,7 @@ test("adaptAgiMission applies manual architecture overrides when frozen", async 
   assert.equal(launchSelfImproveFleet.mock.callCount(), 1);
   const arch = sessionArchitecture(result.session);
   assert.equal(arch.withOrchestrator, false);
+  const missions = readMissions("app", projectMetaDir);
+  assert.equal(missions.find((mission) => mission.id === initial.id)?.status, "blocked");
+  assert.equal(missions.find((mission) => mission.intent === "Ship one test")?.status, "open");
 });

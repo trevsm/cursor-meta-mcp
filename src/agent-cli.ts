@@ -3,7 +3,17 @@ import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { fleetAgentModel } from "./fleet-model.js";
+
 const AGENT_BIN = join(homedir(), ".local/bin/agent");
+
+function agentApiKey(): string | undefined {
+  return process.env.CURSOR_API_KEY?.trim() || undefined;
+}
+
+export function hasAgentCliAuth(): boolean {
+  return Boolean(agentApiKey());
+}
 
 export interface AgentCliRunResult {
   agentId?: string;
@@ -22,6 +32,7 @@ async function agentBinExists(): Promise<boolean> {
 }
 
 export async function isAgentCliLoggedIn(): Promise<boolean> {
+  if (hasAgentCliAuth()) return true;
   if (!(await agentBinExists())) return false;
   return new Promise((resolve) => {
     // Never shell:true — prompts contain `;`/`()`/`\n` and would be executed by sh
@@ -101,11 +112,17 @@ function runAgentCommand(args: string[], cwd?: string): Promise<string> {
 
 async function requireAgentCliLoggedIn(): Promise<void> {
   await requireAgentBin();
+  if (hasAgentCliAuth()) return;
   if (!(await isAgentCliLoggedIn())) {
     throw new Error(
-      "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login",
+      "Cursor Agent CLI is not logged in. Run: ~/.local/bin/agent login or set CURSOR_API_KEY.",
     );
   }
+}
+
+function appendAgentAuthArgs(args: string[]): void {
+  const key = agentApiKey();
+  if (key) args.push("--api-key", key);
 }
 
 export async function createAgentChat(): Promise<string> {
@@ -135,8 +152,11 @@ export async function runAgentCliResume(params: {
     args.push("--workspace", params.workspace);
   }
   if (params.model) {
-    args.push("--model", params.model);
+    args.push("--model", fleetAgentModel(params.model));
+  } else {
+    args.push("--model", fleetAgentModel());
   }
+  appendAgentAuthArgs(args);
   args.push(params.prompt);
 
   const result = await runAgentCommand(args, params.cwd);
@@ -159,8 +179,11 @@ export async function runAgentCliPrompt(params: {
     args.push("--mode", params.mode);
   }
   if (params.model) {
-    args.push("--model", params.model);
+    args.push("--model", fleetAgentModel(params.model));
+  } else {
+    args.push("--model", fleetAgentModel());
   }
+  appendAgentAuthArgs(args);
   args.push(params.prompt);
 
   const result = await runAgentCommand(args, params.cwd);

@@ -24,6 +24,13 @@ import {
   type HumanApprovalRequest,
 } from "./human-gate.js";
 import type { FleetLauncher, SelfImproveManifest } from "./self-improve.js";
+import {
+  blockMission,
+  fileMission,
+  readMissions,
+  stationId,
+  summarizeStation,
+} from "./orbit-ledger.js";
 
 export interface StrategyStatusSnapshot {
   at?: string;
@@ -41,6 +48,52 @@ export interface WatchStatusSnapshot {
   relaunchBlocked?: boolean;
   relaunchBlockedReason?: string;
   supervisor?: { shouldKill?: boolean; reasons?: string[] };
+}
+
+/** Turn a strategy pivot into durable Orbit work instead of another prompt string. */
+export function applyOrbitMissionPivot(
+  session: ActiveAgiSession,
+  pivot: string,
+): { blockedMissionId?: string; missionId: string } | null {
+  const intent = pivot.trim();
+  if (!intent) return null;
+
+  const station = stationId(session.cwd);
+  const metaDir = session.projectMetaDir;
+  const existing = readMissions(station, metaDir);
+  const duplicate = existing.find(
+    (mission) =>
+      mission.intent.trim().toLowerCase() === intent.toLowerCase() &&
+      ["open", "claimed", "active", "verified"].includes(mission.status),
+  );
+  if (duplicate) return { missionId: duplicate.id };
+
+  const current = summarizeStation(station, metaDir).active;
+  let blockedMissionId: string | undefined;
+  if (current) {
+    const blocked = blockMission(
+      station,
+      current.id,
+      `Superseded by AGI mission pivot: ${intent}`,
+      metaDir,
+    );
+    if (!blocked.error) blockedMissionId = current.id;
+  }
+
+  const mission = fileMission(
+    {
+      station,
+      title: intent.length > 80 ? `${intent.slice(0, 77)}…` : intent,
+      intent,
+      acceptance: ["Implement the pivot without unrelated scope", "Local verify passes"],
+      verify: current?.verify,
+      branch: current?.branch,
+      severity: "high",
+      parent: current?.parent,
+    },
+    metaDir,
+  );
+  return { blockedMissionId, missionId: mission.id };
 }
 
 export interface AgiSnagReport {
@@ -350,7 +403,7 @@ export async function adaptAgiMission(
   }
 
   const nextArchitecture = mergeAgiArchitecture(architecture, {});
-  let missionPivot: string | undefined = params.missionPivot;
+  let missionPivot: string | undefined;
   const applied: AgiAdaptationProposal[] = [];
 
   for (const proposal of toApply) {
@@ -377,12 +430,21 @@ export async function adaptAgiMission(
   if (params.architecture) {
     Object.assign(nextArchitecture, mergeAgiArchitecture(nextArchitecture, params.architecture));
   }
+  if (params.missionPivot?.trim()) {
+    const manualPivot = params.missionPivot.trim();
+    if (!missionPivot) missionPivot = manualPivot;
+    else if (missionPivot !== manualPivot) missionPivot = `${missionPivot}\n${manualPivot}`;
+  }
 
   const updatedSession: ActiveAgiSession = {
     ...session,
     architecture: nextArchitecture,
   };
   writeActiveAgiSession(updatedSession);
+
+  if (missionPivot?.trim()) {
+    applyOrbitMissionPivot(updatedSession, missionPivot);
+  }
 
   const relaunch = params.relaunch ?? true;
   let manifest: SelfImproveManifest | undefined;

@@ -22,6 +22,7 @@ import {
   type TickOutcome,
 } from "./tick-outcome.js";
 import { appendEpisode } from "./world-model.js";
+import { fleetAgentModel, fleetModelRequiresCli } from "./fleet-model.js";
 import { probeWorkerAuth, workerAuthHint } from "./worker-auth.js";
 import {
   finalizeOrbitTick,
@@ -43,6 +44,10 @@ export interface SdkWorkerParams {
   model?: string;
   checkpointPath?: string;
   metaDir?: string;
+  /** Project meta root containing `orbit/`; distinct from run-event/budget meta. */
+  orbitMetaDir?: string;
+  /** Explicit mission mode. AGI sets true; env/ledger detection remains a fallback. */
+  useOrbit?: boolean;
   /** Injectable for tests. */
   service?: LocalAgentService;
   verifyTests?: (cwd: string) => TestOutcome | undefined;
@@ -182,13 +187,13 @@ export async function runSdkWorkerTick(
           agentId: params.agentId,
           prompt,
           cwd: params.cwd,
-          model: params.model,
+          model: fleetAgentModel(params.model),
           name: SDK_FLEET_AGENT_NAME,
         })
       : await service.runLocalAgent({
           prompt,
           cwd: params.cwd,
-          model: params.model,
+          model: fleetAgentModel(params.model),
           mode: "agent",
           name: SDK_FLEET_AGENT_NAME,
         });
@@ -257,6 +262,9 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
   }
 
   state.checkpointPath = checkpointPath;
+  if (fleetModelRequiresCli() && state.agentId && state.agentId !== "cli-session") {
+    state.agentId = undefined;
+  }
   writeSdkCheckpoint(state, checkpointPath);
   const tickIntervalMs = params.tickIntervalMs ?? resolveTickIntervalMs();
   const metaDir = params.metaDir ?? metaHome();
@@ -266,6 +274,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     throw new Error(`SDK worker refused to start: ${workerAuthHint(auth)}`);
   }
   const service = params.service ?? new CursorLocalService({ apiKey: workerEnv.CURSOR_API_KEY });
+  params.model = fleetAgentModel(params.model);
   const verifyTests =
     params.verifyTests ??
     (process.env.CURSOR_META_SKIP_TICK_TESTS === "1" ? undefined : createDefaultVerifyTests());
@@ -276,12 +285,13 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
   const startTick =
     state.ticks.length > 0 ? (state.ticks.at(-1)?.tick ?? state.ticks.length) + 1 : 1;
 
-  const useOrbit = orbitEnabled(metaDir, state.cwd);
+  const orbitMetaDir = params.orbitMetaDir ?? metaDir;
+  const useOrbit = params.useOrbit ?? orbitEnabled(orbitMetaDir, state.cwd);
   const orbitCtx: OrbitTickContext | null = useOrbit
     ? {
         station: stationId(state.cwd),
         workerId: workerIdFromCheckpoint(checkpointPath),
-        metaDir,
+        metaDir: orbitMetaDir,
       }
     : null;
 
@@ -466,8 +476,11 @@ export function buildSdkWorkerArgs(params: SdkWorkerParams): string[] {
   if (params.tickIntervalMs != null) args.push("--tick-interval", String(params.tickIntervalMs));
   if (params.checkpointPath) args.push("--checkpoint", params.checkpointPath);
   if (params.prompt) args.push("--prompt", params.prompt);
-  if (params.model) args.push("--model", params.model);
+  args.push("--model", fleetAgentModel(params.model));
   if (params.metaDir) args.push("--meta-dir", params.metaDir);
+  if (params.orbitMetaDir) args.push("--orbit-meta-dir", params.orbitMetaDir);
+  if (params.useOrbit === true) args.push("--orbit");
+  if (params.useOrbit === false) args.push("--no-orbit");
   if (params.resume) args.push("--resume");
   return args;
 }

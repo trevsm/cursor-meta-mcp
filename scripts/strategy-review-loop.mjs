@@ -20,6 +20,7 @@ import {
   DEFAULT_SELF_IMPROVE_GOAL,
   runStrategyReview,
 } from "../src/strategy-review.js";
+import { fleetAgentModel } from "../src/fleet-model.js";
 
 const META_DIR = argValue("--meta-dir") ?? experimentsDir();
 const STATUS_PATH = join(META_DIR, "strategy-status.json");
@@ -190,7 +191,7 @@ appendLog(
   `[${new Date().toISOString()}] strategy-review-loop start cwd=${cwd} interval=${intervalMs} useLlm=${useLlm}`,
 );
 
-const params = { cwd, excludeSession, useLlm, goal, successCriteria, model: argValue("--model") };
+const params = { cwd, excludeSession, useLlm, goal, successCriteria, model: fleetAgentModel(argValue("--model")) };
 
 if (once) {
   await reviewOnce(params);

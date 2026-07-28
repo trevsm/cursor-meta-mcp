@@ -21,6 +21,7 @@ import {
   recordSdkRunComplete,
   recordSpawn,
 } from "./plan-budget.js";
+import { fleetAgentModel, FLEET_AGENT_MODEL, fleetModelRequiresCli } from "./fleet-model.js";
 
 export type ConversationMode = "agent" | "plan" | "ask";
 export type McpServerInput = McpServerConfig;
@@ -221,7 +222,7 @@ export class CursorLocalService implements LocalAgentService {
 
   constructor(options: LocalAgentServiceOptions = {}) {
     this.apiKey = options.apiKey;
-    this.defaultModel = options.defaultModel ?? "composer-2.5";
+    this.defaultModel = fleetAgentModel(options.defaultModel);
   }
 
   private requireApiKey(): string {
@@ -239,6 +240,14 @@ export class CursorLocalService implements LocalAgentService {
     throw new Error(
       "No auth available. Set CURSOR_API_KEY or run ~/.local/bin/agent login.",
     );
+  }
+
+  /** composer-2.5-fast is CLI-only today; prefer agent CLI when API key or login is available. */
+  private async resolveAgentBackend(modelId: string): Promise<"sdk" | "cli"> {
+    if (modelId === FLEET_AGENT_MODEL && fleetModelRequiresCli() && (await isAgentCliLoggedIn())) {
+      return "cli";
+    }
+    return this.ensureSpawnAuth();
   }
 
   private normalizeCwd(cwd: string | string[]): string {
@@ -347,14 +356,15 @@ export class CursorLocalService implements LocalAgentService {
     assertBudgetAllowed("spawn_sdk");
     recordSpawn("spawn_sdk", params.name ?? "runLocalAgent");
 
-    const auth = await this.ensureSpawnAuth();
+    const modelId = fleetAgentModel(params.model);
+    const auth = await this.resolveAgentBackend(modelId);
     if (auth === "cli") {
       const cwd = this.normalizeCwd(params.cwd);
       const cli = await runAgentCliPrompt({
         prompt: params.prompt,
         cwd,
         mode: params.mode,
-        model: params.model,
+        model: modelId,
       });
       return {
         agentId: "cli-session",
@@ -364,11 +374,17 @@ export class CursorLocalService implements LocalAgentService {
       };
     }
 
+    if (modelId === FLEET_AGENT_MODEL && fleetModelRequiresCli()) {
+      throw new Error(
+        `${FLEET_AGENT_MODEL} requires ~/.local/bin/agent login; the SDK API does not expose this model yet.`,
+      );
+    }
+
     const apiKey = this.requireApiKey();
     const agent = await Agent.create({
       apiKey,
       name: params.name,
-      model: { id: params.model ?? this.defaultModel },
+      model: { id: modelId },
       mode: params.mode === "ask" ? "agent" : params.mode,
       local: {
         cwd: params.cwd,
@@ -384,7 +400,7 @@ export class CursorLocalService implements LocalAgentService {
       const result = await this.driveRun(agent.agentId, run, hooks, params.name);
       recordSdkRunComplete({
         durationMs: result.durationMs,
-        model: result.model ?? params.model ?? this.defaultModel,
+        model: result.model ?? modelId,
         source: params.name ?? "runLocalAgent",
       });
       return result;
@@ -441,7 +457,15 @@ export class CursorLocalService implements LocalAgentService {
   async followUp(params: FollowUpParams, hooks?: RunHooks): Promise<AgentRunResult> {
     assertBudgetAllowed("follow_up_sdk");
 
-    if (params.agentId === "cli-session" || shouldUseAgentCliFallback(this.apiKey)) {
+    const modelId = fleetAgentModel(params.model);
+    const preferCli =
+      params.agentId === "cli-session" ||
+      shouldUseAgentCliFallback(this.apiKey) ||
+      (modelId === FLEET_AGENT_MODEL &&
+        fleetModelRequiresCli() &&
+        (await isAgentCliLoggedIn()));
+
+    if (preferCli) {
       if (!(await isAgentCliLoggedIn())) {
         throw new Error("CLI follow-up requires ~/.local/bin/agent login.");
       }
@@ -451,7 +475,7 @@ export class CursorLocalService implements LocalAgentService {
       const cli = await runAgentCliPrompt({
         prompt: params.prompt,
         cwd: params.cwd,
-        model: params.model,
+        model: modelId,
       });
       return {
         agentId: "cli-session",
@@ -464,20 +488,23 @@ export class CursorLocalService implements LocalAgentService {
     if (params.agentId.startsWith("bc-")) {
       throw new Error("Cloud agents are not supported by this local-only server.");
     }
+    if (modelId === FLEET_AGENT_MODEL && fleetModelRequiresCli()) {
+      throw new Error(
+        `${FLEET_AGENT_MODEL} requires ~/.local/bin/agent login; the SDK API does not expose this model yet.`,
+      );
+    }
+
     const agent = await Agent.resume(params.agentId, {
       apiKey: this.requireApiKey(),
-      model: { id: this.defaultModel },
+      model: { id: modelId },
       ...(params.cwd ? { local: { cwd: params.cwd } } : {}),
     });
     try {
-      const run = await agent.send(
-        params.prompt,
-        params.model ? { model: { id: params.model } } : undefined,
-      );
+      const run = await agent.send(params.prompt, { model: { id: modelId } });
       const result = await this.driveRun(agent.agentId, run, hooks, params.name);
       recordSdkRunComplete({
         durationMs: result.durationMs,
-        model: result.model ?? params.model ?? this.defaultModel,
+        model: result.model ?? modelId,
         source: params.name ?? "followUp",
       });
       return result;

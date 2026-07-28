@@ -25,6 +25,9 @@ const {
   shouldUseAgentCliFallback,
 } = await import("../src/agent-cli.js");
 
+const savedCursorApiKey = process.env.CURSOR_API_KEY;
+process.env.CURSOR_API_KEY = "";
+
 function mockSpawnResult(stdout: string, exitCode = 0, stderr = "") {
   return (...args: Parameters<SpawnHandler>) => {
     const child = new EventEmitter() as ReturnType<SpawnHandler>;
@@ -84,7 +87,7 @@ test("runAgentCliPrompt requires login and forwards args", async () => {
     prompt: "hello",
     cwd: process.cwd(),
     mode: "ask",
-    model: "composer-2.5",
+    model: "composer-2.5-fast",
   });
 
   assert.deepEqual(result, { status: "finished", result: "done" });
@@ -99,7 +102,7 @@ test("runAgentCliPrompt requires login and forwards args", async () => {
     "--mode",
     "ask",
     "--model",
-    "composer-2.5",
+    "composer-2.5-fast",
     "hello",
   ]);
   // argv must not go through /bin/sh — multi-line genome prompts use `;`/`()`
@@ -155,7 +158,7 @@ test("runAgentCliResume forwards resume args", async () => {
     cwd: process.cwd(),
     workspace: process.cwd(),
     mode: "plan",
-    model: "composer-2.5",
+    model: "composer-2.5-fast",
   });
 
   assert.deepEqual(result, { status: "finished", result: "steered" });
@@ -201,4 +204,20 @@ test("runAgentCliPrompt maps spawn ENOENT to install guidance", async () => {
     () => runAgentCliPrompt({ prompt: "hello", cwd: process.cwd() }),
     /spawn .+ ENOENT.*Agent CLI not installed/i,
   );
+});
+
+test("runAgentCliPrompt forwards CURSOR_API_KEY when set", async () => {
+  process.env.CURSOR_API_KEY = "cursor_test_key";
+  spawnMock.mock.resetCalls();
+  spawnMock.mock.mockImplementation((_command, args) =>
+    mockSpawnResult("done\n")(_command, args, {}),
+  );
+
+  await runAgentCliPrompt({ prompt: "hello", cwd: process.cwd() });
+  const args = spawnMock.mock.calls.at(-1)?.arguments[1] as string[] | undefined;
+  assert.ok(args);
+  assert.ok(args.includes("--api-key"), args.join(" "));
+  assert.ok(args.includes("cursor_test_key"), args.join(" "));
+  assert.ok(args.includes("composer-2.5-fast"), args.join(" "));
+  process.env.CURSOR_API_KEY = "";
 });

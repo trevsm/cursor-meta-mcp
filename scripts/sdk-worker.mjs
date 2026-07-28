@@ -7,8 +7,12 @@
  */
 import { readFileSync } from "node:fs";
 
+import { envForWorkers } from "../src/load-env.js";
+Object.assign(process.env, envForWorkers());
+
 import { parseDurationMs } from "../src/long-session.js";
 import { runSdkWorker, summarizeSdkWorker } from "../src/sdk-worker.js";
+import { fleetAgentModel } from "../src/fleet-model.js";
 
 function argValue(name) {
   const index = process.argv.indexOf(name);
@@ -26,8 +30,14 @@ const params = {
   tickIntervalMs: argValue("--tick-interval") ? parseDurationMs(argValue("--tick-interval")) : undefined,
   checkpointPath: argValue("--checkpoint"),
   prompt,
-  model: argValue("--model"),
+  model: fleetAgentModel(argValue("--model")),
   metaDir: argValue("--meta-dir"),
+  orbitMetaDir: argValue("--orbit-meta-dir"),
+  useOrbit: process.argv.includes("--orbit")
+    ? true
+    : process.argv.includes("--no-orbit")
+      ? false
+      : undefined,
   resume: process.argv.includes("--resume"),
 };
 

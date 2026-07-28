@@ -3,11 +3,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { CursorLocalService } from "./cursor-local.js";
 import { createServer } from "./server.js";
+import { FLEET_AGENT_MODEL } from "./fleet-model.js";
 
 async function main(): Promise<void> {
   const service = new CursorLocalService({
     apiKey: process.env.CURSOR_API_KEY,
-    defaultModel: process.env.CURSOR_META_DEFAULT_MODEL ?? "composer-2.5",
+    defaultModel: FLEET_AGENT_MODEL,
   });
 
   const server = createServer(service);

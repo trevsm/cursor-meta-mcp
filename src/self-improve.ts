@@ -23,7 +23,7 @@ import { formatCiRulesForPrompt, resolveFleetCiPolicy } from "./fleet-ci-policy.
 import { TICK_REPORT_INSTRUCTION } from "./ground-truth.js";
 import { formatLearningsForPrompt } from "./learnings.js";
 import { spawnSdkWorker, resolveTickIntervalMs, type SdkWorkerParams } from "./sdk-worker.js";
-import { ensureLaunchMission, orbitEnabled } from "./orbit-worker.js";
+import { ensureLaunchMission, orbitEnabled, orbitMetaDirForFleet } from "./orbit-worker.js";
 import { experimentsDir, metaHome } from "./meta-home.js";
 import {
   assertBudgetAllowed,
@@ -43,6 +43,7 @@ import {
   type WorkerAuthStatus,
 } from "./worker-auth.js";
 import { pushGoal, setNorthStar } from "./world-model.js";
+import { fleetAgentModel } from "./fleet-model.js";
 
 export interface SelfImproveParams {
   cwd: string;
@@ -74,6 +75,10 @@ export interface SelfImproveParams {
   workerMode?: "ide" | "sdk" | "hybrid";
   /** Headless SDK workers in isolated git worktrees. Default 1 for honest loop. */
   parallelWorkers?: number;
+  /** Use completion-driven Orbit missions instead of duration-driven goal ticks. */
+  useOrbit?: boolean;
+  /** Project meta root containing the Orbit ledger. */
+  orbitMetaDir?: string;
 }
 
 export interface SelfImproveExperiment {
@@ -218,6 +223,8 @@ export function fleetSupervisorArgs(params: FleetSupervisorArgsParams): {
       `${params.strategyIntervalMs}ms`,
       "--goal",
       params.goal,
+      "--model",
+      fleetAgentModel(),
       ...(params.useLlm ? ["--use-llm"] : []),
     ],
     orchestrator: [
@@ -365,10 +372,12 @@ async function launchFleetProcesses(
   recordBudgetEvent({ at: new Date().toISOString(), action: "fleet_start", source: "meta_self_improve" });
   const prompt = buildSelfImprovePrompt(cwd, params.prompt ?? params.goal, metaDir);
   const goalText = (params.goal ?? params.prompt ?? "").trim();
-  if (goalText && (orbitEnabled(metaDir, cwd) || process.env.CURSOR_META_ORBIT?.trim() === "1")) {
+  const orbitMetaDir = params.orbitMetaDir ?? orbitMetaDirForFleet(metaDir);
+  const useOrbit = params.useOrbit ?? orbitEnabled(orbitMetaDir, cwd);
+  if (goalText && useOrbit) {
     try {
       const verifyLabel = formatVerifyCommandLabel(resolveVerifyCommands(cwd));
-      ensureLaunchMission({ cwd, goal: goalText, verify: verifyLabel, metaDir });
+      ensureLaunchMission({ cwd, goal: goalText, verify: verifyLabel, metaDir: orbitMetaDir });
     } catch {
       /* ledger is best-effort at launch */
     }
@@ -470,7 +479,10 @@ async function launchFleetProcesses(
         maxTicks: 500,
         checkpointPath,
         prompt,
+        model: fleetAgentModel(),
         metaDir: metaHome(),
+        orbitMetaDir,
+        useOrbit,
         resume: params.resumeWorkers ?? false,
       };
       const spawned = spawnSdkWorker(sdkCfg);
@@ -494,7 +506,10 @@ async function launchFleetProcesses(
       maxTicks: 500,
       checkpointPath,
       prompt,
+      model: fleetAgentModel(),
       metaDir: metaHome(),
+      orbitMetaDir,
+      useOrbit,
       resume: params.resumeWorkers ?? false,
     });
     recordSpawn("spawn_fleet_worker", name);

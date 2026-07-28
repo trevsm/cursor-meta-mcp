@@ -123,6 +123,7 @@ mock.module("../src/consciousness-pulse.js", {
 
 const { buildSelfImprovePrompt, fleetSpawnPlan, fleetSupervisorArgs, launchSelfImproveFleet } =
   await import("../src/self-improve.js");
+const { readMissions } = await import("../src/orbit-ledger.js");
 
 after(() => mock.restoreAll());
 
@@ -158,6 +159,37 @@ test("launchSelfImproveFleet spawns one sdk worker by default", async () => {
 
   assert.equal(spawnSdkWorker.mock.callCount(), 1);
   assert.ok(manifest.experiments.some((exp) => exp.name.startsWith("sdk-worker")));
+});
+
+test("launchSelfImproveFleet seeds and passes the project Orbit ledger", async () => {
+  const projectMeta = mkdtempSync(join(tmpdir(), "self-improve-orbit-"));
+  const experiments = join(projectMeta, "experiments");
+  spawnSdkWorker.mock.resetCalls();
+  probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: true, cli: true, sdk: true }));
+
+  await launchSelfImproveFleet({
+    cwd: "/tmp/project",
+    metaDir: experiments,
+    orbitMetaDir: projectMeta,
+    useOrbit: true,
+    goal: "Ship checkout with tests",
+    withOrchestrator: false,
+    withWatcher: false,
+    withStrategyReviewer: false,
+    stopExisting: false,
+  });
+
+  const workerParams = spawnSdkWorker.mock.calls[0]?.arguments[0] as {
+    orbitMetaDir?: string;
+    useOrbit?: boolean;
+  };
+  assert.equal(workerParams.orbitMetaDir, projectMeta);
+  assert.equal(workerParams.useOrbit, true);
+
+  const missions = readMissions("project", projectMeta);
+  assert.equal(missions.length, 1);
+  assert.equal(missions[0]?.intent, "Ship checkout with tests");
+  assert.equal(missions[0]?.status, "open");
 });
 
 test("launchSelfImproveFleet rejects SDK mode without CURSOR_API_KEY", async () => {

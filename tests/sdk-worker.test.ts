@@ -97,6 +97,8 @@ test("buildSdkWorkerArgs forwards worker options", () => {
     prompt: "ship",
     model: "composer",
     metaDir: "/meta",
+    orbitMetaDir: "/project-meta",
+    useOrbit: true,
   });
   assert.deepEqual(args.slice(0, 4), ["--import", "tsx", "scripts/sdk-worker.mjs", "--cwd"]);
   assert.ok(args.includes("/repo"));
@@ -109,10 +111,14 @@ test("buildSdkWorkerArgs forwards worker options", () => {
   assert.ok(args.includes("--prompt"));
   assert.ok(args.includes("ship"));
   assert.ok(args.includes("--model"));
-  assert.ok(args.includes("composer"));
+  assert.ok(args.includes("composer-2.5-fast"));
   assert.ok(args.includes("--meta-dir"));
   assert.ok(args.includes("/meta"));
+  assert.ok(args.includes("--orbit-meta-dir"));
+  assert.ok(args.includes("/project-meta"));
+  assert.ok(args.includes("--orbit"));
   assert.ok(buildSdkWorkerArgs({ cwd: "/repo", resume: true }).includes("--resume"));
+  assert.ok(buildSdkWorkerArgs({ cwd: "/repo", useOrbit: false }).includes("--no-orbit"));
 });
 
 test("writeSdkCheckpoint persists worker state to disk", () => {

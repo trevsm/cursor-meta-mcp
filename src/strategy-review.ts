@@ -12,6 +12,7 @@ import { analyzeWorkerCheckpoint, attemptedTickCount, PRODUCTIVE_TICK_GATE } fro
 import { resolveCommitBatchPolicy } from "./fleet-commit-policy.js";
 import { formatGitSyncStatusForPrompt, getGitSyncStatus } from "./git-sync.js";
 import { formatWorldModelForPrompt, loadWorldModel, recentEpisodes } from "./world-model.js";
+import { fleetAgentModel } from "./fleet-model.js";
 
 export interface StrategySpawnPlan {
   role: string;
@@ -528,7 +529,7 @@ export async function runStrategyReview(
     {
       prompt,
       cwd: params.cwd,
-      model: params.model,
+      model: fleetAgentModel(params.model),
       mode: "ask",
       name: "strategy-critic",
     },
