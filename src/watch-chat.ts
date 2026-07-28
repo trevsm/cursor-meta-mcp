@@ -1,7 +1,39 @@
+import { getChatActivity, type ChatActivity } from "./chat-activity.js";
 import { getChatById, getChatByIndex } from "./history-store.js";
-import type { ChatActivity } from "./chat-activity.js";
 import { getIdeChatActivity, sendToIdeChat, type IdeChatActionResult } from "./ide-chat-control.js";
-import { waitForChatIdle } from "./relentless-loop.js";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForChatIdle(
+  sessionId: string,
+  opts: {
+    pollIntervalMs?: number;
+    idleStableMs?: number;
+    timeoutMs?: number;
+  } = {},
+): Promise<ChatActivity> {
+  const pollIntervalMs = opts.pollIntervalMs ?? 2000;
+  const idleStableMs = opts.idleStableMs ?? 3000;
+  const timeoutMs = opts.timeoutMs ?? 30 * 60 * 1000;
+  const started = Date.now();
+  let idleSince: number | undefined;
+
+  while (Date.now() - started < timeoutMs) {
+    const activity = getChatActivity(sessionId);
+    if (activity.activityLevel === "active") {
+      idleSince = undefined;
+    } else if (!idleSince) {
+      idleSince = Date.now();
+    } else if (Date.now() - idleSince >= idleStableMs) {
+      return activity;
+    }
+    await sleep(pollIntervalMs);
+  }
+
+  throw new Error(`Timed out waiting for chat ${sessionId} to become idle.`);
+}
 
 export interface WatchChatParams {
   sessionIndex?: number;

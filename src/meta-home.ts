@@ -2,8 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Root directory for all persistent cursor-meta state (world model, budget ledger,
- * fleet manifests, run events).
+ * Root directory for persistent cursor-meta state (SDK run event logs).
  *
  * Resolved per call rather than cached so `CURSOR_META_HOME` can be set at runtime.
  * Tests set it to a temp directory; without that, unit tests write fixture data into
@@ -18,7 +17,7 @@ export function metaPath(...parts: string[]): string {
   return join(metaHome(), ...parts);
 }
 
-/** Default location for fleet manifests, checkpoints, and worker logs. */
-export function experimentsDir(): string {
-  return metaPath("experiments");
+/** Default location for SDK run event logs. */
+export function runsDir(): string {
+  return metaPath("runs");
 }

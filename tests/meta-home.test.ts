@@ -13,16 +13,16 @@ after(() => {
   else process.env.CURSOR_META_HOME = saved;
 });
 
-const { experimentsDir, metaHome, metaPath } = await import("../src/meta-home.js");
+const { metaHome, metaPath, runsDir } = await import("../src/meta-home.js");
 
 test("metaHome respects CURSOR_META_HOME", () => {
   assert.equal(metaHome(), tempHome);
 });
 
 test("metaPath joins under meta home", () => {
-  assert.equal(metaPath("experiments", "manifest.json"), join(tempHome, "experiments", "manifest.json"));
+  assert.equal(metaPath("runs", "run-1.jsonl"), join(tempHome, "runs", "run-1.jsonl"));
 });
 
-test("experimentsDir is under meta home", () => {
-  assert.equal(experimentsDir(), join(tempHome, "experiments"));
+test("runsDir is under meta home", () => {
+  assert.equal(runsDir(), join(tempHome, "runs"));
 });

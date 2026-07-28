@@ -21,7 +21,7 @@ const activityIdle = {
   signals: [],
 };
 
-const waitForChatIdle = mock.fn(async () => activityIdle);
+const getChatActivity = mock.fn(() => activityActive);
 const getIdeChatActivity = mock.fn(() => activityActive);
 const sendToIdeChat = mock.fn(async () => ({
   status: "finished" as const,
@@ -29,8 +29,8 @@ const sendToIdeChat = mock.fn(async () => ({
   sessionId: activityActive.sessionId,
 }));
 
-mock.module("../src/relentless-loop.js", {
-  namedExports: { waitForChatIdle },
+mock.module("../src/chat-activity.js", {
+  namedExports: { getChatActivity },
 });
 
 mock.module("../src/ide-chat-control.js", {
@@ -67,24 +67,27 @@ test("lastAssistantTail returns trailing assistant text", () => {
 });
 
 test("watchIdeChat waits then sends follow-up when chat was active", async () => {
-  waitForChatIdle.mock.resetCalls();
+  getChatActivity.mock.resetCalls();
   sendToIdeChat.mock.resetCalls();
   getIdeChatActivity.mock.mockImplementation(() => activityActive);
+  getChatActivity.mock.mockImplementation(() => activityIdle);
 
   const result = await watchIdeChat({
     sessionIndex: 2,
     followUpPrompt: "Continue.",
     cwd: process.cwd(),
+    pollIntervalMs: 10,
+    idleStableMs: 10,
   });
 
   assert.equal(result.wasAlreadyIdle, false);
-  assert.equal(waitForChatIdle.mock.callCount(), 1);
+  assert.ok(getChatActivity.mock.callCount() >= 1);
   assert.equal(sendToIdeChat.mock.callCount(), 1);
   assert.equal(result.followUp?.result, "continued");
 });
 
 test("watchIdeChat sends immediately when already idle", async () => {
-  waitForChatIdle.mock.resetCalls();
+  getChatActivity.mock.resetCalls();
   sendToIdeChat.mock.resetCalls();
   getIdeChatActivity.mock.mockImplementation(() => activityIdle);
 
@@ -95,12 +98,12 @@ test("watchIdeChat sends immediately when already idle", async () => {
   });
 
   assert.equal(result.wasAlreadyIdle, true);
-  assert.equal(waitForChatIdle.mock.callCount(), 0);
+  assert.equal(getChatActivity.mock.callCount(), 0);
   assert.equal(sendToIdeChat.mock.callCount(), 1);
 });
 
 test("watchIdeChat only waits when no follow-up and already idle", async () => {
-  waitForChatIdle.mock.resetCalls();
+  getChatActivity.mock.resetCalls();
   sendToIdeChat.mock.resetCalls();
   getIdeChatActivity.mock.mockImplementation(() => activityIdle);
 
@@ -110,6 +113,6 @@ test("watchIdeChat only waits when no follow-up and already idle", async () => {
   });
 
   assert.equal(result.wasAlreadyIdle, true);
-  assert.equal(waitForChatIdle.mock.callCount(), 0);
+  assert.equal(getChatActivity.mock.callCount(), 0);
   assert.equal(sendToIdeChat.mock.callCount(), 0);
 });

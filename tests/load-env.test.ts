@@ -2,16 +2,11 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mock, test } from "node:test";
-
-mock.module("../src/agent-cli.js", {
-  namedExports: { isAgentCliLoggedIn: async () => false },
-});
+import { test } from "node:test";
 
 const { parseDotenv, hasCursorApiKey, findNvmNodeBin, resolveWorkerNodeBin } = await import(
   "../src/load-env.js"
 );
-const { resolveHonestWorkerMode, workerAuthHint } = await import("../src/worker-auth.js");
 
 test("parseDotenv reads KEY=VALUE lines", () => {
   const parsed = parseDotenv("# comment\nCURSOR_API_KEY=test_key\nFOO=\"bar\"\n");
@@ -22,27 +17,6 @@ test("parseDotenv reads KEY=VALUE lines", () => {
 test("hasCursorApiKey detects non-empty key", () => {
   assert.equal(hasCursorApiKey({ CURSOR_API_KEY: "x" }), true);
   assert.equal(hasCursorApiKey({ CURSOR_API_KEY: "  " }), false);
-});
-
-test("resolveHonestWorkerMode falls back to ide without auth", async () => {
-  const mode = await resolveHonestWorkerMode("sdk", {});
-  assert.equal(mode, "ide");
-});
-
-test("resolveHonestWorkerMode keeps sdk when api key present", async () => {
-  const mode = await resolveHonestWorkerMode("sdk", { CURSOR_API_KEY: "test-key" });
-  assert.equal(mode, "sdk");
-});
-
-test("resolveHonestWorkerMode hybrid falls back to ide without auth", async () => {
-  const mode = await resolveHonestWorkerMode("hybrid", {});
-  assert.equal(mode, "ide");
-});
-
-test("workerAuthHint describes auth source", () => {
-  assert.match(workerAuthHint({ apiKey: true, cli: true, sdk: true }), /CURSOR_API_KEY/);
-  assert.match(workerAuthHint({ apiKey: false, cli: true, sdk: true }), /detached fleet workers require CURSOR_API_KEY/);
-  assert.match(workerAuthHint({ apiKey: false, cli: false, sdk: false }), /falling back to IDE/);
 });
 
 test("resolveWorkerNodeBin prefers explicit override", () => {

@@ -1,6 +1,6 @@
 {
   "name": "cursor-meta-mcp",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "description": "Local-only MCP server: browse Cursor chat history, steer IDE chats, and spawn/intercept local SDK agents",
   "type": "module",
   "bin": {
@@ -16,25 +16,11 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=79 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --test-coverage-exclude=src/history-store.ts --test-coverage-exclude=src/chat-activity.ts --test-coverage-exclude=src/agent-cli.ts --test-coverage-exclude=src/relentless-loop.ts --test-coverage-exclude=src/sdk-worker.ts --import tsx tests/*.test.ts",
-    "test:fast": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx tests/*.test.ts",
-    "test:files": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" CURSOR_META_SKIP_TICK_TESTS=1 node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx",
+    "test": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-coverage --experimental-test-module-mocks --test-coverage-lines=79 --test-coverage-include=src/** --test-coverage-exclude=src/index.ts --test-coverage-exclude=src/history-store.ts --test-coverage-exclude=src/chat-activity.ts --test-coverage-exclude=src/agent-cli.ts --import tsx tests/*.test.ts",
+    "test:fast": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx tests/*.test.ts",
+    "test:files": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx",
     "test:coverage": "npm test",
-    "test:logged": "node --import tsx scripts/run-tests-logged.mjs",
-    "sentiment": "node scripts/sentiment-analysis.mjs",
-    "sentiment:classify": "node scripts/sentiment-classify.mjs",
-    "relentless": "node --import tsx scripts/relentless-loop.mjs",
-    "pulse": "node --import tsx scripts/consciousness-pulse.mjs",
-    "long-session": "node --import tsx scripts/long-session.mjs",
-    "sdk-worker": "node --import tsx scripts/sdk-worker.mjs",
-    "experiments": "node --import tsx scripts/launch-experiments.mjs",
-    "honest-fleet": "node --import tsx scripts/honest-fleet.mjs",
-    "mission": "node --import tsx scripts/mission.mjs",
-    "fleet:preflight": "node --import tsx scripts/fleet-preflight.mjs",
-    "watch-experiments": "node --import tsx scripts/watch-experiments.mjs",
-    "strategy-review": "node --import tsx scripts/strategy-review-loop.mjs --once",
-    "dashboard": "node --import tsx scripts/dashboard-server.mjs",
-    "agi": "node --import tsx scripts/agi.mjs"
+    "test:logged": "node --import tsx scripts/run-tests-logged.mjs"
   },
   "keywords": [
     "mcp",
@@ -48,7 +34,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^11.10.0",
     "cursor-history": "^0.9.1",
-    "lucide": "^1.27.0",
     "zod": "^3.25.1"
   },
   "devDependencies": {

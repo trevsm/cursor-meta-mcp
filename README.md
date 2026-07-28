@@ -1,6 +1,8 @@
 # cursor-meta-mcp
 
-Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for Cursor. Lets an agent **browse your past Cursor chats**, **monitor and steer active IDE conversations**, and **spawn or intercept local SDK agents** on your machine — no cloud agents.
+Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for Cursor. Lets an agent **browse your past Cursor chats**, **monitor active IDE conversations**, and **manually steer IDE chats or local SDK agents** on your machine — no cloud agents.
+
+For autonomous orchestration (fleets, missions, pulse loops, AGI mode), use the [`orchestration`](./orchestration) branch.
 
 ## What it does
 
@@ -12,13 +14,6 @@ Local-only [Model Context Protocol](https://modelcontextprotocol.io/) server for
 | **Spawn** | Run local Cursor agents via `@cursor/sdk` or the Cursor Agent CLI |
 | **Intercept SDK** | Cancel in-progress SDK runs and send steering follow-ups |
 | **Continue** | Load a past chat as context, then start a new local agent |
-| **Relentless loop** | Work → self-judge → retry until approved or max iterations |
-| **Sentiment analysis** | Multi-axis frustration/confusion scoring over chat history |
-| **Consciousness pulse** | Live scan for active chats, frustration risk, orchestration plays |
-| **Auto-orchestrate** | Execute pulse WATCH/CONTINUE/INTERCEPT/SPAWN recommendations |
-| **Mission** | One-call goal + success criteria → relentless loop until done |
-| **Long session** | Wall-clock autonomous IDE chat: idle → follow-up → repeat with checkpoints |
-| **Self-improve fleet** | One-call worker fleet + orchestrator + watcher + strategy reviewer for autonomous repo improvement |
 
 All history reads stay on disk. Model calls still go through Cursor's API (local runtime, not Cursor cloud VMs).
 
@@ -46,15 +41,6 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_list_active_runs` | List in-progress local SDK runs |
 | `meta_get_run` | Fetch run status/result |
 | `meta_cancel_run` | Cancel an in-progress run |
-| `meta_relentless_loop` | Self-critique loop: work → judge → retry until approved |
-| `meta_sentiment_analysis` | Frustration/confusion/satisfaction scoring over chat history |
-| `meta_consciousness_pulse` | Live orchestration scan with WATCH/INTERCEPT/CONTINUE recommendations |
-| `meta_orchestrate_pulse` | Run pulse scan and auto-execute allowed orchestration plays |
-| `meta_orchestrate_loop` | Repeat orchestrate pulse until idle or maxCycles |
-| `meta_mission` | Goal + success criteria → worker/critic loop until approved |
-| `meta_long_session` | Keep an IDE chat working for a duration (spawn + checkpoint by default) |
-| `meta_self_improve` | Launch worker long-sessions + orchestrator + watcher + strategy reviewer (conductor excluded) |
-| `meta_strategy_review` | Dimension-4 meta-critic: onTrack, pivot, spawn, kill from goal + transcript + git diff |
 | `meta_whoami` | Verify auth (API key or CLI login) |
 
 ## Requirements
@@ -93,7 +79,7 @@ Add to `~/.cursor/mcp.json`:
       "envFile": "${userHome}/.cursor/.env",
       "env": {
         "CURSOR_API_KEY": "${env:CURSOR_API_KEY}",
-        "CURSOR_META_DEFAULT_MODEL": "composer-2.5"
+        "CURSOR_META_DEFAULT_MODEL": "composer-2.5-fast"
       }
     }
   }
@@ -109,14 +95,6 @@ Optional secrets file `~/.cursor/.env`:
 Reload Cursor (`Cmd+Shift+P` → **Reload Window**), then enable **cursor-meta** under **Customize → MCP**.
 
 ## Usage in chat
-
-**Start here** — one high-level call instead of picking tools:
-
-```
-Mission: add meta_mission with tests. Done when npm test passes and changes are committed.
-
-Self-improve: stand up autonomous worker fleet on this repo for 2 hours — no user moves.
-```
 
 Ask in natural language — the agent picks tools automatically:
 
@@ -136,130 +114,7 @@ List active IDE chats and intercept chat #1 with "stop exploring, implement the 
 Watch chat #3 until idle, then send "continue with the next step"
 
 Cancel SDK run run-abc and steer agent agent-xyz to fix tests only
-
-Relentless loop: fix all failing tests in this repo — keep going until you approve your own work
-
-Run sentiment analysis on my chat history — show top frustrated messages and false-completion patterns
 ```
-
-### Relentless self-critique loop
-
-`meta_relentless_loop` implements **work → judge → retry**:
-
-1. **Worker** runs the task (SDK agent or IDE chat via `--resume`).
-2. **Critic** (separate read-only pass) scores the output as JSON: `{ approved, score, issues, nextPrompt }`.
-3. If not approved, the worker gets `nextPrompt` and tries again — up to `maxIterations` (default 8).
-
-**SDK mode** (default — best with `CURSOR_API_KEY` so the worker persists via `Agent.resume`):
-
-```json
-{
-  "task": "Implement meta_watch_chat with tests",
-  "cwd": "/Users/you/project",
-  "maxIterations": 8,
-  "approvalScore": 85
-}
-```
-
-**IDE mode** (watch sidebar chat until idle between passes):
-
-```json
-{
-  "task": "Continue sentiment analysis — add MCP tool",
-  "cwd": "/Users/you/project",
-  "target": "ide",
-  "sessionIndex": 5,
-  "idleStableMs": 3000
-}
-```
-
-CLI runner (after `npm run build`):
-
-```bash
-node scripts/relentless-loop.mjs "Fix failing tests" /path/to/project
-node scripts/relentless-loop.mjs --ide --session 5 "Continue work" /path/to/project
-```
-
-### Long-running IDE sessions
-
-`meta_long_session` keeps an IDE chat working for a wall-clock duration: when idle, send a follow-up prompt; when busy, skip and retry. Checkpoints land under `~/.cursor-meta/long-sessions/` (or a custom `checkpointPath`).
-
-**Prefer `spawn=true` (default)** so the driver detaches and survives MCP timeouts:
-
-```json
-{
-  "cwd": "/Users/you/project",
-  "sessionIndex": 2,
-  "durationMs": 7200000,
-  "tickIntervalMs": 60000,
-  "prompt": "Keep improving autonomously. Verify with npm test."
-}
-```
-
-Read progress later with `readCheckpoint: true` (same `checkpointPath` / session target).
-
-CLI (after `npm run build`):
-
-```bash
-npm run long-session -- --session 2 --cwd /path/to/project --duration 2h
-npm run long-session -- --session-id UUID --cwd . --duration 30m --prompt "Keep adding tests"
-```
-
-Busy and missing-session skips do not burn the consecutive-error budget (chat still working, or SQLite/CLI lag after create). Soft idle-wait timeouts do; hard failures stop immediately.
-
-Optional knobs: `continueOnBusy` / `continueOnTimeout` (default true), `maxConsecutiveErrors` (default 8). Set `continueOnTimeout: false` to stop on the first idle-wait timeout.
-
-### Self-improve fleet
-
-`meta_self_improve` is the one-call autopilot: creates a dedicated worker IDE chat, attaches `meta_long_session` loops to chosen tabs, starts orchestrator + fleet watcher + **strategy reviewer (dimension 4)**, and injects pulse-aware prompts. The conductor session (default `#1`) is excluded from orchestration.
-
-```json
-{
-  "cwd": "/Users/you/Projects/cursor-meta-mcp",
-  "excludeSessionIndex": 1,
-  "workerSessionIndexes": [2, 9],
-  "durationMs": 7200000,
-  "goal": "Autonomously improve this repo with verified npm test on every tick"
-}
-```
-
-### Strategy review (dimension 4)
-
-`meta_strategy_review` asks whether the fleet is working on the **right problem** — not just whether output is polished. It reads goal, transcript tail, `git diff --stat`, pulse signals, and worker checkpoints. Returns `{ onTrack, pivot, spawn, kill }`.
-
-Heuristics always run (no API key needed). When `CURSOR_API_KEY` is set, an LLM critic merges with heuristics. The self-improve fleet runs this automatically every 5 minutes and intercepts workers when off-track.
-
-CLI: `npm run strategy-review -- --cwd . --once`
-
-### Fleet operations research
-
-Prior art, pitfalls, and dead ends: [`docs/autonomous-fleet-research.md`](docs/autonomous-fleet-research.md)
-
-### Honest loop fleet
-
-Phase-1 autonomous mode — one SDK worker in a git worktree, ground-truth verification, lessons feed-forward:
-
-```bash
-# Prefer an external repo (avoids meta-churn on cursor-meta-mcp itself)
-export CURSOR_META_FLEET_CWD=/path/to/your-app
-npm run honest-fleet
-npm run dashboard
-```
-
-Ground-truth gate compares structured tick reports (`Tick report:` JSON footer) against git + `npm run test:fast`. Prose claims are ignored. Test-only ticks count at most 1 per 3 feature ticks. Lessons land in `~/.cursor-meta/world/learnings.md`.
-
-### Fleet dashboard
-
-Local web UI for fleet visibility — budget, processes, live pulse, strategy review, and log tails:
-
-```bash
-npm run dashboard
-# → http://127.0.0.1:3847
-```
-
-Reads `~/.cursor-meta/experiments/` and refreshes every 4 seconds. Options: `--port 3847`, `--workspace cursor-meta-mcp`, `--meta-dir ~/.cursor-meta`.
-
-CLI: `npm run experiments` (uses `tsx` so source changes apply without rebuilding `dist/`).
 
 ### Session indexes
 
@@ -275,6 +130,17 @@ CLI: `npm run experiments` (uses `tsx` so source changes apply without rebuildin
 
 History tools work without either.
 
+## Orchestration branch
+
+Autonomous features (`meta_mission`, `meta_self_improve`, pulse loops, fleet dashboard, AGI mode, etc.) live on the **`orchestration`** branch:
+
+```bash
+git checkout orchestration
+npm install && npm run build
+```
+
+Point your MCP config at that checkout when you want the full orchestration stack.
+
 ## Development
 
 ```bash
@@ -282,8 +148,6 @@ npm run build
 npm test
 node scripts/test-mcp.mjs
 ```
-
-Long-session / experiment CLIs load TypeScript via `tsx` (`node --import tsx …`) so source changes apply without rebuilding `dist/` first. The MCP server entrypoint still uses `dist/` (`npm run build`).
 
 Smoke-test via MCP Inspector:
 

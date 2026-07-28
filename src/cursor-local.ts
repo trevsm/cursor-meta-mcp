@@ -15,12 +15,6 @@ import {
   shouldUseAgentCliFallback,
 } from "./agent-cli.js";
 import { appendRunEvent } from "./run-events.js";
-import {
-  assertBudgetAllowed,
-  recordBudgetEvent,
-  recordSdkRunComplete,
-  recordSpawn,
-} from "./plan-budget.js";
 
 export type ConversationMode = "agent" | "plan" | "ask";
 export type McpServerInput = McpServerConfig;
@@ -60,7 +54,7 @@ export interface FollowUpParams {
   prompt: string;
   model?: string;
   cwd?: string;
-  /** Dashboard label for this run (inherits from Agent.create name). */
+  /** Human-readable spawn label for run event logs. */
   name?: string;
 }
 
@@ -344,9 +338,6 @@ export class CursorLocalService implements LocalAgentService {
   }
 
   async runLocalAgent(params: RunLocalAgentParams, hooks?: RunHooks): Promise<AgentRunResult> {
-    assertBudgetAllowed("spawn_sdk");
-    recordSpawn("spawn_sdk", params.name ?? "runLocalAgent");
-
     const auth = await this.ensureSpawnAuth();
     if (auth === "cli") {
       const cwd = this.normalizeCwd(params.cwd);
@@ -381,13 +372,7 @@ export class CursorLocalService implements LocalAgentService {
     });
     try {
       const run = await agent.send(params.prompt);
-      const result = await this.driveRun(agent.agentId, run, hooks, params.name);
-      recordSdkRunComplete({
-        durationMs: result.durationMs,
-        model: result.model ?? params.model ?? this.defaultModel,
-        source: params.name ?? "runLocalAgent",
-      });
-      return result;
+      return this.driveRun(agent.agentId, run, hooks, params.name);
     } finally {
       await disposeAgent(agent);
     }
@@ -439,8 +424,6 @@ export class CursorLocalService implements LocalAgentService {
   }
 
   async followUp(params: FollowUpParams, hooks?: RunHooks): Promise<AgentRunResult> {
-    assertBudgetAllowed("follow_up_sdk");
-
     if (params.agentId === "cli-session" || shouldUseAgentCliFallback(this.apiKey)) {
       if (!(await isAgentCliLoggedIn())) {
         throw new Error("CLI follow-up requires ~/.local/bin/agent login.");
@@ -474,13 +457,7 @@ export class CursorLocalService implements LocalAgentService {
         params.prompt,
         params.model ? { model: { id: params.model } } : undefined,
       );
-      const result = await this.driveRun(agent.agentId, run, hooks, params.name);
-      recordSdkRunComplete({
-        durationMs: result.durationMs,
-        model: result.model ?? params.model ?? this.defaultModel,
-        source: params.name ?? "followUp",
-      });
-      return result;
+      return this.driveRun(agent.agentId, run, hooks, params.name);
     } finally {
       await disposeAgent(agent);
     }
