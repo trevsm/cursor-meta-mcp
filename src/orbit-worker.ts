@@ -5,7 +5,7 @@ import {
   claimNextMission,
   fileMission,
   formatMissionForPrompt,
-  landMission,
+  verifyMission,
   readMissions,
   stationId,
   summarizeStation,
@@ -99,7 +99,9 @@ export function finalizeOrbitTick(input: OrbitTickFinalizeInput): Mission | null
   const commitShas: string[] = [];
   if (headAfter) commitShas.push(headAfter);
 
-  const landed = landMission(
+  // Verified, not landed. The watcher promotes this once the branch actually
+  // merges — see landVerifiedMission.
+  const verified = verifyMission(
     ctx.station,
     mission.id,
     {
@@ -111,7 +113,7 @@ export function finalizeOrbitTick(input: OrbitTickFinalizeInput): Mission | null
     ctx.metaDir,
   );
 
-  return landed.mission ?? getMissionFresh(ctx, mission.id);
+  return verified.mission ?? getMissionFresh(ctx, mission.id);
 }
 
 function getMissionFresh(ctx: OrbitTickContext, id: string): Mission | null {

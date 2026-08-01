@@ -28,6 +28,11 @@ import {
   fleetModelRequiresCli,
   isModelRejectedError,
 } from "./fleet-model.js";
+import {
+  describeUnreachableExports,
+  findUnreachableExports,
+  unwiredExports,
+} from "./reachability.js";
 import { probeWorkerAuth, workerAuthHint } from "./worker-auth.js";
 import {
   finalizeOrbitTick,
@@ -182,6 +187,41 @@ export function buildTickPrompt(
   const lines = [CONTINUATION_PROMPT];
   if (batchReminder) lines.push(batchReminder);
   return `${missionPrefix}${lines.join("\n\n")}`;
+}
+
+/**
+ * Blocks a tick that introduced exports nothing in production calls.
+ *
+ * Runs only on ticks that committed: an uncommitted tree has no diff range to
+ * audit, and a mid-slice tick may legitimately not have wired things up yet.
+ */
+function auditReachability(
+  cwd: string,
+  sinceRef: string | undefined,
+  outcome: TickOutcome | undefined,
+): { violations: string[]; blocked: boolean; correctionPrompt?: string } {
+  if (!sinceRef || !outcome?.committed) return { violations: [], blocked: false };
+
+  let unwired: ReturnType<typeof unwiredExports>;
+  try {
+    unwired = unwiredExports(findUnreachableExports(cwd, sinceRef));
+  } catch {
+    return { violations: [], blocked: false };
+  }
+
+  if (unwired.length === 0) return { violations: [], blocked: false };
+
+  const violations = describeUnreachableExports(unwired);
+  return {
+    violations,
+    blocked: true,
+    correctionPrompt: [
+      "[Reachability gate] This tick added code that nothing calls:",
+      ...violations.map((v) => `- ${v}`),
+      "Tests exercising a module are not the same as the product using it.",
+      "Either call it from the production path the mission describes, or delete it.",
+    ].join("\n"),
+  };
 }
 
 function mergeGroundTruthAudits(
@@ -394,7 +434,16 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
           sliceComplete,
         });
         const batchPush = auditBatchPush(state.ticks, entry.outcome, batchPolicy);
-        entry.groundTruth = mergeGroundTruthAudits(groundTruth, batchCommit, batchPush);
+        // Tests passing says the code works in isolation, not that anything
+        // calls it. Without this a fully-tested module can land wired to
+        // nothing and the gate reports success.
+        const reachability = auditReachability(state.cwd, repoBefore.head, entry.outcome);
+        entry.groundTruth = mergeGroundTruthAudits(
+          groundTruth,
+          batchCommit,
+          batchPush,
+          reachability,
+        );
         // A missing footer on measured, verified work still blocks the next
         // prompt (correction) but does not zero the tick — git+tests outrank
         // footer compliance. Fabricated claims and batch-policy breaks do.

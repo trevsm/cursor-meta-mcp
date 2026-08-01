@@ -340,7 +340,12 @@ export function claimNextMission(
 
     // A coder that died mid-mission keeps its claim; hand it back on reconnect.
     const resumable = missions.find(
-      (mission) => mission.claimedBy === workerId && IN_FLIGHT.includes(mission.status),
+      // `verified` is deliberately excluded: that work is done and waiting on a
+      // merge, so handing it back would put the coder straight into a loop
+      // re-doing finished work.
+      (mission) =>
+        mission.claimedBy === workerId &&
+        (mission.status === "claimed" || mission.status === "active"),
     );
     if (resumable) return resumable;
 
@@ -404,6 +409,48 @@ export function blockMission(
  * ground truth already enforces. A mission without a commit and a passing verify
  * run stays open.
  */
+/**
+ * Records verified evidence without declaring the mission landed.
+ *
+ * A coder can only prove things about its own worktree. Whether that work
+ * reached the base branch is the watcher's observation, not the coder's — a
+ * mission that lands on the strength of a local commit reports success for work
+ * that may be sitting on a branch whose merge failed.
+ */
+export function verifyMission(
+  station: string,
+  id: string,
+  evidence: MissionEvidence,
+  metaDir?: string,
+): MissionUpdateResult {
+  const problems: string[] = [];
+  if (!evidence.commits?.length && !evidence.verifyOnly) problems.push("no commits recorded");
+  if (!evidence.tests?.passed) problems.push("verify command did not pass");
+  if (problems.length) {
+    return {
+      mission: getMission(station, id, metaDir),
+      error: `Cannot verify ${id}: ${problems.join("; ")}`,
+    };
+  }
+
+  return updateMission(station, id, { status: "verified", evidence }, metaDir);
+}
+
+/** Promotes verified work to landed once it is merged into the base branch. */
+export function landVerifiedMission(
+  station: string,
+  id: string,
+  metaDir?: string,
+): MissionUpdateResult {
+  const mission = getMission(station, id, metaDir);
+  if (!mission) return { mission: null, error: `Unknown mission ${id}` };
+  if (mission.status === "landed") return { mission };
+  if (mission.status !== "verified") {
+    return { mission, error: `Cannot land ${id} from status ${mission.status}` };
+  }
+  return updateMission(station, id, { status: "landed" }, metaDir);
+}
+
 export function landMission(
   station: string,
   id: string,

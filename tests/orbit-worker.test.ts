@@ -11,7 +11,12 @@ import {
   prepareOrbitTick,
   workerIdFromCheckpoint,
 } from "../src/orbit-worker.js";
-import { fileMission, readMissions, summarizeStation } from "../src/orbit-ledger.js";
+import {
+  fileMission,
+  landVerifiedMission,
+  readMissions,
+  summarizeStation,
+} from "../src/orbit-ledger.js";
 
 function freshMeta(): string {
   return mkdtempSync(join(tmpdir(), "orbit-worker-"));
@@ -90,12 +95,12 @@ test("finalizeOrbitTick blocks mission on SDK rate limit", () => {
   assert.equal(stored?.status, "blocked");
 });
 
-test("finalizeOrbitTick lands when verify passes and tick report claims done", () => {
+test("finalizeOrbitTick verifies but does not land — landing waits on the merge", () => {
   const metaDir = freshMeta();
   const mission = fileMission({ station, title: "Lint", intent: "why" }, metaDir);
   prepareOrbitTick(ctx(metaDir));
 
-  finalizeOrbitTick({
+  const result = finalizeOrbitTick({
     ctx: ctx(metaDir),
     mission,
     outcome: {
@@ -105,5 +110,36 @@ test("finalizeOrbitTick lands when verify passes and tick report claims done", (
     tickReportDone: true,
   });
 
+  assert.equal(result?.status, "verified");
+  assert.equal(
+    summarizeStation(station, metaDir).landed,
+    0,
+    "a coder proves its own worktree; only the watcher can see the work reach the base branch",
+  );
+});
+
+test("landVerifiedMission promotes verified work once the branch merges", () => {
+  const metaDir = freshMeta();
+  const mission = fileMission({ station, title: "Lint", intent: "why" }, metaDir);
+  prepareOrbitTick(ctx(metaDir));
+  finalizeOrbitTick({
+    ctx: ctx(metaDir),
+    mission,
+    outcome: { commits: 0, tests: { passed: true, command: "pnpm test" } },
+    tickReportDone: true,
+  });
+
+  const promoted = landVerifiedMission(station, mission.id, metaDir);
+  assert.equal(promoted.error, undefined);
+  assert.equal(promoted.mission?.status, "landed");
   assert.equal(summarizeStation(station, metaDir).landed, 1);
+});
+
+test("landVerifiedMission refuses to promote work that was never verified", () => {
+  const metaDir = freshMeta();
+  const mission = fileMission({ station, title: "Lint", intent: "why" }, metaDir);
+
+  const promoted = landVerifiedMission(station, mission.id, metaDir);
+  assert.match(promoted.error ?? "", /Cannot land/);
+  assert.equal(summarizeStation(station, metaDir).landed, 0);
 });

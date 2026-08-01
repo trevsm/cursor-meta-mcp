@@ -31,7 +31,7 @@ import {
 } from "../src/fleet-metrics.js";
 import { appendExperimentLog, formatWatchLogLine } from "../src/experiment-log.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
-import { blockMission, readMissions, stationId } from "../src/orbit-ledger.js";
+import { blockMission, landVerifiedMission, readMissions, stationId } from "../src/orbit-ledger.js";
 import { orbitMetaDirForFleet } from "../src/orbit-worker.js";
 import { resolveFleetCiPolicy } from "../src/fleet-ci-policy.js";
 import { watchGithubCi } from "../src/github-ci-watch.js";
@@ -78,6 +78,32 @@ function blockMissionsHeldBy(repoRoot, workerName, reason, metaDir) {
     );
     for (const mission of held) blockMission(station, mission.id, reason, orbitMeta);
     return held.map((m) => m.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Promotes a coder's verified missions to landed once its branch is merged.
+ *
+ * A coder can only prove things about its own worktree, so it stops at
+ * `verified`. Whether that work reached the base branch is observable only
+ * here — this is the step that makes "landed" mean "in the branch you have
+ * checked out" rather than "committed somewhere with green tests".
+ */
+function landVerifiedMissionsHeldBy(repoRoot, workerName, metaDir) {
+  try {
+    const station = stationId(repoRoot);
+    const orbitMeta = orbitMetaDirForFleet(metaDir);
+    const verified = readMissions(station, orbitMeta).filter(
+      (m) => m.claimedBy === workerName && m.status === "verified",
+    );
+    const landed = [];
+    for (const mission of verified) {
+      const result = landVerifiedMission(station, mission.id, orbitMeta);
+      if (!result.error) landed.push(mission.id);
+    }
+    return landed;
   } catch {
     return [];
   }
@@ -334,6 +360,15 @@ async function watchOnce(manifest, relaunch) {
       // work sat on the fleet branch looking finished. Park the mission the
       // commits belong to, with the conflicting files named, so the operator
       // sees it and no coder reclaims the lane behind it.
+      if (entry.merge?.ok && entry.merge.merged) {
+        const landed = landVerifiedMissionsHeldBy(manifest.root, exp.name, META_DIR);
+        if (landed.length) {
+          appendLog(
+            `[${new Date().toISOString()}] landed after merge ${exp.name}: ${landed.join(", ")}`,
+          );
+        }
+      }
+
       if (entry.merge && !entry.merge.ok && !mergeBlockNotified.has(exp.name)) {
         mergeBlockNotified.add(exp.name);
         const files = conflictingFiles(manifest.root, worktree.branch);
