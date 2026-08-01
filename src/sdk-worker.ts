@@ -7,7 +7,12 @@ import { envForWorkers, resolveWorkerNodeBin } from "./load-env.js";
 
 import { archiveWorkerCheckpointIfNeeded } from "./checkpoint-archive.js";
 import { CursorLocalService, type LocalAgentService } from "./cursor-local.js";
-import { auditGroundTruth, TICK_REPORT_INSTRUCTION, type GroundTruthAudit } from "./ground-truth.js";
+import {
+  auditGroundTruth,
+  parseTickReport,
+  TICK_REPORT_INSTRUCTION,
+  type GroundTruthAudit,
+} from "./ground-truth.js";
 import { auditBatchCommit, auditBatchPush, formatBatchGitReminder, resolveCommitBatchPolicy } from "./fleet-commit-policy.js";
 import { markTickProductivity } from "./fleet-metrics.js";
 import { metaHome, metaPath } from "./meta-home.js";
@@ -427,7 +432,15 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
 
     if (!entry.error) {
       try {
-        entry.outcome = summarizeTickOutcome({ cwd: state.cwd, before: repoBefore, verify: verifyTests });
+        // A coder that finished on an earlier tick leaves a clean tree. Parse
+        // its claim first so verify still runs and the mission can prove green.
+        const claimsDone = parseTickReport(entry.lastAssistantTail)?.done === true;
+        entry.outcome = summarizeTickOutcome({
+          cwd: state.cwd,
+          before: repoBefore,
+          verify: verifyTests,
+          forceVerify: claimsDone,
+        });
         const priorOutcomes = state.ticks
           .map((t) => t.outcome)
           .filter((o): o is TickOutcome => o != null);
@@ -522,7 +535,11 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     // Convergence guard. A tick that is blocked and produced nothing has made no
     // progress and will get the same correction next time. Nothing counted these
     // before, so a worker stuck arguing with the gate span its whole window.
-    if (!entry.error && entry.groundTruth?.blocked && entry.outcome?.producedWork !== true) {
+    // Count every tick that changed nothing, not just blocked ones. A coder
+    // whose work is done but whose mission cannot verify reports done honestly
+    // and is handed the same mission back — unblocked, unproductive, forever.
+    // Counting only blocked ticks left that spin invisible.
+    if (!entry.error && entry.outcome?.producedWork !== true) {
       consecutiveBlocked += 1;
     } else {
       consecutiveBlocked = 0;

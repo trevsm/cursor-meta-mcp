@@ -272,6 +272,8 @@ export interface SummarizeTickParams {
   before: RepoSnapshot;
   /** Run tests only when the tick actually touched the repo. May return undefined to skip. */
   verify?: (cwd: string) => TestOutcome | undefined;
+  /** Run verify even on a clean tree — set when the coder reports done. */
+  forceVerify?: boolean;
 }
 
 export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
@@ -326,7 +328,14 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
     producedWork,
     changedPaths,
     testOnly,
-    tests: producedWork && params.verify ? params.verify(params.cwd) : undefined,
+    // Also verify when the coder claims the mission is finished. Work committed
+    // on an earlier tick leaves later ticks clean, and if verify only ran on
+    // dirty ticks that mission could never prove itself green — the coder would
+    // re-claim it and re-report done forever.
+    tests:
+      (producedWork || params.forceVerify === true) && params.verify
+        ? params.verify(params.cwd)
+        : undefined,
   };
 }
 

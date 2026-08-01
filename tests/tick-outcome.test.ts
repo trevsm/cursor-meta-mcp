@@ -194,3 +194,36 @@ test("summarizeTickOutcome marks push measurable when upstream tracking exists",
   const outcome = summarizeTickOutcome({ cwd: dir, before });
   assert.equal(outcome.pushMeasurable, true);
 });
+
+test("summarizeTickOutcome skips verify on a clean tick by default", () => {
+  const dir = initRepo();
+  const before = captureRepoSnapshot(dir);
+  let ran = 0;
+  const outcome = summarizeTickOutcome({
+    cwd: dir,
+    before,
+    verify: () => {
+      ran += 1;
+      return { ran: true, passed: true, durationMs: 1, command: "x" };
+    },
+  });
+  assert.equal(ran, 0);
+  assert.equal(outcome.tests, undefined);
+});
+
+test("summarizeTickOutcome verifies a clean tick when the coder reports done", () => {
+  const dir = initRepo();
+  const before = captureRepoSnapshot(dir);
+  let ran = 0;
+  const outcome = summarizeTickOutcome({
+    cwd: dir,
+    before,
+    forceVerify: true,
+    verify: () => {
+      ran += 1;
+      return { ran: true, passed: true, durationMs: 1, command: "x" };
+    },
+  });
+  assert.equal(ran, 1, "work committed on an earlier tick must still be able to prove itself green");
+  assert.equal(outcome.tests?.passed, true);
+});
