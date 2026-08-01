@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -63,15 +63,50 @@ test("syncWorktreeWithBase pulls in work merged to the base since the worktree f
   );
 });
 
-test("syncWorktreeWithBase leaves a dirty worktree alone mid-slice", () => {
+test("syncWorktreeWithBase backs out when pending work conflicts with the base", () => {
   const repo = initRepo();
   const root = mkdtempSync(join(tmpdir(), "wt-sync-dirty-"));
   const wt = createWorkerWorktree(repo, "sdk-worker", 2, root);
 
-  writeFileSync(join(wt.path, "in-progress.txt"), "half-written slice\n");
+  // A peer edits the same file this coder is midway through changing.
+  writeFileSync(join(repo, "a.txt"), "peer version\n");
+  execFileSync("git", ["add", "-A"], { cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "peer edits a.txt"], { cwd: repo, stdio: "ignore" });
+
+  writeFileSync(join(wt.path, "a.txt"), "half-written slice\n");
   const result = syncWorktreeWithBase(wt.path, "main");
 
   assert.equal(result.synced, false);
-  assert.match(result.reason ?? "", /uncommitted/);
-  assert.ok(existsSync(join(wt.path, "in-progress.txt")), "worker edits must survive");
+  assert.match(result.reason ?? "", /conflict/i);
+  assert.equal(
+    readFileSync(join(wt.path, "a.txt"), "utf8"),
+    "half-written slice\n",
+    "a failed sync must hand the coder back exactly the tree it had, not a half-merged one",
+  );
+});
+
+test("syncWorktreeWithBase picks up peer work even when the tree is dirty", () => {
+  const repo = initRepo();
+  const root = mkdtempSync(join(tmpdir(), "wt-sync-"));
+  const wt = createWorkerWorktree(repo, "sdk-worker", 1, root);
+
+  // A peer lands work on the base branch after this worktree forked.
+  writeFileSync(join(repo, "peer.txt"), "landed by another coder\n");
+  execFileSync("git", ["add", "-A"], { cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "peer work"], { cwd: repo, stdio: "ignore" });
+
+  // Batch-commit policy leaves this coder mid-slice with uncommitted work.
+  writeFileSync(join(wt.path, "in-progress.txt"), "not committed yet\n");
+
+  const result = syncWorktreeWithBase(wt.path, "main");
+
+  assert.equal(result.synced, true, result.reason);
+  assert.ok(
+    existsSync(join(wt.path, "peer.txt")),
+    "a dirty tree must not stop a worker from seeing dependencies that already landed",
+  );
+  assert.ok(
+    existsSync(join(wt.path, "in-progress.txt")),
+    "the coder's uncommitted work must survive the sync",
+  );
 });

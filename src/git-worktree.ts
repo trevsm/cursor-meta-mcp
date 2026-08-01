@@ -157,20 +157,47 @@ export function syncWorktreeWithBase(
 ): WorktreeSyncResult {
   const dirty = safeGit(worktreePath, ["status", "--porcelain"], { ignoreStderr: true });
   if (dirty === undefined) return { synced: false, reason: "worktree unavailable" };
-  if (dirty.trim().length > 0) {
-    return { synced: false, reason: "uncommitted changes — left alone mid-slice" };
+
+  // Batch-commit policy deliberately keeps work uncommitted across ticks, so a
+  // worktree is almost never clean at a mission boundary. Refusing to sync on a
+  // dirty tree therefore meant never syncing at all: workers built every mission
+  // after their first against launch-time HEAD, including missions whose
+  // dependencies had already landed. Stash across the merge instead.
+  const stashed = dirty.trim().length > 0;
+  if (stashed) {
+    const pushed = safeGit(worktreePath, ["stash", "push", "--include-untracked", "-m", "fleet-base-sync"], {
+      ignoreStderr: true,
+    });
+    if (pushed === undefined) return { synced: false, reason: "could not stash pending work" };
   }
 
-  const merged = safeGit(worktreePath, ["merge", "--ff-only", baseBranch], {
-    ignoreStderr: true,
-  });
-  if (merged !== undefined) return { synced: true };
+  const restore = (): void => {
+    if (stashed) safeGit(worktreePath, ["stash", "pop"], { ignoreStderr: true });
+  };
 
-  const noFf = safeGit(worktreePath, ["merge", "--no-edit", baseBranch], { ignoreStderr: true });
-  if (noFf !== undefined) return { synced: true };
+  const merged =
+    safeGit(worktreePath, ["merge", "--ff-only", baseBranch], { ignoreStderr: true }) ??
+    safeGit(worktreePath, ["merge", "--no-edit", baseBranch], { ignoreStderr: true });
 
-  safeGit(worktreePath, ["merge", "--abort"], { ignoreStderr: true });
-  return { synced: false, reason: `conflicts merging ${baseBranch}` };
+  if (merged === undefined) {
+    safeGit(worktreePath, ["merge", "--abort"], { ignoreStderr: true });
+    restore();
+    return { synced: false, reason: `conflicts merging ${baseBranch}` };
+  }
+
+  if (stashed) {
+    const popped = safeGit(worktreePath, ["stash", "pop"], { ignoreStderr: true });
+    if (popped === undefined) {
+      // Pending work now conflicts with what peers landed. Put the worktree back
+      // where the coder left it rather than handing it a half-merged tree.
+      safeGit(worktreePath, ["checkout", "--theirs", "."], { ignoreStderr: true });
+      safeGit(worktreePath, ["reset", "--hard", "HEAD@{1}"], { ignoreStderr: true });
+      safeGit(worktreePath, ["stash", "pop"], { ignoreStderr: true });
+      return { synced: false, reason: `pending work conflicts with ${baseBranch}` };
+    }
+  }
+
+  return { synced: true };
 }
 
 export function listWorktrees(repoRoot: string): WorktreeInfo[] {

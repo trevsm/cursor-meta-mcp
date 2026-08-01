@@ -85,6 +85,47 @@ function isReExportLine(line: string): boolean {
   return /^\s*export\s+(?:\*|\{[^}]*\})\s+from\s+/.test(line);
 }
 
+/** True when any non-test file imports this module by path. */
+function moduleHasProductionImporter(cwd: string, file: string): boolean {
+  const stem = file.replace(/\.[cm]?tsx?$/, "").split("/").pop();
+  if (!stem) return false;
+
+  const raw = git(cwd, [
+    "grep",
+    "--fixed-strings",
+    "--files-with-matches",
+    `/${stem}`,
+    "--",
+    "*.ts",
+    "*.tsx",
+    "*.mts",
+    "*.cts",
+  ]);
+  if (raw == null) return false;
+
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== file)
+    .some((importer) => !isTestPath(importer));
+}
+
+/** True when the declaring module itself calls the symbol beyond declaring it. */
+function usedWithinOwnFile(cwd: string, symbol: string, file: string): boolean {
+  const raw = git(cwd, ["show", `HEAD:${file}`]);
+  if (raw == null) return false;
+
+  const declaration = new RegExp(
+    `^\\s*export\\s+(?:async\\s+)?(?:function|const|class|let|var)\\s+${symbol}\\b`,
+  );
+  const usage = new RegExp(`\\b${symbol}\\b`);
+
+  return raw
+    .split("\n")
+    .filter((line) => !declaration.test(line))
+    .some((line) => usage.test(line));
+}
+
 function referencesOutside(
   cwd: string,
   symbol: string,
@@ -156,7 +197,14 @@ export function findUnreachableExports(
     for (const symbol of addedExports) {
       if (found.length >= limit) break;
       const refs = referencesOutside(cwd, symbol, file);
-      if (refs.productionRefs === 0) {
+      // A symbol its own module consumes is reachable through whatever wraps it;
+      // flagging it would fail the very refactor the gate is trying to provoke —
+      // extract a wrapper, wire the wrapper, keep the helper exported for tests.
+      // Same-file use only rescues a symbol if the module itself is reachable.
+      // A helper chain inside a module nobody imports is still entirely dead.
+      const internallyReachable =
+        usedWithinOwnFile(cwd, symbol, file) && moduleHasProductionImporter(cwd, file);
+      if (refs.productionRefs === 0 && !internallyReachable) {
         found.push({
           file,
           symbol,

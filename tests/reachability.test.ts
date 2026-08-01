@@ -122,3 +122,55 @@ test("changedSourceFiles skips test files and deletions", () => {
 
   assert.deepEqual(changedSourceFiles(dir, before), ["src/a.ts"]);
 });
+
+test("an export its own module consumes is not reported as unwired", () => {
+  const dir = initRepo();
+  write(
+    dir,
+    "src/geo.ts",
+    [
+      "export function deriveFacts(id: string) {",
+      "  return { id };",
+      "}",
+      "",
+      "export function applyFacts(id: string) {",
+      "  return { ...deriveFacts(id), applied: true };",
+      "}",
+    ].join("\n"),
+  );
+  write(dir, "src/panel.ts", 'import { applyFacts } from "./geo.js";\napplyFacts("p1");\n');
+  write(dir, "src/geo.test.ts", 'import { deriveFacts } from "./geo.js";\nderiveFacts("p1");\n');
+  const before = commitAll(dir, "extract a wrapper and wire it");
+
+  assert.deepEqual(
+    findUnreachableExports(dir, before).map((row) => row.symbol),
+    [],
+    "wrapping a helper and wiring the wrapper is the fix the gate asks for, not a new violation",
+  );
+});
+
+test("an internal helper chain in a module nobody imports is still dead", () => {
+  const dir = initRepo();
+  write(
+    dir,
+    "src/orphan.ts",
+    [
+      "export function inner(id: string) {",
+      "  return { id };",
+      "}",
+      "",
+      "export function outer(id: string) {",
+      "  return inner(id);",
+      "}",
+    ].join("\n"),
+  );
+  write(dir, "src/orphan.test.ts", 'import { inner, outer } from "./orphan.js";\ninner("a");\nouter("b");\n');
+  const before = commitAll(dir, "module with an internal chain and no importer");
+
+  const flagged = findUnreachableExports(dir, before).map((row) => row.symbol).sort();
+  assert.deepEqual(
+    flagged,
+    ["inner", "outer"],
+    "internal calls must not rescue a module that no production file imports",
+  );
+});

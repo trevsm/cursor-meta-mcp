@@ -503,6 +503,7 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
           error: entry.error,
           outcome: entry.outcome,
           tickReportDone: entry.groundTruth?.tickReport?.done === true,
+          gateBlocked: entry.groundTruth?.blocked === true,
         });
       } catch {
         /* best-effort */

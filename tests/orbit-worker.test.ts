@@ -143,3 +143,24 @@ test("landVerifiedMission refuses to promote work that was never verified", () =
   assert.match(promoted.error ?? "", /Cannot land/);
   assert.equal(summarizeStation(station, metaDir).landed, 0);
 });
+
+test("finalizeOrbitTick refuses to verify a tick the ground-truth gate blocked", () => {
+  const metaDir = freshMeta();
+  const mission = fileMission({ station, title: "Lint", intent: "why" }, metaDir);
+  prepareOrbitTick(ctx(metaDir));
+
+  const result = finalizeOrbitTick({
+    ctx: ctx(metaDir),
+    mission,
+    outcome: { commits: 1, tests: { passed: true, command: "pnpm test" } },
+    tickReportDone: true,
+    gateBlocked: true,
+  });
+
+  assert.notEqual(
+    result?.status,
+    "verified",
+    "green tests do not override a gate rejection — that would ship what the gate just refused",
+  );
+  assert.equal(summarizeStation(station, metaDir).landed, 0);
+});

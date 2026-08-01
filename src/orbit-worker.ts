@@ -76,11 +76,22 @@ export interface OrbitTickFinalizeInput {
     tests?: { passed?: boolean; command?: string };
   };
   tickReportDone?: boolean;
+  /**
+   * True when the ground-truth gate rejected this tick.
+   *
+   * Green tests are necessary but not sufficient: a tick can pass verification
+   * and still be rejected for adding code nothing calls, or for breaking commit
+   * policy. Verifying the mission anyway would ship exactly what the gate just
+   * refused.
+   */
+  gateBlocked?: boolean;
 }
 
 /** Update mission state after a tick — block on infra errors, land on verified completion. */
 export function finalizeOrbitTick(input: OrbitTickFinalizeInput): Mission | null {
-  const { ctx, mission, error, outcome, tickReportDone } = input;
+  const { ctx, mission, error, outcome, tickReportDone, gateBlocked } = input;
+
+  if (gateBlocked) return getMissionFresh(ctx, mission.id);
 
   if (error) {
     if (/SDK run rate/i.test(error)) {
