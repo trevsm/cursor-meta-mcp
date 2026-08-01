@@ -486,6 +486,7 @@ async function launchFleetProcesses(
       const checkpointPath = join(metaDir, `${name}.json`);
       const sdkCfg: SdkWorkerParams = {
         cwd: workerCwd,
+        workerIndex: i + 1,
         baseBranch: fleetBaseBranch,
         durationMs,
         tickIntervalMs: resolveTickIntervalMs(),

@@ -28,6 +28,7 @@ import {
   fleetModelRequiresCli,
   isModelRejectedError,
 } from "./fleet-model.js";
+import { describeWorkerPorts, resolveWorkerPortEnv } from "./worker-ports.js";
 import {
   describeUnreachableExports,
   findUnreachableExports,
@@ -47,6 +48,8 @@ import { syncWorktreeWithBase } from "./git-worktree.js";
 
 export interface SdkWorkerParams {
   cwd: string;
+  /** 1-based position in the fleet; selects this worker's port block. */
+  workerIndex?: number;
   /** Wall-clock budget. Default 2 hours. */
   durationMs?: number;
   tickIntervalMs?: number;
@@ -659,11 +662,20 @@ export function spawnSdkWorker(params: SdkWorkerParams): SpawnSdkWorkerResult {
   writeFileSync(logPath, `[${new Date().toISOString()}] sdk worker starting\n`, { flag: "a" });
   const out = openSync(logPath, "a");
   const nodeBin = resolveWorkerNodeBin();
+  // Verify runs as a child of this process and inherits its environment, so a
+  // port block assigned here reaches whatever server the verify command starts.
+  const portEnv = resolveWorkerPortEnv(params.workerIndex ?? 1);
+  writeFileSync(
+    logPath,
+    `[${new Date().toISOString()}] ${describeWorkerPorts(params.workerIndex ?? 1)}\n`,
+    { flag: "a" },
+  );
+
   const child = spawn(nodeBin, command, {
     cwd: packageRoot,
     detached: true,
     stdio: ["ignore", out, out],
-    env: envForWorkers(),
+    env: { ...envForWorkers(), ...portEnv },
   });
   child.unref();
 
