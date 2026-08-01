@@ -31,7 +31,13 @@ import {
 } from "../src/fleet-metrics.js";
 import { appendExperimentLog, formatWatchLogLine } from "../src/experiment-log.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
-import { blockMission, landVerifiedMission, readMissions, stationId } from "../src/orbit-ledger.js";
+import {
+  blockMission,
+  fileMission,
+  landVerifiedMission,
+  readMissions,
+  stationId,
+} from "../src/orbit-ledger.js";
 import { orbitMetaDirForFleet } from "../src/orbit-worker.js";
 import { resolveFleetCiPolicy } from "../src/fleet-ci-policy.js";
 import { watchGithubCi } from "../src/github-ci-watch.js";
@@ -106,6 +112,53 @@ function landVerifiedMissionsHeldBy(repoRoot, workerName, metaDir) {
     return landed;
   } catch {
     return [];
+  }
+}
+
+/**
+ * Turn a red CI run into claimable work.
+ *
+ * The watcher has polled GitHub Actions all along and written the result into a
+ * status blob nobody reads — observing a failure and doing nothing with it. The
+ * fleet cannot notice on its own either: workers never push, so CI never runs on
+ * their branches, and their gate checks different things than CI does. Filing
+ * the mission is the only step that was missing.
+ */
+function fileCiFailureMission(repoRoot, githubCi, metaDir) {
+  const failed = (githubCi?.runs ?? []).find((run) => run.conclusion === "failure");
+  if (!failed) return null;
+
+  try {
+    const station = stationId(repoRoot);
+    const orbitMeta = orbitMetaDirForFleet(metaDir);
+    const marker = `ci-run:${failed.id}`;
+
+    // Survives watcher restarts: the ledger, not a Set, is the dedupe key.
+    const already = readMissions(station, orbitMeta).some((m) => m.intent.includes(marker));
+    if (already) return null;
+
+    const mission = fileMission(
+      {
+        station,
+        title: `Fix failing CI: ${failed.title ?? "Actions run"}`.slice(0, 120),
+        intent: [
+          `GitHub Actions run ${failed.id} failed on ${githubCi.branch ?? "the fleet branch"}.`,
+          `Local verify and CI check different things, so this is invisible to the tick gate.`,
+          `Run: ${failed.url ?? "(no url)"}`,
+          marker,
+        ].join(" "),
+        acceptance: [
+          "the job that failed passes locally under the same command CI runs",
+          "the fix addresses the failure, not the threshold that caught it",
+        ],
+        lane: "ci",
+        severity: "high",
+      },
+      orbitMeta,
+    );
+    return mission;
+  } catch {
+    return null;
   }
 }
 
@@ -321,6 +374,13 @@ async function watchOnce(manifest, relaunch) {
     ciPolicy.watchGithub && (manifest?.root ?? ROOT) && countActiveWorkers(manifest) > 0
       ? watchGithubCi(manifest?.root ?? ROOT)
       : null;
+
+  if (githubCi) {
+    const filed = fileCiFailureMission(manifest?.root ?? ROOT, githubCi, META_DIR);
+    if (filed) {
+      appendLog(`[${new Date().toISOString()}] filed ci mission ${filed.id}: ${filed.title}`);
+    }
+  }
 
   const snapshot = {
     at: new Date().toISOString(),
