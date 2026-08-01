@@ -22,7 +22,12 @@ import {
   type TickOutcome,
 } from "./tick-outcome.js";
 import { appendEpisode } from "./world-model.js";
-import { fleetAgentModel, fleetModelRequiresCli } from "./fleet-model.js";
+import {
+  downgradeFleetModel,
+  fleetAgentModel,
+  fleetModelRequiresCli,
+  isModelRejectedError,
+} from "./fleet-model.js";
 import { probeWorkerAuth, workerAuthHint } from "./worker-auth.js";
 import {
   finalizeOrbitTick,
@@ -46,6 +51,12 @@ export interface SdkWorkerParams {
   metaDir?: string;
   /** Project meta root containing `orbit/`; distinct from run-event/budget meta. */
   orbitMetaDir?: string;
+  /**
+   * Repo the orbit station is keyed on. Workers in isolated git worktrees must
+   * pass the fleet root here — their own cwd resolves to a different station
+   * than the one the launch mission was filed under.
+   */
+  stationCwd?: string;
   /** Explicit mission mode. AGI sets true; env/ledger detection remains a fallback. */
   useOrbit?: boolean;
   /** Injectable for tests. */
@@ -286,10 +297,11 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     state.ticks.length > 0 ? (state.ticks.at(-1)?.tick ?? state.ticks.length) + 1 : 1;
 
   const orbitMetaDir = params.orbitMetaDir ?? metaDir;
-  const useOrbit = params.useOrbit ?? orbitEnabled(orbitMetaDir, state.cwd);
+  const stationCwd = params.stationCwd?.trim() || state.cwd;
+  const useOrbit = params.useOrbit ?? orbitEnabled(orbitMetaDir, stationCwd);
   const orbitCtx: OrbitTickContext | null = useOrbit
     ? {
-        station: stationId(state.cwd),
+        station: stationId(stationCwd),
         workerId: workerIdFromCheckpoint(checkpointPath),
         metaDir: orbitMetaDir,
       }
@@ -336,12 +348,19 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
         if (entry.outcome) markTickProductivity(entry.outcome, priorOutcomes);
         const batchPolicy = resolveCommitBatchPolicy(state.cwd);
         const groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
-        entry.groundTruth = mergeGroundTruthAudits(
-          groundTruth,
-          auditBatchCommit(state.ticks, entry.outcome, batchPolicy),
-          auditBatchPush(state.ticks, entry.outcome, batchPolicy),
-        );
-        if (entry.groundTruth.blocked && entry.outcome) {
+        const sliceComplete =
+          groundTruth.tickReport?.done === true && entry.outcome?.tests?.passed === true;
+        const batchCommit = auditBatchCommit(state.ticks, entry.outcome, batchPolicy, {
+          sliceComplete,
+        });
+        const batchPush = auditBatchPush(state.ticks, entry.outcome, batchPolicy);
+        entry.groundTruth = mergeGroundTruthAudits(groundTruth, batchCommit, batchPush);
+        // A missing footer on measured, verified work still blocks the next
+        // prompt (correction) but does not zero the tick — git+tests outrank
+        // footer compliance. Fabricated claims and batch-policy breaks do.
+        const productivityVeto =
+          groundTruth.fabrication === true || batchCommit.blocked || batchPush.blocked;
+        if (productivityVeto && entry.outcome) {
           entry.outcome.countsAsProductive = false;
         }
         entry.lessonRecorded =
@@ -359,6 +378,15 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
           recordTickLesson({ error: entry.error, metaDir }) ?? undefined;
       } catch {
         /* best-effort */
+      }
+    }
+
+    if (entry.error && isModelRejectedError(entry.error)) {
+      const next = downgradeFleetModel();
+      if (next) {
+        console.error(
+          `[sdk-worker] model rejected (${entry.error.slice(0, 120)}) — downgrading to ${next} for remaining ticks`,
+        );
       }
     }
 
@@ -479,6 +507,7 @@ export function buildSdkWorkerArgs(params: SdkWorkerParams): string[] {
   args.push("--model", fleetAgentModel(params.model));
   if (params.metaDir) args.push("--meta-dir", params.metaDir);
   if (params.orbitMetaDir) args.push("--orbit-meta-dir", params.orbitMetaDir);
+  if (params.stationCwd) args.push("--station-cwd", params.stationCwd.trim());
   if (params.useOrbit === true) args.push("--orbit");
   if (params.useOrbit === false) args.push("--no-orbit");
   if (params.resume) args.push("--resume");

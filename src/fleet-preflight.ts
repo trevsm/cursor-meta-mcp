@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { loadBudgetState, getBudgetSnapshot } from "./plan-budget.js";
 import { hasCursorApiKey, resolveWorkerNodeBin, envForWorkers } from "./load-env.js";
-import { probeWorkerAuth, workerAuthHint } from "./worker-auth.js";
+import { probeWorkerAuth, sdkWorkerLaunchable, workerAuthHint } from "./worker-auth.js";
 
 export interface FleetPreflightResult {
   ok: boolean;
@@ -24,8 +24,8 @@ export async function runFleetPreflight(options?: {
   const env = options?.env ?? envForWorkers();
 
   const auth = await probeWorkerAuth(env);
-  if (requireApiKey && !auth.apiKey) {
-    failures.push(`CURSOR_API_KEY missing — ${workerAuthHint(auth)}`);
+  if (requireApiKey && !sdkWorkerLaunchable(auth)) {
+    failures.push(`No headless worker auth — ${workerAuthHint(auth)}`);
   } else if (!auth.sdk) {
     warnings.push(workerAuthHint(auth));
   }
@@ -66,8 +66,8 @@ export async function runFleetPreflight(options?: {
     }
   }
 
-  if (!hasCursorApiKey(env) && auth.cli) {
-    warnings.push("CLI login detected but detached SDK workers need CURSOR_API_KEY in ~/.cursor/.env");
+  if (!hasCursorApiKey(env) && auth.cli && !sdkWorkerLaunchable(auth)) {
+    warnings.push("CLI login detected but detached SDK-model workers need CURSOR_API_KEY in ~/.cursor/.env");
   }
 
   return { ok: failures.length === 0, failures, warnings, auth };

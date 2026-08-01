@@ -84,6 +84,8 @@ test("auditGroundTruth blocks missing tick report when work was produced", () =>
   assert.equal(audit.blocked, true);
   assert.equal(audit.missingTickReport, true);
   assert.ok(audit.violations.some((v) => /missing structured tick report/i.test(v)));
+  // Missing footer on measured verified work is a compliance nag, not fabrication.
+  assert.equal(audit.fabrication, false);
 });
 
 test("auditGroundTruth blocks false tests-pass in structured report", () => {
@@ -103,6 +105,8 @@ test("auditGroundTruth blocks false tests-pass in structured report", () => {
   });
   assert.equal(audit.blocked, true);
   assert.ok(audit.violations.some((v) => /verification|test:fast/i.test(v)));
+  // Claimed testsPass against a failing measured run is fabrication.
+  assert.equal(audit.fabrication, true);
 });
 
 test("auditGroundTruth passes when structured report matches outcome", () => {
@@ -141,6 +145,26 @@ test("auditGroundTruth blocks false push in structured report", () => {
   });
   assert.equal(audit.blocked, true);
   assert.ok(audit.violations.some((v) => /claimed push/i.test(v)));
+  assert.equal(audit.fabrication, true);
+});
+
+test("auditGroundTruth marks clean matching reports as non-fabricated", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: true, pushed: false, done: false });
+  const audit = auditGroundTruth(tail, {
+    headBefore: "a",
+    headAfter: "b",
+    committed: true,
+    pushed: false,
+    commits: 1,
+    filesChanged: 1,
+    insertions: 2,
+    deletions: 0,
+    dirtyFiles: 0,
+    producedWork: true,
+    tests: { ran: true, passed: true, total: 10, durationMs: 50, command: "npm run test:fast" },
+  });
+  assert.equal(audit.fabrication, false);
+  assert.equal(audit.blocked, false);
 });
 
 test("learnings append and inject into prompt", () => {

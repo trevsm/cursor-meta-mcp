@@ -24,6 +24,12 @@ export interface GroundTruthAudit extends CompletionClaims {
   tickReport?: TickReport;
   /** True when produced work but no parseable tick report footer. */
   missingTickReport?: boolean;
+  /**
+   * True only when a claim contradicts measured state (claimed X, git/tests say
+   * not-X). A missing footer on verified work blocks the next prompt but is not
+   * fabrication — measured git+test outcomes outrank footer compliance.
+   */
+  fabrication?: boolean;
 }
 
 export const TICK_REPORT_LABEL = "Tick report:";
@@ -112,28 +118,31 @@ export function auditGroundTruth(
   const tickReport = parseTickReport(assistantTail);
   const claims = detectCompletionClaims(assistantTail);
   const violations: string[] = [];
+  const fabrications: string[] = [];
   const missingTickReport = Boolean(outcome?.producedWork && !tickReport);
 
   if (missingTickReport) {
     violations.push("missing structured tick report footer");
   }
   if (claims.claimedTestsPass && (!outcome?.tests?.ran || !outcome.tests.passed)) {
-    violations.push(`claimed testsPass but ${outcome?.tests?.command ?? "verification"} did not pass this tick`);
+    fabrications.push(`claimed testsPass but ${outcome?.tests?.command ?? "verification"} did not pass this tick`);
   }
   if (claims.claimedCommitted && !outcome?.committed) {
-    violations.push("claimed commit but HEAD unchanged this tick");
+    fabrications.push("claimed commit but HEAD unchanged this tick");
   }
   if (claims.claimedPushed && !outcome?.pushed) {
-    violations.push("claimed push but origin was not updated this tick");
+    fabrications.push("claimed push but origin was not updated this tick");
   }
   if (claims.claimedDone) {
     if (!outcome) {
-      violations.push("claimed completion but no tick outcome recorded");
+      fabrications.push("claimed completion but no tick outcome recorded");
     } else if (!outcome.producedWork) {
-      violations.push("claimed completion but no repo change detected");
+      fabrications.push("claimed completion but no repo change detected");
     }
   }
 
+  violations.push(...fabrications);
+  const fabrication = fabrications.length > 0;
   const blocked = violations.length > 0;
   const correctionPrompt = blocked
     ? [
@@ -144,5 +153,13 @@ export function auditGroundTruth(
       ].join("\n")
     : undefined;
 
-  return { ...claims, violations, blocked, correctionPrompt, tickReport: tickReport ?? undefined, missingTickReport };
+  return {
+    ...claims,
+    violations,
+    blocked,
+    correctionPrompt,
+    tickReport: tickReport ?? undefined,
+    missingTickReport,
+    fabrication,
+  };
 }

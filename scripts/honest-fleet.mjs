@@ -18,7 +18,8 @@ import {
 import { defaultHonestFleetGoal } from "../src/fleet-commit-policy.js";
 import { launchSelfImproveFleet } from "../src/self-improve.js";
 import { runFleetPreflight } from "../src/fleet-preflight.js";
-import { resolveHonestWorkerMode, workerAuthHint } from "../src/worker-auth.js";
+import { resetFleetBudgetClock } from "../src/plan-budget.js";
+import { resolveHonestWorkerMode, sdkWorkerLaunchable, workerAuthHint } from "../src/worker-auth.js";
 
 const cwd = resolveFleetTargetCwd(process.argv[2]);
 if (process.env.CURSOR_META_ORBIT?.trim() !== "0") {
@@ -30,6 +31,11 @@ const goal =
   defaultHonestFleetGoal(cwd);
 const targetWarning = fleetTargetWarning(cwd);
 if (targetWarning) console.error(`[honest-fleet] warn: ${targetWarning}`);
+
+// Fresh-start launcher: clear any stale budget block from a previous fleet
+// BEFORE preflight, or a finished fleet's block bricks every future launch.
+// launchSelfImproveFleet would do this anyway; preflight must see the same state.
+resetFleetBudgetClock();
 
 const preflight = await runFleetPreflight({ cwd, skipSmokeTest: true });
 for (const warning of preflight.warnings) console.error(`[honest-fleet] warn: ${warning}`);
@@ -49,9 +55,9 @@ if (process.env[FLEET_VERIFY_SCRIPTS_ENV]?.trim()) {
   console.error(`[honest-fleet] verify=${process.env[FLEET_VERIFY_SCRIPTS_ENV].trim()}`);
 }
 console.error(`[honest-fleet] ${workerAuthHint(auth)}`);
-if (!auth.apiKey) {
+if (!sdkWorkerLaunchable(auth)) {
   console.error(
-    "[honest-fleet] CURSOR_API_KEY is required for SDK workers. Uncomment and set it in ~/.cursor/.env",
+    "[honest-fleet] Headless workers need CURSOR_API_KEY in ~/.cursor/.env, or Agent CLI login (~/.local/bin/agent login) when the fleet model is CLI-routed.",
   );
   console.error("[honest-fleet] Create a key: https://cursor.com/dashboard/integrations?tab=api-keys");
   process.exit(1);

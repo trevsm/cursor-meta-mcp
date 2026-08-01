@@ -14,12 +14,16 @@ import { spawn } from "node:child_process";
 
 import { runConsciousnessPulse } from "../src/consciousness-pulse.js";
 import {
+  countActiveWorkers,
   enforceSupervisorDecision,
   evaluateFleetSupervisor,
+  isTerminalSuccessStop,
+  isWorkerExperiment,
   loadFleetManifest,
   saveFleetManifest,
   shouldAllowRelaunch,
 } from "../src/budget-supervisor.js";
+import { collectFleetPids } from "../src/fleet-control.js";
 import {
   analyzeWorkerCheckpoint,
   isWorkerStalled,
@@ -31,8 +35,9 @@ import { resolveFleetCiPolicy } from "../src/fleet-ci-policy.js";
 import { watchGithubCi } from "../src/github-ci-watch.js";
 import { envForWorkers, resolveWorkerNodeBin } from "../src/load-env.js";
 import { experimentsDir } from "../src/meta-home.js";
-import { recordSpawn } from "../src/plan-budget.js";
+import { recordBudgetEvent, recordSpawn } from "../src/plan-budget.js";
 import { acquireLockWithCleanup } from "../src/process-lock.js";
+import { fleetSupervisorArgs } from "../src/self-improve.js";
 import { spawnSdkWorker } from "../src/sdk-worker.js";
 
 const META_DIR = argValue("--meta-dir") ?? experimentsDir();
@@ -139,46 +144,59 @@ function relaunchSdkWorker(exp, manifest) {
     prompt: checkpoint?.prompt,
     durationMs: checkpoint?.durationMs,
     maxTicks: checkpoint?.maxTicks,
+    // Station stays keyed on the fleet root even when the worker runs in a worktree.
+    stationCwd: manifest?.root ?? ROOT,
   });
   return spawned.pid;
 }
 
+/** Relaunch a supervisor loop with canonical args (never as a worker). */
+function relaunchSupervisor(exp, manifest) {
+  const env = envForWorkers();
+  const supervisorArgs = fleetSupervisorArgs({
+    cwd: manifest?.root ?? ROOT,
+    metaDir: META_DIR,
+    excludeSessionIndex: manifest?.conductorExcluded?.[0] ?? 1,
+    strategyIntervalMs: 5 * 60_000,
+    goal: manifest?.goal ?? "Ship verified improvements",
+    useLlm: Boolean(env.CURSOR_API_KEY),
+  });
+  const args =
+    exp.name === "orchestrator-loop"
+      ? supervisorArgs.orchestrator
+      : exp.name === "strategy-review-loop"
+        ? supervisorArgs.strategyReview
+        : null;
+  if (!args) {
+    appendLog(`[${new Date().toISOString()}] cannot relaunch ${exp.name}: unknown supervisor`);
+    return -1;
+  }
+  const child = spawn(resolveWorkerNodeBin(), args, {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    env,
+  });
+  child.unref();
+  return child.pid ?? -1;
+}
+
 function relaunchExperiment(exp, manifest) {
   appendLog(`[${new Date().toISOString()}] relaunch ${exp.name}`);
-  recordSpawn("relaunch_worker", exp.name);
 
   if (exp.name.startsWith("sdk-worker")) {
+    recordSpawn("relaunch_worker", exp.name);
     return relaunchSdkWorker(exp, manifest);
   }
 
-  if (exp.name === "orchestrator-loop") {
-    const logPath = exp.logPath ?? join(META_DIR, "orchestrator.log");
-    const child = spawn(
-      resolveWorkerNodeBin(),
-      [
-        "scripts/orchestrate-loop.mjs",
-        "--workspace",
-        WORKSPACE,
-        "--meta-dir",
-        META_DIR,
-        "--exclude-session",
-        "1",
-        "--max-cycles",
-        "120",
-        "--interval-ms",
-        "60000",
-        "--max-actions",
-        "2",
-        "--keep-running",
-        "--allow-continue",
-        "--allow-watch",
-      ],
-      { cwd: ROOT, detached: true, stdio: "ignore", env: envForWorkers() },
-    );
-    child.unref();
-    return child.pid ?? -1;
+  // Supervisors restart with canonical supervisor args and do not consume the
+  // worker relaunch budget. Falling through to the IDE branch previously
+  // relaunched strategy-review-loop as a long-session worker.
+  if (!isWorkerExperiment(exp.name)) {
+    return relaunchSupervisor(exp, manifest);
   }
 
+  recordSpawn("relaunch_worker", exp.name);
   const args = [
     "--import",
     "tsx",
@@ -234,8 +252,10 @@ async function watchOnce(manifest, relaunch) {
 
   const experiments = manifest?.experiments ?? [];
   const ciPolicy = resolveFleetCiPolicy(manifest?.root ?? ROOT);
+  // Skip GitHub polling once no worker is alive — a settled fleet must not
+  // keep burning API calls while the teardown grace window counts down.
   const githubCi =
-    ciPolicy.watchGithub && (manifest?.root ?? ROOT)
+    ciPolicy.watchGithub && (manifest?.root ?? ROOT) && countActiveWorkers(manifest) > 0
       ? watchGithubCi(manifest?.root ?? ROOT)
       : null;
 
@@ -285,8 +305,23 @@ async function watchOnce(manifest, relaunch) {
       analyzeWorkerCheckpoint(exp.checkpointPath),
       exp.relaunchCount ?? 0,
     );
+    // A worker that finished cleanly (missions drained, duration or tick cap)
+    // is done — relaunching it re-runs a completed mission on the clock. Read
+    // the raw checkpoint: analyzed metrics mask stoppedBecause on 0-tick runs,
+    // which turned instantly-drained workers into a relaunch loop.
+    const rawStoppedBecause = exp.checkpointPath
+      ? readJson(exp.checkpointPath)?.stoppedBecause
+      : undefined;
+    const terminal =
+      isWorkerExperiment(exp.name) &&
+      !alive &&
+      isTerminalSuccessStop(rawStoppedBecause ?? checkpoint?.stoppedBecause);
+    if (terminal) {
+      entry.terminal = true;
+    }
     const wantsRelaunch =
       relaunch &&
+      !terminal &&
       (!alive || (staleError && staleMs > 3 * 60_000) || stalled);
 
     if (productivityBlock) {
@@ -319,6 +354,19 @@ async function watchOnce(manifest, relaunch) {
     snapshot.experiments.push(entry);
   }
 
+  // Fleet is settled when every worker is finished and none will restart:
+  // terminal success, relaunch-blocked, or relaunching disabled. Supervisors
+  // (including this watcher) do not keep a settled fleet "running".
+  const workerEntries = snapshot.experiments.filter((entry) => isWorkerExperiment(entry.name));
+  snapshot.fleetSettled =
+    workerEntries.length === 0 ||
+    workerEntries.every(
+      (entry) =>
+        !entry.relaunched &&
+        !entry.alive &&
+        (entry.terminal || entry.relaunchBlocked || !relaunch),
+    );
+
   if (manifest) {
     manifest.at = snapshot.at;
     manifest.experiments = experiments;
@@ -329,6 +377,35 @@ async function watchOnce(manifest, relaunch) {
   appendLog(formatWatchLogLine(snapshot));
   console.error(JSON.stringify(snapshot));
   return snapshot;
+}
+
+function describeSettledWorkers(snapshot) {
+  const rows = snapshot.experiments
+    .filter((entry) => isWorkerExperiment(entry.name))
+    .map((entry) => `${entry.name}=${entry.checkpoint?.stoppedBecause ?? "no_checkpoint"}`);
+  return rows.length > 0 ? `workers settled: ${rows.join(", ")}` : "no workers in manifest";
+}
+
+/** Stop every remaining fleet process (except this watcher) and mark completion. */
+function teardownFleet(manifest, reason) {
+  appendLog(`[${new Date().toISOString()}] fleet complete — ${reason}; stopping supervisors`);
+  recordBudgetEvent({
+    at: new Date().toISOString(),
+    action: "fleet_stop",
+    source: "watch-experiments",
+    detail: reason,
+  });
+  manifest.fleetCompletedAt = new Date().toISOString();
+  manifest.fleetCompletedReason = reason;
+  saveFleetManifest(manifest, META_DIR);
+  for (const pid of collectFleetPids(manifest)) {
+    if (pid === process.pid) continue;
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already dead */
+    }
+  }
 }
 
 if (!flag("--no-lock")) {
@@ -343,17 +420,41 @@ if (!flag("--no-lock")) {
 
 const intervalMs = parseDuration(argValue("--interval"), 30_000);
 const relaunch = !flag("--no-relaunch");
+const teardownEnabled = !flag("--no-teardown");
+/** Consecutive settled cycles before teardown — grace for slow checkpoint writes. */
+const TEARDOWN_AFTER_SETTLED_CYCLES = 3;
 
 appendLog(
-  `[${new Date().toISOString()}] watch-experiments start interval=${intervalMs}ms relaunch=${relaunch} (budget supervisor enabled)`,
+  `[${new Date().toISOString()}] watch-experiments start interval=${intervalMs}ms relaunch=${relaunch} teardown=${teardownEnabled} (budget supervisor enabled)`,
 );
 
+let settledCycles = 0;
 while (true) {
   const manifest = loadManifest();
   if (!manifest) {
     appendLog(`[${new Date().toISOString()}] no manifest — waiting`);
+  } else if (
+    teardownEnabled &&
+    manifest.fleetCompletedAt &&
+    countActiveWorkers(manifest) === 0
+  ) {
+    // Restarted against an already-completed fleet — nothing to watch.
+    appendLog(
+      `[${new Date().toISOString()}] fleet already completed at ${manifest.fleetCompletedAt} — exiting`,
+    );
+    process.exit(0);
   } else {
-    await watchOnce(manifest, relaunch);
+    const snapshot = await watchOnce(manifest, relaunch);
+    if (teardownEnabled && snapshot.fleetSettled) {
+      settledCycles += 1;
+      if (settledCycles >= TEARDOWN_AFTER_SETTLED_CYCLES) {
+        const fresh = loadManifest();
+        if (fresh) teardownFleet(fresh, describeSettledWorkers(snapshot));
+        process.exit(0);
+      }
+    } else {
+      settledCycles = 0;
+    }
   }
   await sleep(intervalMs);
 }

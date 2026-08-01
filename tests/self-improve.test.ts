@@ -109,6 +109,11 @@ mock.module("../src/worker-auth.js", {
   namedExports: {
     probeWorkerAuth,
     resolveHonestWorkerMode: async (mode?: string) => (mode === "ide" ? "ide" : "sdk"),
+    // Mirror the real gate: api key always works; CLI login only for CLI-routed models.
+    sdkWorkerLaunchable: (auth?: { apiKey?: boolean; cli?: boolean }) =>
+      Boolean(auth?.apiKey) ||
+      (Boolean(auth?.cli) &&
+        (process.env.CURSOR_META_FLEET_MODEL ?? "composer-2.5-fast").startsWith("composer-")),
     workerAuthHint: () => "mock auth ok",
   },
 });
@@ -192,22 +197,29 @@ test("launchSelfImproveFleet seeds and passes the project Orbit ledger", async (
   assert.equal(missions[0]?.status, "open");
 });
 
-test("launchSelfImproveFleet rejects SDK mode without CURSOR_API_KEY", async () => {
+test("launchSelfImproveFleet rejects SDK mode without launchable worker auth", async () => {
+  // CLI-only auth is valid for CLI-routed models — pin an SDK-routed model so
+  // the launch gate must reject.
+  process.env.CURSOR_META_FLEET_MODEL = "gpt-5.5";
   probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: false, cli: true, sdk: true }));
-  await assert.rejects(
-    () =>
-      launchSelfImproveFleet({
-        cwd: "/tmp/project",
-        metaDir: "/tmp/self-improve-no-key",
-        withOrchestrator: false,
-        withWatcher: false,
-        withStrategyReviewer: false,
-        stopExisting: false,
-        workerMode: "sdk",
-      }),
-    /CURSOR_API_KEY/,
-  );
-  probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: true, cli: true, sdk: true }));
+  try {
+    await assert.rejects(
+      () =>
+        launchSelfImproveFleet({
+          cwd: "/tmp/project",
+          metaDir: "/tmp/self-improve-no-key",
+          withOrchestrator: false,
+          withWatcher: false,
+          withStrategyReviewer: false,
+          stopExisting: false,
+          workerMode: "sdk",
+        }),
+      /CURSOR_API_KEY/,
+    );
+  } finally {
+    delete process.env.CURSOR_META_FLEET_MODEL;
+    probeWorkerAuth.mock.mockImplementation(async () => ({ apiKey: true, cli: true, sdk: true }));
+  }
 });
 
 test("fleetSpawnPlan does not spawn sdk when mode is ide", () => {

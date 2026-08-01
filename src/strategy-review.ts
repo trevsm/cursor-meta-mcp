@@ -221,13 +221,14 @@ export function buildStrategyReviewPrompt(context: StrategyContext, transcriptTa
     context.worldModelSummary || "(empty — no north star, goals, or episodes yet)",
     "",
     "Respond with ONLY valid JSON (no markdown fences):",
-    '{"onTrack":boolean,"score":0-100,"issues":["..."],"recommendation":"...","pivot":string|null,"spawn":{"role":"...","prompt":"..."}|null,"kill":[sessionIndex,...]}',
+    '{"onTrack":boolean,"score":0-100,"issues":["..."],"recommendation":"...","pivot":string|null,"spawn":{"role":"...","prompt":"..."}|null,"kill":[sessionIndex,...],"killExperiments":["sdk-worker-1",...]}',
     "",
     "Rules:",
     "- onTrack=true only when work clearly advances the mission with verified progress.",
     "- pivot: concrete new direction prompt when off-track (null if on-track).",
     "- spawn: optional parallel specialist when verification or exploration is needed (null otherwise).",
-    "- kill: session indexes to stop/intercept when a branch is stale or harmful (empty array if none).",
+    "- kill: IDE session indexes to stop/intercept when a branch is stale or harmful (empty array if none).",
+    "- killExperiments: headless worker names from '## Worker checkpoints' (e.g. sdk-worker-1) to SIGTERM when stale or harmful — session indexes cannot address headless workers (empty array if none).",
     "- Reject meta-discussion, duplicate parallel work, and zero-diff architecture loops.",
   ].join("\n");
 }

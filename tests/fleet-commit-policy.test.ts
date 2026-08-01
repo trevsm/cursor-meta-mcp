@@ -50,6 +50,47 @@ test("auditBatchCommit blocks rapid small commits", () => {
   assert.match(audit.violations[0] ?? "", /batch commit policy/i);
 });
 
+test("auditBatchCommit allows a small verified commit that completes the slice", () => {
+  const policy = {
+    enabled: true,
+    minCommitsBeforePush: 3,
+    minTicksBetweenPush: 4,
+    minTicksBetweenCommits: 3,
+    minFilesForCommit: 3,
+    minLinesForCommit: 40,
+    deferCommitUntilSliceGreen: true,
+  };
+  // A 1-file mission-landing commit with green verify is "commit once per
+  // completed slice" — the policy's own rule, not churn.
+  const audit = auditBatchCommit(
+    [{ outcome: { committed: true, commits: 1 } }],
+    { committed: true, commits: 1, filesChanged: 1, insertions: 4, tests: { ran: true, passed: true } },
+    policy,
+    { sliceComplete: true },
+  );
+  assert.equal(audit.blocked, false);
+  assert.deepEqual(audit.violations, []);
+});
+
+test("auditBatchCommit still blocks sliceComplete claims without green verify", () => {
+  const policy = {
+    enabled: true,
+    minCommitsBeforePush: 3,
+    minTicksBetweenPush: 4,
+    minTicksBetweenCommits: 3,
+    minFilesForCommit: 3,
+    minLinesForCommit: 40,
+    deferCommitUntilSliceGreen: true,
+  };
+  const audit = auditBatchCommit(
+    [{ outcome: { committed: true, commits: 1 } }],
+    { committed: true, commits: 1, filesChanged: 1, tests: { ran: true, passed: false } },
+    policy,
+    { sliceComplete: true },
+  );
+  assert.equal(audit.blocked, true);
+});
+
 test("auditBatchCommit allows large verified slice early", () => {
   const policy = {
     enabled: true,

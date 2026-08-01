@@ -21,7 +21,7 @@ import {
   recordSdkRunComplete,
   recordSpawn,
 } from "./plan-budget.js";
-import { fleetAgentModel, FLEET_AGENT_MODEL, fleetModelRequiresCli } from "./fleet-model.js";
+import { fleetAgentModel, fleetModelRequiresCli } from "./fleet-model.js";
 
 export type ConversationMode = "agent" | "plan" | "ask";
 export type McpServerInput = McpServerConfig;
@@ -242,9 +242,9 @@ export class CursorLocalService implements LocalAgentService {
     );
   }
 
-  /** composer-2.5-fast is CLI-only today; prefer agent CLI when API key or login is available. */
-  private async resolveAgentBackend(modelId: string): Promise<"sdk" | "cli"> {
-    if (modelId === FLEET_AGENT_MODEL && fleetModelRequiresCli() && (await isAgentCliLoggedIn())) {
+  /** composer-* models are CLI-only today; prefer agent CLI when API key or login is available. */
+  private async resolveAgentBackend(_modelId: string): Promise<"sdk" | "cli"> {
+    if (fleetModelRequiresCli() && (await isAgentCliLoggedIn())) {
       return "cli";
     }
     return this.ensureSpawnAuth();
@@ -374,9 +374,9 @@ export class CursorLocalService implements LocalAgentService {
       };
     }
 
-    if (modelId === FLEET_AGENT_MODEL && fleetModelRequiresCli()) {
+    if (fleetModelRequiresCli()) {
       throw new Error(
-        `${FLEET_AGENT_MODEL} requires ~/.local/bin/agent login; the SDK API does not expose this model yet.`,
+        `${modelId} requires ~/.local/bin/agent login; the SDK API does not expose this model yet.`,
       );
     }
 
@@ -461,9 +461,7 @@ export class CursorLocalService implements LocalAgentService {
     const preferCli =
       params.agentId === "cli-session" ||
       shouldUseAgentCliFallback(this.apiKey) ||
-      (modelId === FLEET_AGENT_MODEL &&
-        fleetModelRequiresCli() &&
-        (await isAgentCliLoggedIn()));
+      (fleetModelRequiresCli() && (await isAgentCliLoggedIn()));
 
     if (preferCli) {
       if (!(await isAgentCliLoggedIn())) {
@@ -488,9 +486,9 @@ export class CursorLocalService implements LocalAgentService {
     if (params.agentId.startsWith("bc-")) {
       throw new Error("Cloud agents are not supported by this local-only server.");
     }
-    if (modelId === FLEET_AGENT_MODEL && fleetModelRequiresCli()) {
+    if (fleetModelRequiresCli()) {
       throw new Error(
-        `${FLEET_AGENT_MODEL} requires ~/.local/bin/agent login; the SDK API does not expose this model yet.`,
+        `${modelId} requires ~/.local/bin/agent login; the SDK API does not expose this model yet.`,
       );
     }
 

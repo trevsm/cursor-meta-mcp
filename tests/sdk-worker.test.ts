@@ -98,6 +98,7 @@ test("buildSdkWorkerArgs forwards worker options", () => {
     model: "composer",
     metaDir: "/meta",
     orbitMetaDir: "/project-meta",
+    stationCwd: "/fleet-root",
     useOrbit: true,
   });
   assert.deepEqual(args.slice(0, 4), ["--import", "tsx", "scripts/sdk-worker.mjs", "--cwd"]);
@@ -116,6 +117,8 @@ test("buildSdkWorkerArgs forwards worker options", () => {
   assert.ok(args.includes("/meta"));
   assert.ok(args.includes("--orbit-meta-dir"));
   assert.ok(args.includes("/project-meta"));
+  assert.ok(args.includes("--station-cwd"));
+  assert.ok(args.includes("/fleet-root"));
   assert.ok(args.includes("--orbit"));
   assert.ok(buildSdkWorkerArgs({ cwd: "/repo", resume: true }).includes("--resume"));
   assert.ok(buildSdkWorkerArgs({ cwd: "/repo", useOrbit: false }).includes("--no-orbit"));

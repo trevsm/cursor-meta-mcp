@@ -33,6 +33,7 @@ const params = {
   model: fleetAgentModel(argValue("--model")),
   metaDir: argValue("--meta-dir"),
   orbitMetaDir: argValue("--orbit-meta-dir"),
+  stationCwd: argValue("--station-cwd"),
   useOrbit: process.argv.includes("--orbit")
     ? true
     : process.argv.includes("--no-orbit")

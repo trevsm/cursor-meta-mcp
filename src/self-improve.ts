@@ -39,6 +39,7 @@ import {
 import {
   resolveHonestWorkerMode,
   probeWorkerAuth,
+  sdkWorkerLaunchable,
   workerAuthHint,
   type WorkerAuthStatus,
 } from "./worker-auth.js";
@@ -449,9 +450,9 @@ async function launchFleetProcesses(
 
   const worktrees: WorktreeInfo[] = [];
 
-  if (spawnSdk && parallelWorkers > 0 && !auth.apiKey) {
+  if (spawnSdk && parallelWorkers > 0 && !sdkWorkerLaunchable(auth)) {
     throw new Error(
-      "SDK fleet requires CURSOR_API_KEY in ~/.cursor/.env. CLI fallback fails in detached workers (ENOENT / shell). Create a key at https://cursor.com/dashboard/integrations?tab=api-keys",
+      "SDK fleet requires CURSOR_API_KEY in ~/.cursor/.env, or Agent CLI login when the fleet model is CLI-routed. Create a key at https://cursor.com/dashboard/integrations?tab=api-keys",
     );
   }
 
@@ -482,6 +483,9 @@ async function launchFleetProcesses(
         model: fleetAgentModel(),
         metaDir: metaHome(),
         orbitMetaDir,
+        // Orbit missions are filed against the fleet root; a worktree worker
+        // must not derive its station from its isolated cwd.
+        stationCwd: cwd,
         useOrbit,
         resume: params.resumeWorkers ?? false,
       };
@@ -509,6 +513,7 @@ async function launchFleetProcesses(
       model: fleetAgentModel(),
       metaDir: metaHome(),
       orbitMetaDir,
+      stationCwd: cwd,
       useOrbit,
       resume: params.resumeWorkers ?? false,
     });

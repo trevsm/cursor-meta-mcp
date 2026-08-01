@@ -367,9 +367,10 @@ test("runLongSession soft-skips missing sessions without hard-stopping as error"
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 80,
+    // Bound by ticks, not wall clock — an 80ms budget flakes under suite load.
+    durationMs: 10_000,
     tickIntervalMs: 1,
-    maxTicks: 10_000,
+    maxTicks: 4,
     maxConsecutiveErrors: 2,
     checkpointPath: `/tmp/long-session-missing-${Date.now()}.json`,
   });
@@ -678,9 +679,10 @@ test("runLongSession does not stop after consecutive missing session skips", asy
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    durationMs: 80,
+    // Bound by ticks, not wall clock — an 80ms budget flakes under suite load.
+    durationMs: 10_000,
     tickIntervalMs: 1,
-    maxTicks: 10_000,
+    maxTicks: 5,
     maxConsecutiveErrors: 3,
     checkpointPath: `/tmp/long-session-missing-consec-${Date.now()}.json`,
   });
@@ -708,9 +710,10 @@ test("runLongSession does not stop after repeated busy skips", async () => {
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 80,
+    // Bound by ticks, not wall clock — an 80ms budget flakes under suite load.
+    durationMs: 10_000,
     tickIntervalMs: 1,
-    maxTicks: 20,
+    maxTicks: 5,
     maxConsecutiveErrors: 3,
     checkpointPath: `/tmp/long-session-busy-${Date.now()}.json`,
   });
@@ -781,7 +784,9 @@ test("runLongSession stops at maxTicks", async () => {
   const result = await runLongSession({
     cwd: "/tmp/project",
     sessionIndex: 1,
-    durationMs: 200,
+    // Generous duration — maxTicks must be the binding stop, even under
+    // coverage-instrumented full-suite load.
+    durationMs: 10_000,
     tickIntervalMs: 1,
     maxTicks: 2,
     checkpointPath: `/tmp/long-session-maxticks-${Date.now()}.json`,

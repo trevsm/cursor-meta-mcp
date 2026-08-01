@@ -142,6 +142,14 @@ export function auditBatchCommit(
   priorTicks: BatchPolicyTick[],
   outcome: BatchTickOutcome | undefined,
   policy: CommitBatchPolicy = resolveCommitBatchPolicy(),
+  opts?: {
+    /**
+     * True when this tick verifiably completed its slice/mission (green tests
+     * + honest done report). The policy is "commit once per completed slice" —
+     * a small slice-completing commit is compliant, not churn.
+     */
+    sliceComplete?: boolean;
+  },
 ): BatchPolicyAudit {
   if (!policy.enabled || !outcome?.committed) {
     return { violations: [], blocked: false };
@@ -168,6 +176,10 @@ export function auditBatchCommit(
   }
 
   if (isLargeVerifiedSlice(outcome, policy)) {
+    return { violations: [], blocked: false };
+  }
+
+  if (opts?.sliceComplete && verifyGreen(outcome)) {
     return { violations: [], blocked: false };
   }
 

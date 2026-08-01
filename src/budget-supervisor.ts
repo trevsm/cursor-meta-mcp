@@ -33,6 +33,9 @@ export interface FleetManifest {
   budgetBlocked?: boolean;
   budgetBlockedAt?: string;
   budgetBlockedReason?: string;
+  /** Set by the watcher when all workers settled and supervisors were torn down. */
+  fleetCompletedAt?: string;
+  fleetCompletedReason?: string;
 }
 
 export interface SupervisorDecision {
@@ -70,6 +73,13 @@ export function isWorkerExperiment(name: string): boolean {
   return name.startsWith("worker-") || name.startsWith("sdk-worker");
 }
 
+/** Worker stop reasons that mean "finished cleanly" — never relaunch these. */
+const TERMINAL_SUCCESS_STOPS = new Set(["missions_drained", "duration", "max_ticks"]);
+
+export function isTerminalSuccessStop(stoppedBecause: string | undefined | null): boolean {
+  return stoppedBecause != null && TERMINAL_SUCCESS_STOPS.has(stoppedBecause);
+}
+
 export function loadFleetManifest(metaDir?: string): FleetManifest | null {
   const dir = metaDir ?? experimentsDir();
   const path = join(dir, "manifest.json");
@@ -97,10 +107,10 @@ export function countActiveWorkers(manifest: FleetManifest | null): number {
 export function evaluateFleetSupervisor(manifest: FleetManifest | null): SupervisorDecision {
   const state = loadBudgetState();
   const activeWorkers = countActiveWorkers(manifest);
-  const fleetRunning =
-    activeWorkers > 0 ||
-    pidAlive(manifest?.watcherPid) ||
-    pidAlive(manifest?.strategyReviewerPid);
+  // Workers are the fleet. Supervisors (watcher/reviewer) polling a finished
+  // fleet must not keep the duration clock running — that turned a 30s fleet
+  // into a "121m exceeded" budget block once the supervisors outlived it.
+  const fleetRunning = activeWorkers > 0;
   const fleetStartedAt = resolveFleetStartedAt(manifest, state);
   const snapshot = getBudgetSnapshot(state, { activeWorkers, fleetStartedAt, running: fleetRunning });
 
@@ -117,7 +127,7 @@ export function evaluateFleetSupervisor(manifest: FleetManifest | null): Supervi
 
   if (snapshot.fleet && snapshot.fleet.percentOfMaxDuration >= 100) {
     relaunchAllowed = false;
-    killWorkers = true;
+    killWorkers = activeWorkers > 0;
     reasons.push("Fleet max duration reached");
   }
 
@@ -129,7 +139,12 @@ export function evaluateFleetSupervisor(manifest: FleetManifest | null): Supervi
     }
   }
 
-  const totalRelaunches = manifest?.experiments.reduce((sum, exp) => sum + (exp.relaunchCount ?? 0), 0) ?? 0;
+  // Count worker relaunches only — supervisor loop restarts must not consume
+  // the worker relaunch budget (they previously blocked the whole fleet).
+  const totalRelaunches =
+    manifest?.experiments
+      .filter((exp) => isWorkerExperiment(exp.name))
+      .reduce((sum, exp) => sum + (exp.relaunchCount ?? 0), 0) ?? 0;
   if (totalRelaunches >= state.limits.maxRelaunchesPerWorker * Math.max(1, activeWorkers)) {
     relaunchAllowed = false;
     reasons.push(`Per-worker relaunch cap exceeded (${totalRelaunches})`);

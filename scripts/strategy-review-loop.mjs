@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { isWorkerExperiment } from "../src/budget-supervisor.js";
 import { CursorLocalService } from "../src/cursor-local.js";
 import { interceptIdeChat } from "../src/ide-chat-control.js";
 import { killExperimentBySessionIndex, killExperimentsByName } from "../src/fleet-control.js";
@@ -64,6 +65,23 @@ function readJson(path) {
 
 function loadManifest() {
   return readJson(join(META_DIR, "manifest.json"));
+}
+
+function pidAlive(pid) {
+  if (!pid || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when the manifest lists workers and none of them is running. */
+function fleetWorkersDead(manifest) {
+  const workers = (manifest?.experiments ?? []).filter((exp) => isWorkerExperiment(exp.name));
+  if (workers.length === 0) return false;
+  return workers.every((exp) => !pidAlive(exp.pid));
 }
 
 function workerCheckpointsFromManifest(manifest) {
@@ -208,13 +226,46 @@ if (!flag("--no-lock")) {
   }
 }
 
+/** Reviewing a fleet with no live workers is pure spend — wait briefly, then exit. */
+const MAX_DEAD_FLEET_CYCLES = 2;
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+let deadFleetCycles = 0;
+let errorStreak = 0;
 while (true) {
+  const manifest = loadManifest();
+  if (manifest?.fleetCompletedAt) {
+    appendLog(
+      `[${new Date().toISOString()}] fleet completed at ${manifest.fleetCompletedAt} — exiting`,
+    );
+    process.exit(0);
+  }
+  if (fleetWorkersDead(manifest)) {
+    deadFleetCycles += 1;
+    appendLog(
+      `[${new Date().toISOString()}] no live workers (${deadFleetCycles}/${MAX_DEAD_FLEET_CYCLES}) — skipping review`,
+    );
+    if (deadFleetCycles >= MAX_DEAD_FLEET_CYCLES) {
+      appendLog(`[${new Date().toISOString()}] fleet has no live workers — exiting`);
+      process.exit(0);
+    }
+    await sleep(intervalMs);
+    continue;
+  }
+  deadFleetCycles = 0;
+
   try {
     await reviewOnce(params);
+    errorStreak = 0;
   } catch (error) {
+    errorStreak += 1;
     appendLog(
-      `[${new Date().toISOString()}] error ${error instanceof Error ? error.message : String(error)}`,
+      `[${new Date().toISOString()}] error (${errorStreak}/${MAX_CONSECUTIVE_ERRORS}) ${error instanceof Error ? error.message : String(error)}`,
     );
+    if (errorStreak >= MAX_CONSECUTIVE_ERRORS) {
+      appendLog(`[${new Date().toISOString()}] persistent errors — exiting`);
+      process.exit(1);
+    }
   }
   await sleep(intervalMs);
 }
