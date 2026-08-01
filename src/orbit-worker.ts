@@ -73,6 +73,8 @@ export interface OrbitTickFinalizeInput {
   outcome?: {
     commits?: number;
     filesChanged?: number;
+    producedWork?: boolean;
+    committed?: boolean;
     tests?: { passed?: boolean; command?: string };
   };
   tickReportDone?: boolean;
@@ -103,6 +105,14 @@ export function finalizeOrbitTick(input: OrbitTickFinalizeInput): Mission | null
   const verifyPassed = outcome?.tests?.passed === true;
   const hasCommits = (outcome?.commits ?? 0) > 0;
   const headAfter = (outcome as { headAfter?: string } | undefined)?.headAfter;
+  // Work that exists only in the worktree cannot merge. Accepting a done claim
+  // on an uncommitted tree verifies a mission whose branch has no commits — the
+  // watcher then "merges" nothing, succeeds trivially, and promotes it to
+  // landed with no code in the base branch.
+  if (outcome?.producedWork === true && outcome.committed !== true) {
+    return getMissionFresh(ctx, mission.id);
+  }
+
   const readyToLand = verifyPassed && (hasCommits || tickReportDone === true);
 
   if (!readyToLand) return getMissionFresh(ctx, mission.id);

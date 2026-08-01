@@ -164,3 +164,47 @@ test("finalizeOrbitTick refuses to verify a tick the ground-truth gate blocked",
   );
   assert.equal(summarizeStation(station, metaDir).landed, 0);
 });
+
+test("finalizeOrbitTick will not verify work that exists only in the worktree", () => {
+  const metaDir = freshMeta();
+  const mission = fileMission({ station, title: "Lint", intent: "why" }, metaDir);
+  prepareOrbitTick(ctx(metaDir));
+
+  const result = finalizeOrbitTick({
+    ctx: ctx(metaDir),
+    mission,
+    outcome: {
+      commits: 0,
+      producedWork: true,
+      committed: false,
+      tests: { passed: true, command: "pnpm test" },
+    },
+    tickReportDone: true,
+  });
+
+  assert.notEqual(
+    result?.status,
+    "verified",
+    "an uncommitted tree has nothing to merge; verifying it lands a mission with no code in the base branch",
+  );
+});
+
+test("finalizeOrbitTick still verifies a mission that legitimately needed no code change", () => {
+  const metaDir = freshMeta();
+  const mission = fileMission({ station, title: "Confirm", intent: "why" }, metaDir);
+  prepareOrbitTick(ctx(metaDir));
+
+  const result = finalizeOrbitTick({
+    ctx: ctx(metaDir),
+    mission,
+    outcome: {
+      commits: 0,
+      producedWork: false,
+      committed: false,
+      tests: { passed: true, command: "pnpm test" },
+    },
+    tickReportDone: true,
+  });
+
+  assert.equal(result?.status, "verified");
+});
