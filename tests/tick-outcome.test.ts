@@ -161,3 +161,36 @@ test("summarizeTickOutcome detects commit and push in one tick from synced", () 
   assert.equal(outcome.pushed, true);
   assert.equal(outcome.producedWork, true);
 });
+
+test("summarizeTickOutcome marks push unmeasurable on a branch with no upstream", () => {
+  const dir = initRepo();
+  execFileSync("git", ["checkout", "-b", "fleet/sdk-worker-1-1"], { cwd: dir, stdio: "ignore" });
+  const before = captureRepoSnapshot(dir);
+  assert.equal(before.aheadOfUpstream, undefined);
+
+  writeFileSync(join(dir, "d.txt"), "four\n");
+  execFileSync("git", ["add", "d.txt"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "worktree slice"], { cwd: dir, stdio: "ignore" });
+
+  const outcome = summarizeTickOutcome({ cwd: dir, before });
+  assert.equal(outcome.committed, true);
+  assert.equal(outcome.pushed, false);
+  assert.equal(
+    outcome.pushMeasurable,
+    false,
+    "fleet worktree branches have no upstream — pushed carries no information here",
+  );
+});
+
+test("summarizeTickOutcome marks push measurable when upstream tracking exists", () => {
+  const dir = initRepo();
+  const bare = mkdtempSync(join(tmpdir(), "tick-origin-measurable-"));
+  execFileSync("git", ["init", "--bare", "-b", "main"], { cwd: bare, stdio: "ignore" });
+  execFileSync("git", ["branch", "-M", "main"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", bare], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["push", "-u", "origin", "HEAD"], { cwd: dir, stdio: "ignore" });
+
+  const before = captureRepoSnapshot(dir);
+  const outcome = summarizeTickOutcome({ cwd: dir, before });
+  assert.equal(outcome.pushMeasurable, true);
+});

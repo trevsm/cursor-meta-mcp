@@ -65,6 +65,12 @@ export function createWorkerWorktree(
     rmSync(path, { recursive: true, force: true });
   }
 
+  // Deleting the directory does not unregister the worktree, so git still holds
+  // a record pointing at the path we just removed and the next `worktree add`
+  // dies with "missing but already registered". Prune before adding — without
+  // this, worker N fails on every run after its first.
+  safeGit(repoRoot, ["worktree", "prune"], { ignoreStderr: true });
+
   // Branch may already exist from a prior run; reuse it.
   const branchExists = safeGit(repoRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
     ignoreStderr: true,
@@ -120,6 +126,51 @@ export function mergeWorkerBranch(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/** Branch currently checked out at the repo root, or undefined when detached. */
+export function currentBranchName(repoRoot: string): string | undefined {
+  const branch = safeGit(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], { ignoreStderr: true });
+  return branch && branch !== "HEAD" ? branch : undefined;
+}
+
+export interface WorktreeSyncResult {
+  synced: boolean;
+  /** Set when the worktree could not be advanced (dirty tree or conflict). */
+  reason?: string;
+}
+
+/**
+ * Bring a worker's worktree up to the base branch before it starts new work.
+ *
+ * Worktrees fork once at launch and never move, so a worker picking up its
+ * second mission is building against whatever HEAD was hours ago — it cannot
+ * see work its peers already merged. That is what produced a rewritten
+ * `app.ts` and a second copy of a feature that already existed.
+ *
+ * Only runs on a clean tree: mid-slice edits are the worker's, not ours to
+ * rebase.
+ */
+export function syncWorktreeWithBase(
+  worktreePath: string,
+  baseBranch: string,
+): WorktreeSyncResult {
+  const dirty = safeGit(worktreePath, ["status", "--porcelain"], { ignoreStderr: true });
+  if (dirty === undefined) return { synced: false, reason: "worktree unavailable" };
+  if (dirty.trim().length > 0) {
+    return { synced: false, reason: "uncommitted changes — left alone mid-slice" };
+  }
+
+  const merged = safeGit(worktreePath, ["merge", "--ff-only", baseBranch], {
+    ignoreStderr: true,
+  });
+  if (merged !== undefined) return { synced: true };
+
+  const noFf = safeGit(worktreePath, ["merge", "--no-edit", baseBranch], { ignoreStderr: true });
+  if (noFf !== undefined) return { synced: true };
+
+  safeGit(worktreePath, ["merge", "--abort"], { ignoreStderr: true });
+  return { synced: false, reason: `conflicts merging ${baseBranch}` };
 }
 
 export function listWorktrees(repoRoot: string): WorktreeInfo[] {

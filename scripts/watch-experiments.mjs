@@ -10,7 +10,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 import { runConsciousnessPulse } from "../src/consciousness-pulse.js";
 import {
@@ -31,6 +31,8 @@ import {
 } from "../src/fleet-metrics.js";
 import { appendExperimentLog, formatWatchLogLine } from "../src/experiment-log.js";
 import { mergeWorkerBranch } from "../src/git-worktree.js";
+import { blockMission, readMissions, stationId } from "../src/orbit-ledger.js";
+import { orbitMetaDirForFleet } from "../src/orbit-worker.js";
 import { resolveFleetCiPolicy } from "../src/fleet-ci-policy.js";
 import { watchGithubCi } from "../src/github-ci-watch.js";
 import { envForWorkers, resolveWorkerNodeBin } from "../src/load-env.js";
@@ -45,6 +47,41 @@ const ROOT = argValue("--root") ?? process.cwd();
 const WORKSPACE = argValue("--workspace") ?? basename(ROOT);
 const STATUS_PATH = join(META_DIR, "watch-status.json");
 const WATCH_LOG = join(META_DIR, "watch.log");
+
+/** Merge failures are sticky; only park the mission once per worker per run. */
+const mergeBlockNotified = new Set();
+
+function conflictingFiles(repoRoot, branch) {
+  try {
+    const base = execFileSync("git", ["merge-base", "HEAD", branch], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    const raw = execFileSync("git", ["diff", "--name-only", base, branch], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 1_000_000,
+    });
+    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Park whatever missions this worker is holding so the stall is visible. */
+function blockMissionsHeldBy(repoRoot, workerName, reason, metaDir) {
+  try {
+    const station = stationId(repoRoot);
+    const orbitMeta = orbitMetaDirForFleet(metaDir);
+    const held = readMissions(station, orbitMeta).filter(
+      (m) => m.claimedBy === workerName && ["claimed", "active", "verified"].includes(m.status),
+    );
+    for (const mission of held) blockMission(station, mission.id, reason, orbitMeta);
+    return held.map((m) => m.id);
+  } catch {
+    return [];
+  }
+}
 
 function flag(name) {
   return process.argv.includes(name);
@@ -291,6 +328,23 @@ async function watchOnce(manifest, relaunch) {
           branch: worktree.branch,
           error: error instanceof Error ? error.message : String(error),
         };
+      }
+
+      // A failed merge used to be a field in a status file nobody reads, so the
+      // work sat on the fleet branch looking finished. Park the mission the
+      // commits belong to, with the conflicting files named, so the operator
+      // sees it and no coder reclaims the lane behind it.
+      if (entry.merge && !entry.merge.ok && !mergeBlockNotified.has(exp.name)) {
+        mergeBlockNotified.add(exp.name);
+        const files = conflictingFiles(manifest.root, worktree.branch);
+        const reason = `Merge into ${basename(manifest.root)} failed for ${worktree.branch}${
+          files.length ? ` — conflicts: ${files.slice(0, 6).join(", ")}` : ""
+        }. Resolve by hand; commits are safe on the branch.`;
+        const parked = blockMissionsHeldBy(manifest.root, exp.name, reason, META_DIR);
+        appendLog(`[${new Date().toISOString()}] merge-blocked ${exp.name}: ${reason}`);
+        if (parked.length) {
+          console.error(`[watch] parked mission(s) ${parked.join(", ")} — ${reason}`);
+        }
       }
     }
 

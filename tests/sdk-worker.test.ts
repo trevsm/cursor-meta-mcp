@@ -1,11 +1,69 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSdkWorkerArgs, defaultSdkCheckpointPath, loadSdkCheckpoint, runSdkWorker, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
+import { buildSdkWorkerArgs, buildTickPrompt, MAX_CONSECUTIVE_BLOCKED_TICKS, defaultSdkCheckpointPath, loadSdkCheckpoint, runSdkWorker, runSdkWorkerTick, SDK_FLEET_AGENT_NAME, summarizeSdkWorker, writeSdkCheckpoint } from "../src/sdk-worker.js";
 import { FakeLocalAgentService } from "./helpers/fake-service.js";
+
+/** A committed, non-dirty repo: `producedWork` reads cumulative dirt, not just the tick delta. */
+function cleanRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "sdk-clean-repo-"));
+  execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "T"], { cwd: dir, stdio: "ignore" });
+  writeFileSync(join(dir, "a.txt"), "one\n");
+  execFileSync("git", ["add", "a.txt"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: dir, stdio: "ignore" });
+  return dir;
+}
+
+const MISSION_BLOCK = "Mission fa-a3k91: add the CapEx subtype catalog.";
+
+function stateWithBlockedTick(): Parameters<typeof buildTickPrompt>[0] {
+  return {
+    startedAt: "2026-07-27T00:00:00.000Z",
+    cwd: "/tmp/project",
+    durationMs: 60_000,
+    maxTicks: 10,
+    prompt: "original mission prompt",
+    ticks: [
+      {
+        tick: 1,
+        at: "2026-07-27T00:00:00.000Z",
+        watchedMs: 100,
+        groundTruth: {
+          claimedDone: false,
+          claimedTestsPass: true,
+          claimedCommitted: false,
+          claimedPushed: false,
+          violations: ["claimed testsPass but verification did not pass this tick"],
+          blocked: true,
+          fabrication: true,
+          correctionPrompt: "[Ground-truth gate] Verification failed:\n- claimed testsPass",
+        },
+      },
+    ],
+  };
+}
+
+test("buildTickPrompt keeps the mission block on a ground-truth correction", () => {
+  const prompt = buildTickPrompt(stateWithBlockedTick(), 2, MISSION_BLOCK);
+
+  assert.ok(
+    prompt.startsWith(MISSION_BLOCK),
+    "correction prompt dropped the mission — worker is told it failed without being told what it was doing",
+  );
+  assert.match(prompt, /Ground-truth gate/);
+});
+
+test("buildTickPrompt omits the mission prefix when no mission is active", () => {
+  const prompt = buildTickPrompt(stateWithBlockedTick(), 2);
+
+  assert.ok(prompt.startsWith("[Ground-truth gate]"));
+});
 
 test("summarizeSdkWorker aggregates tick outcomes", () => {
   const summary = summarizeSdkWorker({
@@ -291,5 +349,42 @@ test("runSdkWorker resume continues tick numbering from checkpoint", async () =>
   } finally {
     if (prevKey === undefined) delete process.env.CURSOR_API_KEY;
     else process.env.CURSOR_API_KEY = prevKey;
+  }
+});
+
+test("runSdkWorker stops instead of looping when blocked ticks make no progress", async () => {
+  const metaDir = mkdtempSync(join(tmpdir(), "sdk-worker-blocked-"));
+  const checkpointPath = join(metaDir, "worker.json");
+  const service = new FakeLocalAgentService();
+  // A worker that keeps claiming success on a tree it never changes. Before the
+  // convergence guard this pattern span until the wall-clock budget expired.
+  const dishonestTail =
+    'Done.\nTick report:\n{"done":true,"testsPass":true,"committed":true,"pushed":false}';
+  service.runResult = { ...service.runResult, result: dishonestTail };
+  service.followUpResult = { ...service.followUpResult, result: dishonestTail };
+
+  const prevKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = "test-key";
+  try {
+    const result = await runSdkWorker({
+      cwd: cleanRepo(),
+      metaDir,
+      checkpointPath,
+      service,
+      tickIntervalMs: 0,
+      durationMs: 60_000,
+      maxTicks: 40,
+      useOrbit: false,
+      verifyTests: () => undefined,
+    });
+
+    assert.equal(result.stoppedBecause, "blocked_stalled");
+    assert.ok(
+      result.ticks.length <= MAX_CONSECUTIVE_BLOCKED_TICKS + 1,
+      `stopped after ${result.ticks.length} ticks; should give up near ${MAX_CONSECUTIVE_BLOCKED_TICKS}`,
+    );
+  } finally {
+    if (prevKey) process.env.CURSOR_API_KEY = prevKey;
+    else delete process.env.CURSOR_API_KEY;
   }
 });

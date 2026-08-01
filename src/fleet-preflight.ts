@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
 
+import {
+  formatVerifyCommandLabel,
+  resolveFleetFilter,
+  resolveVerifyCommands,
+} from "./fleet-target.js";
 import { loadBudgetState, getBudgetSnapshot } from "./plan-budget.js";
 import { hasCursorApiKey, resolveWorkerNodeBin, envForWorkers } from "./load-env.js";
 import { probeWorkerAuth, sdkWorkerLaunchable, workerAuthHint } from "./worker-auth.js";
@@ -9,6 +14,8 @@ export interface FleetPreflightResult {
   failures: string[];
   warnings: string[];
   auth: Awaited<ReturnType<typeof probeWorkerAuth>>;
+  /** Exactly what the ground-truth gate will run each tick. */
+  verifyCommand: string;
 }
 
 export async function runFleetPreflight(options?: {
@@ -70,5 +77,19 @@ export async function runFleetPreflight(options?: {
     warnings.push("CLI login detected but detached SDK-model workers need CURSOR_API_KEY in ~/.cursor/.env");
   }
 
-  return { ok: failures.length === 0, failures, warnings, auth };
+  // Surface the gate itself. A filtered verify only tests part of a workspace,
+  // so ticks that change anything outside the filter go green without having
+  // been run — the gate reports success on code it never executed.
+  // Read the scope off the resolved command, not off the env var: npm targets
+  // drop CURSOR_META_FLEET_FILTER silently, so trusting the env would warn about
+  // a narrowing that never happened.
+  const verifyCommand = formatVerifyCommandLabel(resolveVerifyCommands(cwd));
+  const scopedTo = /(?:--filter|workspace)\s+(\S+)/.exec(verifyCommand)?.[1];
+  if (scopedTo) {
+    warnings.push(
+      `Verify is scoped to ${scopedTo} (${verifyCommand}) — ticks touching anything outside ${scopedTo} pass the gate untested`,
+    );
+  }
+
+  return { ok: failures.length === 0, failures, warnings, auth, verifyCommand };
 }

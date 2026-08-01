@@ -4,14 +4,31 @@ import { join } from "node:path";
 import { loadFleetManifest, type FleetManifest } from "./budget-supervisor.js";
 import { experimentsDir } from "./meta-home.js";
 
+/**
+ * Stop a fleet process and everything it spawned.
+ *
+ * Workers shell out to long-running builds (`turbo run build`, test runners).
+ * Signalling the pid alone leaves those children running against a worktree the
+ * fleet believes is idle, so a "stopped" fleet keeps burning CPU and holding
+ * file locks. Every fleet process is spawned `detached: true`, which makes it a
+ * process-group leader — signal the negative pid to take the group with it.
+ */
 export function killPid(pid: number | undefined): boolean {
   if (!pid || pid <= 0) return false;
+  let signalled = false;
+  try {
+    process.kill(-pid, "SIGTERM");
+    signalled = true;
+  } catch {
+    /* not a group leader (or already gone) — fall back to the bare pid */
+  }
   try {
     process.kill(pid, "SIGTERM");
-    return true;
+    signalled = true;
   } catch {
-    return false;
+    /* already exited */
   }
+  return signalled;
 }
 
 /** Collect unique positive pids from manifest (experiments + top-level watcher/reviewer). */

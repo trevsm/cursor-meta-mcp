@@ -102,7 +102,10 @@ mock.module("../src/sdk-worker.js", {
   },
 });
 mock.module("../src/git-worktree.js", {
-  namedExports: { createWorkerWorktree },
+  namedExports: {
+    createWorkerWorktree,
+    currentBranchName: () => "feat/test-base",
+  },
 });
 const probeWorkerAuth = mock.fn(async () => ({ apiKey: true, cli: true, sdk: true }));
 mock.module("../src/worker-auth.js", {

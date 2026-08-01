@@ -32,6 +32,18 @@ export interface GroundTruthAudit extends CompletionClaims {
   fabrication?: boolean;
 }
 
+/**
+ * Session facts the per-tick outcome cannot express.
+ *
+ * A tick diff answers "what changed just now"; some claims are about the
+ * mission as a whole. Without this the gate reads every clean tick on finished
+ * work as a lie.
+ */
+export interface GroundTruthContext {
+  /** True when an earlier tick in this worker session produced verified work. */
+  priorWorkInSession?: boolean;
+}
+
 export const TICK_REPORT_LABEL = "Tick report:";
 
 const TICK_REPORT_LINE = /^\s*tick\s+report\s*:/i;
@@ -114,6 +126,7 @@ export const TICK_REPORT_INSTRUCTION = [
 export function auditGroundTruth(
   assistantTail: string | undefined,
   outcome: TickOutcome | undefined,
+  context?: GroundTruthContext,
 ): GroundTruthAudit {
   const tickReport = parseTickReport(assistantTail);
   const claims = detectCompletionClaims(assistantTail);
@@ -124,20 +137,33 @@ export function auditGroundTruth(
   if (missingTickReport) {
     violations.push("missing structured tick report footer");
   }
-  if (claims.claimedTestsPass && (!outcome?.tests?.ran || !outcome.tests.passed)) {
-    fabrications.push(`claimed testsPass but ${outcome?.tests?.command ?? "verification"} did not pass this tick`);
+  // Verification only runs on ticks that touched the repo, so a clean tick has
+  // no measurement to contradict — "we did not look" is not "the worker lied".
+  // Auditing it as fabrication is what burned 5 of 6 ticks for a worker whose
+  // mission was already complete and correctly reported as such.
+  if (claims.claimedTestsPass && outcome?.tests?.ran === true && !outcome.tests.passed) {
+    fabrications.push(`claimed testsPass but ${outcome.tests.command ?? "verification"} did not pass this tick`);
   }
-  if (claims.claimedCommitted && !outcome?.committed) {
+  if (claims.claimedCommitted && !outcome?.committed && context?.priorWorkInSession !== true) {
     fabrications.push("claimed commit but HEAD unchanged this tick");
   }
-  if (claims.claimedPushed && !outcome?.pushed) {
+  // Only audit push claims we can actually measure. A branch with no upstream —
+  // which is every fleet worktree — leaves `pushed` false whether or not the
+  // worker pushed, so auditing it here brands honest workers as fabricators,
+  // zeroes the tick, and writes the false lesson into learnings.md where it is
+  // replayed into every later run.
+  if (claims.claimedPushed && !outcome?.pushed && outcome?.pushMeasurable !== false) {
     fabrications.push("claimed push but origin was not updated this tick");
   }
+  // `done` describes the mission, not the tick. A worker that shipped the work
+  // on an earlier tick — or on an earlier run, then resumed — is telling the
+  // truth when it reports done on a clean tree. Only call it fabrication when
+  // nothing has been produced at any point in the session.
   if (claims.claimedDone) {
     if (!outcome) {
       fabrications.push("claimed completion but no tick outcome recorded");
-    } else if (!outcome.producedWork) {
-      fabrications.push("claimed completion but no repo change detected");
+    } else if (!outcome.producedWork && context?.priorWorkInSession !== true) {
+      fabrications.push("claimed completion but no repo change detected in this session");
     }
   }
 

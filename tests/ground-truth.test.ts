@@ -314,3 +314,109 @@ test("compactLearnings drops raw infra dumps superseded by classified lessons", 
   assert.match(body, /transport dropped/i);
   assert.match(body, /ENOENT means the binary is missing/i);
 });
+
+test("auditGroundTruth does not call an unverifiable push claim fabrication", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: true, pushed: true, done: false });
+  const audit = auditGroundTruth(tail, {
+    committed: true,
+    pushed: false,
+    pushMeasurable: false,
+    commits: 1,
+    filesChanged: 2,
+    insertions: 30,
+    deletions: 1,
+    dirtyFiles: 0,
+    producedWork: true,
+    tests: { ran: true, passed: true, durationMs: 10, command: "npm run test:fast" },
+  });
+
+  assert.equal(audit.fabrication, false, "worktree branches cannot verify push — do not brand the worker a liar");
+  assert.equal(audit.blocked, false);
+  assert.deepEqual(audit.violations, []);
+});
+
+test("auditGroundTruth still flags a false push claim when upstream is trackable", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: true, pushed: true, done: false });
+  const audit = auditGroundTruth(tail, {
+    committed: true,
+    pushed: false,
+    pushMeasurable: true,
+    commits: 1,
+    filesChanged: 2,
+    insertions: 30,
+    deletions: 1,
+    dirtyFiles: 0,
+    producedWork: true,
+    tests: { ran: true, passed: true, durationMs: 10, command: "npm run test:fast" },
+  });
+
+  assert.equal(audit.fabrication, true);
+  assert.match(audit.violations.join("\n"), /origin was not updated/);
+});
+
+test("auditGroundTruth does not fabricate on a clean tick where verification never ran", () => {
+  // Verify is skipped when a tick produces no work, so there is no measurement
+  // to contradict. This is the shape that burned 5 of 6 ticks for a worker
+  // whose mission was already complete.
+  const tail = formatTickReportFooter({ testsPass: true, committed: false, pushed: false, done: true });
+  const audit = auditGroundTruth(
+    tail,
+    {
+      committed: false,
+      pushed: false,
+      pushMeasurable: false,
+      commits: 0,
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+      dirtyFiles: 0,
+      producedWork: false,
+      tests: undefined,
+    },
+    { priorWorkInSession: true },
+  );
+
+  assert.equal(audit.fabrication, false, "an honest report on finished work is not a lie");
+  assert.equal(audit.blocked, false);
+});
+
+test("auditGroundTruth still fabricates when verification ran and failed", () => {
+  const tail = formatTickReportFooter({ testsPass: true, committed: true, pushed: false, done: false });
+  const audit = auditGroundTruth(tail, {
+    committed: true,
+    pushed: false,
+    pushMeasurable: true,
+    commits: 1,
+    filesChanged: 1,
+    insertions: 5,
+    deletions: 0,
+    dirtyFiles: 0,
+    producedWork: true,
+    tests: { ran: true, passed: false, failed: 2, durationMs: 10, command: "pnpm run test" },
+  });
+
+  assert.equal(audit.fabrication, true);
+  assert.match(audit.violations.join("\n"), /did not pass/);
+});
+
+test("auditGroundTruth fabricates a done claim when the session produced nothing at all", () => {
+  const tail = formatTickReportFooter({ testsPass: false, committed: false, pushed: false, done: true });
+  const audit = auditGroundTruth(
+    tail,
+    {
+      committed: false,
+      pushed: false,
+      pushMeasurable: true,
+      commits: 0,
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+      dirtyFiles: 0,
+      producedWork: false,
+    },
+    { priorWorkInSession: false },
+  );
+
+  assert.equal(audit.fabrication, true);
+  assert.match(audit.violations.join("\n"), /no repo change detected in this session/);
+});

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { waitForChatSession } from "./chat-activity.js";
 import { runConsciousnessPulse } from "./consciousness-pulse.js";
 import { createIdeChat } from "./ide-chat-control.js";
-import { createWorkerWorktree, type WorktreeInfo } from "./git-worktree.js";
+import { createWorkerWorktree, currentBranchName, type WorktreeInfo } from "./git-worktree.js";
 import { getSessionIndexForId } from "./history-store.js";
 import { stopFleetProcesses } from "./fleet-control.js";
 import {
@@ -449,6 +449,9 @@ async function launchFleetProcesses(
   persistManifest();
 
   const worktrees: WorktreeInfo[] = [];
+  // Branch workers catch up to between missions, so a coder starting its second
+  // mission sees what its peers already merged instead of the launch-time tree.
+  const fleetBaseBranch = currentBranchName(cwd);
 
   if (spawnSdk && parallelWorkers > 0 && !sdkWorkerLaunchable(auth)) {
     throw new Error(
@@ -468,13 +471,22 @@ async function launchFleetProcesses(
           join(metaDir, `${name}.worktree.json`),
           JSON.stringify(wt, null, 2),
         );
-      } catch {
-        /* fall back to shared cwd if worktree creation fails */
+      } catch (error) {
+        // Never silently fall back to the shared checkout. A worker there edits
+        // and commits straight onto the operator's working branch, with other
+        // workers' merges checking out underneath it. Refuse to launch instead.
+        throw new Error(
+          `Worktree creation failed for ${name}; refusing to run the worker in the shared checkout at ${cwd}. ` +
+            `Fix the worktree state (git worktree prune) and relaunch. Cause: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+        );
       }
 
       const checkpointPath = join(metaDir, `${name}.json`);
       const sdkCfg: SdkWorkerParams = {
         cwd: workerCwd,
+        baseBranch: fleetBaseBranch,
         durationMs,
         tickIntervalMs: resolveTickIntervalMs(),
         maxTicks: 500,

@@ -34,6 +34,7 @@ const params = {
   metaDir: argValue("--meta-dir"),
   orbitMetaDir: argValue("--orbit-meta-dir"),
   stationCwd: argValue("--station-cwd"),
+  baseBranch: argValue("--base-branch"),
   useOrbit: process.argv.includes("--orbit")
     ? true
     : process.argv.includes("--no-orbit")

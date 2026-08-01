@@ -6,7 +6,7 @@
  * coder, and landed only against verified evidence.
  *
  *   npm run mission -- list [--station <id>]
- *   npm run mission -- add "<title>" --why "<intent>" [--accept "<criterion>"]... [--verify "<cmd>"] [--severity high]
+ *   npm run mission -- add "<title>" --why "<intent>" [--accept "<criterion>"]... [--verify "<cmd>"] [--severity high] [--lane <id>] [--depends-on <id>]...
  *   npm run mission -- show <id>
  *   npm run mission -- claim <coder-id>
  *   npm run mission -- status <id> <open|claimed|active|verified|blocked|dropped> [--reason "<text>"]
@@ -114,6 +114,8 @@ switch (command) {
       verify: flag("verify"),
       branch: flag("branch"),
       severity: flag("severity"),
+      lane: flag("lane"),
+      dependsOn: flagAll("depends-on"),
     });
     printMission(mission);
     break;

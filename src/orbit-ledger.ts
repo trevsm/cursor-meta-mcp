@@ -63,6 +63,13 @@ export interface Mission {
   severity?: MissionSeverity;
   /** Groups related missions; replaces ad-hoc goal nesting. */
   parent?: string;
+  /**
+   * Subsystem this mission touches, e.g. `api` or `web-auth`. At most one coder
+   * holds a lane at a time, so concurrent missions never share files.
+   */
+  lane?: string;
+  /** Mission ids that must be landed before this one can be claimed. */
+  dependsOn?: string[];
   evidence?: MissionEvidence;
   createdAt: string;
   updatedAt: string;
@@ -235,6 +242,8 @@ export interface FileMissionInput {
   branch?: string;
   severity?: MissionSeverity;
   parent?: string;
+  lane?: string;
+  dependsOn?: string[];
 }
 
 /** File a new mission in `open` state. */
@@ -253,6 +262,8 @@ export function fileMission(input: FileMissionInput, metaDir?: string): Mission 
       branch: input.branch,
       severity: input.severity ?? "normal",
       parent: input.parent,
+      lane: input.lane?.trim() || undefined,
+      dependsOn: input.dependsOn?.filter((id) => id.trim()) ?? undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -333,10 +344,31 @@ export function claimNextMission(
     );
     if (resumable) return resumable;
 
+    const landed = new Set(missions.filter((m) => m.status === "landed").map((m) => m.id));
+
+    // Lanes another coder is holding right now. Without this two workers pull
+    // adjacent missions from the same subsystem, build the same feature twice in
+    // separate worktrees, and every merge after the first one conflicts.
+    const lanesHeldByOthers = new Set(
+      missions
+        .filter(
+          (m) =>
+            IN_FLIGHT.includes(m.status) &&
+            m.claimedBy != null &&
+            m.claimedBy !== workerId &&
+            m.lane != null,
+        )
+        .map((m) => m.lane as string),
+    );
+
     const bySeverity = (mission: Mission) =>
       mission.severity === "high" ? 0 : mission.severity === "low" ? 2 : 1;
     const open = missions
       .filter((mission) => mission.status === "open")
+      // A mission whose prerequisites have not landed would be built against a
+      // worktree that cannot see them. Leave it open rather than start it blind.
+      .filter((mission) => (mission.dependsOn ?? []).every((id) => landed.has(id)))
+      .filter((mission) => mission.lane == null || !lanesHeldByOthers.has(mission.lane))
       .sort((a, b) => bySeverity(a) - bySeverity(b) || a.createdAt.localeCompare(b.createdAt));
 
     const target = open[0];

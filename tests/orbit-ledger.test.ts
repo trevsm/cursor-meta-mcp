@@ -281,3 +281,65 @@ test("formatMissionForPrompt states the why and refuses to invent work when idle
 
   assert.match(formatMissionForPrompt(null), /No mission assigned/);
 });
+
+test("claimNextMission keeps two coders out of the same lane", () => {
+  const meta = mkdtempSync(join(tmpdir(), "orbit-lane-"));
+  const station = "lanes";
+  fileMission({ station, title: "api one", intent: "why", lane: "api" }, meta);
+  fileMission({ station, title: "api two", intent: "why", lane: "api" }, meta);
+  fileMission({ station, title: "web one", intent: "why", lane: "web" }, meta);
+
+  const first = claimNextMission(station, "coder-1", meta);
+  const second = claimNextMission(station, "coder-2", meta);
+
+  assert.equal(first?.lane, "api");
+  assert.equal(
+    second?.lane,
+    "web",
+    "second coder must skip the held api lane instead of duplicating work in it",
+  );
+});
+
+test("claimNextMission frees a lane once its mission lands", () => {
+  const meta = mkdtempSync(join(tmpdir(), "orbit-lane-free-"));
+  const station = "lanes2";
+  const first = fileMission({ station, title: "api one", intent: "why", lane: "api" }, meta);
+  fileMission({ station, title: "api two", intent: "why", lane: "api" }, meta);
+
+  claimNextMission(station, "coder-1", meta);
+  landMission(
+    station,
+    first.id,
+    { commits: ["abc123"], tests: { passed: true, command: "pnpm run test" } },
+    meta,
+  );
+
+  const next = claimNextMission(station, "coder-2", meta);
+  assert.equal(next?.title, "api two");
+});
+
+test("claimNextMission will not start a mission whose dependency has not landed", () => {
+  const meta = mkdtempSync(join(tmpdir(), "orbit-deps-"));
+  const station = "deps";
+  const base = fileMission({ station, title: "middleware", intent: "why" }, meta);
+  fileMission({ station, title: "uses middleware", intent: "why", dependsOn: [base.id] }, meta);
+
+  const first = claimNextMission(station, "coder-1", meta);
+  assert.equal(first?.id, base.id);
+
+  const blocked = claimNextMission(station, "coder-2", meta);
+  assert.equal(
+    blocked,
+    null,
+    "dependent mission would be built against a worktree that cannot see its prerequisite",
+  );
+
+  landMission(
+    station,
+    base.id,
+    { commits: ["abc123"], tests: { passed: true, command: "pnpm run test" } },
+    meta,
+  );
+  const now = claimNextMission(station, "coder-2", meta);
+  assert.equal(now?.title, "uses middleware");
+});

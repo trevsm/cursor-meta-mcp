@@ -19,6 +19,15 @@ export interface TickOutcome {
   committed: boolean;
   /** True when this tick reduced commits ahead of origin (including commit+push from synced). */
   pushed: boolean;
+  /**
+   * False when the branch has no upstream, so `pushed` carries no information.
+   *
+   * Fleet worktrees branch with `git worktree add -b fleet/...` and never set an
+   * upstream, so `origin/<branch>` does not resolve and `aheadOfUpstream` is
+   * undefined on both snapshots. Without this flag `pushed` is indistinguishable
+   * from a measured "did not push".
+   */
+  pushMeasurable: boolean;
   commits: number;
   filesChanged: number;
   insertions: number;
@@ -290,6 +299,8 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
 
   const aheadBefore = params.before.aheadOfUpstream;
   const aheadAfter = after.aheadOfUpstream;
+  const pushMeasurable =
+    typeof aheadBefore === "number" && typeof aheadAfter === "number";
   const pushed =
     typeof aheadAfter === "number" &&
     aheadAfter === 0 &&
@@ -306,6 +317,7 @@ export function summarizeTickOutcome(params: SummarizeTickParams): TickOutcome {
     headAfter,
     committed,
     pushed,
+    pushMeasurable,
     commits,
     filesChanged: stat.filesChanged,
     insertions: stat.insertions,

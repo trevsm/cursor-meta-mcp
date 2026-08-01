@@ -48,6 +48,7 @@ const auth = preflight.auth;
 const mode = await resolveHonestWorkerMode("sdk");
 console.error(`[honest-fleet] preflight auth=${JSON.stringify(auth)} resolvedMode=${mode}`);
 console.error(`[honest-fleet] target=${cwd}`);
+console.error(`[honest-fleet] ground-truth gate runs: ${preflight.verifyCommand}`);
 if (process.env[FLEET_FILTER_ENV]?.trim()) {
   console.error(`[honest-fleet] filter=${process.env[FLEET_FILTER_ENV].trim()}`);
 }

@@ -12,7 +12,7 @@ import { auditBatchCommit, auditBatchPush, formatBatchGitReminder, resolveCommit
 import { markTickProductivity } from "./fleet-metrics.js";
 import { metaHome, metaPath } from "./meta-home.js";
 import { recordTickLesson } from "./learnings.js";
-import { recordBudgetEvent } from "./plan-budget.js";
+import { recordSdkRunComplete } from "./plan-budget.js";
 import {
   captureRepoSnapshot,
   createDefaultVerifyTests,
@@ -37,7 +37,8 @@ import {
   workerIdFromCheckpoint,
   type OrbitTickContext,
 } from "./orbit-worker.js";
-import { stationId } from "./orbit-ledger.js";
+import { blockMission, stationId } from "./orbit-ledger.js";
+import { syncWorktreeWithBase } from "./git-worktree.js";
 
 export interface SdkWorkerParams {
   cwd: string;
@@ -59,6 +60,11 @@ export interface SdkWorkerParams {
   stationCwd?: string;
   /** Explicit mission mode. AGI sets true; env/ledger detection remains a fallback. */
   useOrbit?: boolean;
+  /**
+   * Branch the worktree should catch up to between missions, e.g.
+   * `feat/thing`. Omit to leave the worktree pinned at its fork point.
+   */
+  baseBranch?: string;
   /** Injectable for tests. */
   service?: LocalAgentService;
   verifyTests?: (cwd: string) => TestOutcome | undefined;
@@ -92,7 +98,13 @@ export interface SdkWorkerState {
   agentId?: string;
 }
 
-export type SdkWorkerStopReason = "duration" | "max_ticks" | "error" | "consecutive_errors" | "missions_drained";
+export type SdkWorkerStopReason =
+  | "duration"
+  | "max_ticks"
+  | "error"
+  | "consecutive_errors"
+  | "blocked_stalled"
+  | "missions_drained";
 
 export interface SdkWorkerResult extends SdkWorkerState {
   endedAt: string;
@@ -112,6 +124,9 @@ export function resolveTickIntervalMs(): number {
   return DEFAULT_TICK_INTERVAL_MS;
 }
 const DEFAULT_MAX_TICKS = 500;
+
+/** Blocked ticks with no repo change before a mission is parked for a human. */
+export const MAX_CONSECUTIVE_BLOCKED_TICKS = 3;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -142,13 +157,21 @@ const CONTINUATION_PROMPT = [
   TICK_REPORT_INSTRUCTION,
 ].join("\n");
 
-function buildTickPrompt(state: SdkWorkerState, tick: number, missionBlock?: string): string {
+export function buildTickPrompt(
+  state: SdkWorkerState,
+  tick: number,
+  missionBlock?: string,
+): string {
+  const missionPrefix = missionBlock?.trim() ? `${missionBlock.trim()}\n\n` : "";
+
+  // Keep the mission on corrections. A blocked tick that returns only the
+  // gate text tells the worker it failed without saying what it was doing —
+  // fine while the SDK session holds context, useless after --resume, a model
+  // downgrade, or an agentId reset.
   const prior = state.ticks.at(-1);
   if (prior?.groundTruth?.blocked && prior.groundTruth.correctionPrompt) {
-    return prior.groundTruth.correctionPrompt;
+    return `${missionPrefix}${prior.groundTruth.correctionPrompt}`;
   }
-
-  const missionPrefix = missionBlock?.trim() ? `${missionBlock.trim()}\n\n` : "";
 
   if (tick <= 1) {
     const batchReminder = formatBatchGitReminder(state.ticks, resolveCommitBatchPolicy(state.cwd));
@@ -293,6 +316,9 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
   let agentId: string | undefined = state.agentId;
   let stoppedBecause: SdkWorkerStopReason = "duration";
   let consecutiveErrors = 0;
+  let consecutiveBlocked = 0;
+  const baseBranch = params.baseBranch?.trim();
+  let lastSyncedMissionId: string | undefined;
   const startTick =
     state.ticks.length > 0 ? (state.ticks.at(-1)?.tick ?? state.ticks.length) + 1 : 1;
 
@@ -325,6 +351,17 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
         continue;
       }
       activeMission = prep.mission;
+
+      // Starting a fresh mission is the one moment the tree is clean, so it is
+      // the only safe point to pick up whatever peers have merged since launch.
+      // Without this a worker builds its second mission against launch-time HEAD.
+      if (baseBranch && activeMission.id !== lastSyncedMissionId) {
+        const sync = syncWorktreeWithBase(state.cwd, baseBranch);
+        lastSyncedMissionId = activeMission.id;
+        if (!sync.synced && sync.reason) {
+          console.error(`[sdk-worker] base sync skipped (${sync.reason})`);
+        }
+      }
     }
 
     const repoBefore = captureRepoSnapshot(state.cwd);
@@ -347,7 +384,10 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
           .filter((o): o is TickOutcome => o != null);
         if (entry.outcome) markTickProductivity(entry.outcome, priorOutcomes);
         const batchPolicy = resolveCommitBatchPolicy(state.cwd);
-        const groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome);
+        const priorWorkInSession = priorOutcomes.some((o) => o.producedWork);
+        const groundTruth = auditGroundTruth(entry.lastAssistantTail, entry.outcome, {
+          priorWorkInSession,
+        });
         const sliceComplete =
           groundTruth.tickReport?.done === true && entry.outcome?.tests?.passed === true;
         const batchCommit = auditBatchCommit(state.ticks, entry.outcome, batchPolicy, {
@@ -420,6 +460,35 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
       }
     }
 
+    // Convergence guard. A tick that is blocked and produced nothing has made no
+    // progress and will get the same correction next time. Nothing counted these
+    // before, so a worker stuck arguing with the gate span its whole window.
+    if (!entry.error && entry.groundTruth?.blocked && entry.outcome?.producedWork !== true) {
+      consecutiveBlocked += 1;
+    } else {
+      consecutiveBlocked = 0;
+    }
+
+    if (consecutiveBlocked >= MAX_CONSECUTIVE_BLOCKED_TICKS) {
+      const reason = `Blocked ${consecutiveBlocked} ticks running with no repo change: ${
+        entry.groundTruth?.violations.join("; ") ?? "unknown"
+      }`;
+      consecutiveBlocked = 0;
+      if (orbitCtx && activeMission) {
+        // Park the mission for a human and move on rather than burning the
+        // remaining window on one stuck unit of work.
+        try {
+          blockMission(orbitCtx.station, activeMission.id, reason, orbitCtx.metaDir);
+          console.error(`[sdk-worker] blocked mission ${activeMission.id} — ${reason}`);
+        } catch {
+          /* best-effort */
+        }
+      } else {
+        writeSdkCheckpoint({ ...state, stoppedBecause: "blocked_stalled" }, checkpointPath);
+        return finalizeSdkWorker(state, startedAtMs, "blocked_stalled", checkpointPath);
+      }
+    }
+
     try {
       appendEpisode(
         {
@@ -438,11 +507,13 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
     }
 
     try {
-      recordBudgetEvent({
-        at: entry.at,
-        action: "ide_tick",
-        source: entry.agentId ?? "sdk-worker",
+      // Record as an SDK run, not an IDE tick. Logging these as `ide_tick` left
+      // `sdkRuns` at zero forever, so maxSdkRunsPerHour counted a number nothing
+      // incremented and could never fire.
+      recordSdkRunComplete({
         durationMs: entry.watchedMs,
+        model: fleetAgentModel(params.model),
+        source: entry.agentId ?? "sdk-worker",
       });
     } catch {
       /* best-effort */
@@ -510,6 +581,7 @@ export function buildSdkWorkerArgs(params: SdkWorkerParams): string[] {
   if (params.stationCwd) args.push("--station-cwd", params.stationCwd.trim());
   if (params.useOrbit === true) args.push("--orbit");
   if (params.useOrbit === false) args.push("--no-orbit");
+  if (params.baseBranch) args.push("--base-branch", params.baseBranch);
   if (params.resume) args.push("--resume");
   return args;
 }
