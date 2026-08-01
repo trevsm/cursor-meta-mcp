@@ -528,7 +528,18 @@ export function formatMissionForPrompt(mission: Mission | null): string {
     for (const item of mission.acceptance) lines.push(`- ${item}`);
   }
   if (mission.verify) lines.push(`Verify with: ${mission.verify}`);
+
+  // Coders were told what to build and never told to look first, and it showed:
+  // the same worker built a job dispatcher and left it unwired across two
+  // independent runs, with the existing job runner sitting in its own worktree
+  // the whole time. Naming the survey as step one is cheaper than any gate that
+  // catches the omission afterwards.
   lines.push(
+    "Before changing anything, survey first and say what you found:",
+    "- Where does this belong? Name the file that will call your code, or state that nothing will and why that is correct.",
+    "- Does it already exist? Search for prior art before adding a module, type, or helper — prefer extending what is there over inventing a parallel version.",
+    "- What is the established pattern here? Match how the repo already solves this shape of problem.",
+    "Then implement. Code that nothing calls does not count as done, however green its tests are.",
     "Stay on this mission until every acceptance criterion holds and verify passes. Do not start unrelated work.",
   );
   return lines.join("\n");

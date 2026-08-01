@@ -343,3 +343,27 @@ test("claimNextMission will not start a mission whose dependency has not landed"
   const now = claimNextMission(station, "coder-2", meta);
   assert.equal(now?.title, "uses middleware");
 });
+
+test("formatMissionForPrompt asks the coder to find the caller before building", () => {
+  const metaDir = freshMeta();
+  const mission = fileMission(
+    {
+      station: "demo",
+      title: "Drain the outbox",
+      intent: "nothing reads it",
+      acceptance: ["a dispatcher claims and marks events"],
+      verify: "pnpm run test",
+    },
+    metaDir,
+  );
+
+  const prompt = formatMissionForPrompt(mission);
+
+  assert.match(prompt, /Name the file that will call your code/);
+  assert.match(prompt, /Search for prior art/);
+  assert.match(
+    prompt,
+    /Code that nothing calls does not count as done/,
+    "the recurring failure was a tested module with no caller — say so up front, not only in the gate",
+  );
+});
