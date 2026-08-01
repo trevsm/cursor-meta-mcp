@@ -398,9 +398,15 @@ export async function runSdkWorker(params: SdkWorkerParams): Promise<SdkWorkerRe
       if (baseBranch && activeMission.id !== lastSyncedMissionId) {
         const sync = syncWorktreeWithBase(state.cwd, baseBranch);
         lastSyncedMissionId = activeMission.id;
-        if (!sync.synced && sync.reason) {
-          console.error(`[sdk-worker] base sync skipped (${sync.reason})`);
-        }
+        // Log both outcomes. Logging only failures makes silence ambiguous
+        // between "synced" and "never ran", which is unfalsifiable from the
+        // outside — the same defect as a gate that reports success for work it
+        // never examined.
+        console.error(
+          sync.synced
+            ? `[sdk-worker] base sync ok (${baseBranch} -> ${activeMission.id})`
+            : `[sdk-worker] base sync skipped (${sync.reason ?? "unknown"})`,
+        );
       }
     }
 
