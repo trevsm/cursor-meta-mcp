@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,5 +103,30 @@ test("runFleetPreflight does not warn about scope when verify covers the whole w
     if (prevKey) process.env.CURSOR_API_KEY = prevKey;
     else delete process.env.CURSOR_API_KEY;
     if (prevFilter != null) process.env.CURSOR_META_FLEET_FILTER = prevFilter;
+  }
+});
+
+test("runFleetPreflight warns when the reachability gate cannot read the target", async () => {
+  const prevKey = process.env.CURSOR_API_KEY;
+  process.env.CURSOR_API_KEY = process.env.CURSOR_API_KEY ?? "crsr_test_key";
+
+  // A repo with no TypeScript or JavaScript at all.
+  const dir = mkdtempSync(join(tmpdir(), "preflight-nonjs-"));
+  execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "T"], { cwd: dir, stdio: "ignore" });
+  writeFileSync(join(dir, "main.py"), "def run():\n    return 1\n");
+  execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: dir, stdio: "ignore" });
+
+  try {
+    const result = await runFleetPreflight({ cwd: dir, skipSmokeTest: true, requireApiKey: true });
+    assert.ok(
+      result.warnings.some((w) => /Reachability gate inactive/.test(w)),
+      "an inert gate must announce itself rather than looking like a clean pass",
+    );
+  } finally {
+    if (prevKey) process.env.CURSOR_API_KEY = prevKey;
+    else delete process.env.CURSOR_API_KEY;
   }
 });

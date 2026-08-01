@@ -223,6 +223,29 @@ export function unwiredExports(rows: UnreachableExport[]): UnreachableExport[] {
   return rows.filter((row) => row.severity === "unwired");
 }
 
+/**
+ * Whether this repo is one the reachability gate can actually read.
+ *
+ * The parser only understands TypeScript and JavaScript. On any other stack it
+ * finds no sources, reports no violations, and looks indistinguishable from a
+ * clean result — a gate silently passing code it never examined. Callers should
+ * surface this rather than treating the silence as a pass.
+ */
+export function reachabilityApplies(cwd: string): boolean {
+  const raw = git(cwd, [
+    "ls-files",
+    "--",
+    "*.ts",
+    "*.tsx",
+    "*.mts",
+    "*.cts",
+    "*.js",
+    "*.jsx",
+    "*.mjs",
+  ]);
+  return raw != null && raw.trim().length > 0;
+}
+
 export function describeUnreachableExports(rows: UnreachableExport[]): string[] {
   return rows.map(
     (row) =>

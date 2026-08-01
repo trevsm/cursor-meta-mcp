@@ -7,6 +7,7 @@ import {
 } from "./fleet-target.js";
 import { loadBudgetState, getBudgetSnapshot } from "./plan-budget.js";
 import { hasCursorApiKey, resolveWorkerNodeBin, envForWorkers } from "./load-env.js";
+import { reachabilityApplies } from "./reachability.js";
 import { probeWorkerAuth, sdkWorkerLaunchable, workerAuthHint } from "./worker-auth.js";
 
 export interface FleetPreflightResult {
@@ -88,6 +89,12 @@ export async function runFleetPreflight(options?: {
   if (scopedTo) {
     warnings.push(
       `Verify is scoped to ${scopedTo} (${verifyCommand}) — ticks touching anything outside ${scopedTo} pass the gate untested`,
+    );
+  }
+
+  if (!reachabilityApplies(cwd)) {
+    warnings.push(
+      "Reachability gate inactive — it reads TypeScript/JavaScript only, so on this target it will report no violations regardless of what lands",
     );
   }
 
