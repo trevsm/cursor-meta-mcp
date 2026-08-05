@@ -47,8 +47,15 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_list_chat_usage` | Per-chat cost/token totals (included vs on-demand) for billing cycle or date range |
 | `meta_rank_recent_chat_usage` | Rank N most recent local chats by cost (includes $0); splits included vs on-demand |
 | `meta_chat_usage` | Usage breakdown for one chat (`sessionIndex` or `sessionId`) |
+| `meta_chat_thinking` | Local chain-of-thought samples + tool stats (+ optional usage join) |
+| `meta_chat_turns` | **Raw** per-turn chronological timeline: `thinking.text` + tool params/results (no scoring) |
+| `meta_search_thinking` | **Fast** cross-chat search over literal `thinking.text` + **user prompts** (optional assistant); OR via `queries[]`, or `regex` |
 
 Usage tools read `cursorAuth/accessToken` from local `state.vscdb` (same login as the Cursor IDE). They call `api2.cursor.sh` dashboard RPC and correlate `conversationId` with chat `composerId`.
+
+`meta_chat_turns` with `turn=N` returns one turn’s full chain: thought → tool → assistant events in order, including tool `params` / `result`.
+
+`meta_search_thinking` scans bubble JSON in `state.vscdb` (not FTS titles/bodies). Defaults to **thinking + user**. Example: `query: "StackOverflow"`, or `queries: ["confused","frustrated","going in circles"]`.
 
 ## Requirements
 

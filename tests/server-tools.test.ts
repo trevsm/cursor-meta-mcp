@@ -18,6 +18,8 @@ test("registers all meta_* tools", async () => {
     assert.deepEqual(names, [
       "meta_abort_chat",
       "meta_cancel_run",
+      "meta_chat_thinking",
+      "meta_chat_turns",
       "meta_chat_usage",
       "meta_continue_from_chat",
       "meta_create_chat",
@@ -36,6 +38,7 @@ test("registers all meta_* tools", async () => {
       "meta_list_local_agents",
       "meta_rank_recent_chat_usage",
       "meta_search_chats",
+      "meta_search_thinking",
       "meta_send_to_chat",
       "meta_show_chat",
       "meta_spawn_local_agent",

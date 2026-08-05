@@ -18,6 +18,18 @@ import {
   sendToIdeChat,
 } from "./ide-chat-control.js";
 import {
+  getChatThinkingAnalysis,
+  thinkingErrorMessage,
+} from "./chat-thinking.js";
+import {
+  chatTurnsErrorMessage,
+  getChatTurns,
+} from "./chat-turns.js";
+import {
+  searchThinking,
+  thinkingSearchErrorMessage,
+} from "./chat-search.js";
+import {
   getChatUsage,
   getUsagePeriod,
   listChatUsage,
@@ -233,7 +245,8 @@ export function createServer(
     "meta_search_chats",
     {
       title: "Search Cursor chat history",
-      description: "Full-text search across local Cursor chat history.",
+      description:
+        "Full-text search across local Cursor chat titles/bodies (conversation-search.db). Does not search thinking.text — use meta_search_thinking for chain-of-thought.",
       inputSchema: {
         query: z.string().min(1),
         limit: z.number().int().min(1).max(50).optional(),
@@ -247,6 +260,55 @@ export function createServer(
         return jsonResult(await searchChats(args));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_search_thinking",
+    {
+      title: "Search agent thoughts (and optional messages)",
+      description:
+        "Fast cross-chat search over literal thinking.text and user prompts (default). Use for confusion/stuck scans. Pass queries[] for OR literals, regex:true for a pattern, scopes to narrow or add assistant. Prefer sessionIndex for one-chat deep search.",
+      inputSchema: {
+        query: z.string().min(1).describe("Literal substring, or regex when regex=true"),
+        queries: z
+          .array(z.string().min(1))
+          .max(20)
+          .optional()
+          .describe("Extra literal OR terms (with query)"),
+        regex: z.boolean().optional().describe("Treat query as RegExp"),
+        caseSensitive: z.boolean().optional(),
+        scopes: z
+          .array(z.enum(["thinking", "user", "assistant"]))
+          .optional()
+          .describe("Default ['thinking','user']"),
+        sessionId: z.string().min(1).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        maxSessions: z
+          .number()
+          .int()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe("Recent sessions to scan (default 100)"),
+        limit: z.number().int().min(1).max(200).optional(),
+        minChars: z.number().int().min(0).optional(),
+        quoteChars: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Chars around match in quote (default 280; 0 ≈ 4000)"),
+        maxBubblesPerSession: z.number().int().min(1000).max(500_000).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult(searchThinking(args));
+      } catch (error) {
+        return errorResult(thinkingSearchErrorMessage(error));
       }
     },
   );
@@ -754,6 +816,109 @@ export function createServer(
         return jsonResult(await getChatUsage(args));
       } catch (error) {
         return errorResult(usageErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_chat_thinking",
+    {
+      title: "Chain-of-thought + efficiency insights",
+      description:
+        "Extract local thinking/chain-of-thought from a chat, summarize tool/thinking stats, and return cost/speed optimization insights. Optionally joins dashboard usage.",
+      inputSchema: {
+        sessionId: z.string().min(1).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        limit: z
+          .number()
+          .int()
+          .min(0)
+          .max(100)
+          .optional()
+          .describe("Max recent thinking texts to return (default 30)"),
+        includeTexts: z
+          .boolean()
+          .optional()
+          .describe("Include recent thinking text samples (default true)"),
+        withUsage: z
+          .boolean()
+          .optional()
+          .describe("Join dashboard usage for this chat (default true)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult(await getChatThinkingAnalysis(args));
+      } catch (error) {
+        return errorResult(thinkingErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_chat_turns",
+    {
+      title: "Per-turn thoughts and tools (raw)",
+      description:
+        "Export literal internal thinking.text and tool calls grouped by user turn. Pass turn=N for one turn's full chronological timeline (thought → tool → assistant, with tool params/results). No scoring.",
+      inputSchema: {
+        sessionId: z.string().min(1).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        turn: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("1-based turn number; returns that turn with full chronological timeline"),
+        limit: z.number().int().min(1).max(100).optional(),
+        offset: z.number().int().min(0).optional(),
+        includeThoughts: z.boolean().optional(),
+        maxThoughtsPerTurn: z
+          .number()
+          .int()
+          .min(0)
+          .max(5000)
+          .optional()
+          .describe("Cap thoughts per turn (0 = all). Default 50; 0 when turn= is set"),
+        maxThoughtChars: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Truncate each thought/assistant text (0 = full)"),
+        sortBy: z.enum(["timeline", "tools", "thoughts"]).optional(),
+        minTools: z.number().int().min(0).optional(),
+        minThoughts: z.number().int().min(0).optional(),
+        maxToolSequence: z.number().int().min(1).max(500).optional(),
+        includeTimeline: z
+          .boolean()
+          .optional()
+          .describe("Include chronological timeline events (default true when turn=)"),
+        includeAssistant: z
+          .boolean()
+          .optional()
+          .describe("Include assistant text in timeline (default true when turn=)"),
+        maxParamChars: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Cap tool params size (0 = full; default 0 when turn=)"),
+        maxResultChars: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Cap tool result size (0 = full; default 4000 when turn=)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult(await getChatTurns(args));
+      } catch (error) {
+        return errorResult(chatTurnsErrorMessage(error));
       }
     },
   );

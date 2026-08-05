@@ -63,6 +63,8 @@ async function callTool(name, args = {}) {
 const expectedTools = [
   "meta_abort_chat",
   "meta_cancel_run",
+  "meta_chat_thinking",
+  "meta_chat_turns",
   "meta_chat_usage",
   "meta_continue_from_chat",
   "meta_create_chat",
@@ -81,6 +83,7 @@ const expectedTools = [
   "meta_list_local_agents",
   "meta_rank_recent_chat_usage",
   "meta_search_chats",
+  "meta_search_thinking",
   "meta_send_to_chat",
   "meta_show_chat",
   "meta_spawn_local_agent",
@@ -137,6 +140,7 @@ async function listTools() {
 const tests = [
   ["meta_list_chats", { limit: 3 }],
   ["meta_search_chats", { query: "MCP", limit: 2 }],
+  ["meta_search_thinking", { query: "StackOverflow", limit: 3, maxSessions: 40 }],
   ["meta_show_chat", { sessionIndex: 1 }],
   ["meta_whoami", {}],
   ["meta_get_usage_period", {}],
