@@ -18,6 +18,13 @@ import {
   sendToIdeChat,
 } from "./ide-chat-control.js";
 import {
+  getChatUsage,
+  getUsagePeriod,
+  listChatUsage,
+  rankRecentChatsByUsage,
+  usageErrorMessage,
+} from "./chat-usage.js";
+import {
   exportChat,
   historyErrorMessage,
   listChats,
@@ -202,19 +209,20 @@ export function createServer(
     {
       title: "Show Cursor chat session",
       description:
-        "Load full content of a past Cursor chat by 1-based sessionIndex or by sessionId (composer UUID or bc-* cloud id from meta_search_chats).",
+        "Load content of a past Cursor chat by sessionIndex or sessionId. Returns recent user/assistant text only (default 30 messages; max 500). Tool-only bubbles are omitted.",
       inputSchema: {
         sessionIndex: z.number().int().min(1).optional(),
         sessionId: sessionIdSchema.optional(),
+        maxMessages: z.number().int().min(1).max(500).optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionIndex, sessionId }) => {
+    async ({ sessionIndex, sessionId, maxMessages }) => {
       try {
         if (!sessionIndex && !sessionId) {
           return errorResult(new Error("Provide sessionIndex or sessionId."));
         }
-        return jsonResult(await showChat({ sessionIndex, sessionId }));
+        return jsonResult(await showChat({ sessionIndex, sessionId, maxMessages }));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
       }
@@ -659,6 +667,93 @@ export function createServer(
         return jsonResult(await service.whoami());
       } catch (error) {
         return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_get_usage_period",
+    {
+      title: "Cursor billing period usage",
+      description:
+        "Fetch current billing-cycle usage summary from Cursor dashboard (requires local IDE login).",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return jsonResult(await getUsagePeriod());
+      } catch (error) {
+        return errorResult(usageErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_list_chat_usage",
+    {
+      title: "List chats by usage cost",
+      description:
+        "Aggregate Cursor dashboard usage events by conversationId. Returns includedDollars (plan/bonus burn) and onDemandDollars (pay-as-you-go) separately. Defaults to current billing cycle.",
+      inputSchema: {
+        startDate: z.string().optional().describe("ISO start date (optional; default billing cycle start)"),
+        endDate: z.string().optional().describe("ISO end date (optional; default billing cycle end)"),
+        limit: z.number().int().min(1).max(200).optional(),
+        minCents: z.number().min(0).optional().describe("Only include chats with at least this many charged cents"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult(await listChatUsage(args));
+      } catch (error) {
+        return errorResult(usageErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_rank_recent_chat_usage",
+    {
+      title: "Rank recent chats by usage",
+      description:
+        "Take the N most recent local chats and rank by cost, splitting includedDollars vs onDemandDollars. Includes $0 chats. Usage is for the currently logged-in Cursor account only.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional().describe("How many recent chats to include (default 100)"),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult(await rankRecentChatsByUsage(args));
+      } catch (error) {
+        return errorResult(usageErrorMessage(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "meta_chat_usage",
+    {
+      title: "Usage for one chat",
+      description:
+        "Return token and cost totals for a single chat (sessionId or sessionIndex), correlated via dashboard conversationId.",
+      inputSchema: {
+        sessionId: z.string().min(1).optional(),
+        sessionIndex: z.number().int().min(1).optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        includeEvents: z.boolean().optional().describe("Include individual usage event rows"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => {
+      try {
+        return jsonResult(await getChatUsage(args));
+      } catch (error) {
+        return errorResult(usageErrorMessage(error));
       }
     },
   );

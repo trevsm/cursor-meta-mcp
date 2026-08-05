@@ -16,7 +16,7 @@ export async function listChats(args: {
   offset?: number;
   workspace?: string;
 }) {
-  const result = listChatSummaries(args);
+  const result = listChatSummaries({ ...args, includeTotal: args.offset === 0 ? true : false });
   return {
     defaultDataPath: getDefaultDataPath(),
     pagination: {
@@ -29,12 +29,17 @@ export async function listChats(args: {
   };
 }
 
-export async function showChat(args: { sessionIndex?: number; sessionId?: string }) {
+export async function showChat(args: {
+  sessionIndex?: number;
+  sessionId?: string;
+  maxMessages?: number;
+}) {
+  const options = { maxMessages: args.maxMessages };
   if (args.sessionId) {
-    return getChatById(args.sessionId);
+    return getChatById(args.sessionId, undefined, options);
   }
   if (args.sessionIndex != null) {
-    return getChatByIndex(args.sessionIndex);
+    return getChatByIndex(args.sessionIndex, options);
   }
   throw new Error("Provide sessionIndex or sessionId.");
 }
@@ -56,7 +61,7 @@ export async function exportChat(args: {
   sessionIndex: number;
   format?: "markdown" | "json";
 }) {
-  const session = getChatByIndex(args.sessionIndex);
+  const session = getChatByIndex(args.sessionIndex, { maxMessages: 500 });
   if (args.format === "json") {
     return { format: "json", content: JSON.stringify(session, null, 2) };
   }
@@ -67,7 +72,7 @@ export async function loadSessionSummary(
   sessionIndex: number,
   maxMessages = 12,
 ): Promise<string> {
-  const session = getChatByIndex(sessionIndex);
+  const session = getChatByIndex(sessionIndex, { maxMessages: maxMessages + 4 });
   return summarizeSessionForPrompt(session, maxMessages);
 }
 
@@ -75,7 +80,7 @@ export async function loadSessionSummaryById(
   sessionId: string,
   maxMessages = 12,
 ): Promise<string> {
-  const session = getChatById(sessionId);
+  const session = getChatById(sessionId, undefined, { maxMessages: maxMessages + 4 });
   return summarizeSessionForPrompt(session, maxMessages);
 }
 

@@ -86,6 +86,39 @@ test("getChatActivity reports active signals from composer state", () => {
   assert.match(activity.signals.join(","), /blocking_pending_actions/);
 });
 
+test("getChatActivity skips bubble scan when composer is idle", () => {
+  previousDbPath = process.env.CURSOR_META_STATE_DB;
+  const dbPath = seedTestDb();
+  process.env.CURSOR_META_STATE_DB = dbPath;
+
+  const db = new Database(dbPath);
+  db.prepare("UPDATE cursorDiskKV SET value = ? WHERE key = ?").run(
+    JSON.stringify({ status: "completed", generatingBubbleIds: [] }),
+    "composerData:11111111-1111-1111-1111-111111111111",
+  );
+  db.prepare("UPDATE composerHeaders SET value = ? WHERE composerId = ?").run(
+    JSON.stringify({ name: "Idle chat", hasBlockingPendingActions: false }),
+    "11111111-1111-1111-1111-111111111111",
+  );
+  db.close();
+
+  const activity = getChatActivity("11111111-1111-1111-1111-111111111111");
+  assert.equal(activity.loadingToolCount, 0);
+  assert.equal(activity.activityLevel, "recent");
+});
+
+test("getChatActivity honors scanBubbles: false", () => {
+  previousDbPath = process.env.CURSOR_META_STATE_DB;
+  process.env.CURSOR_META_STATE_DB = seedTestDb();
+
+  const activity = getChatActivity("11111111-1111-1111-1111-111111111111", undefined, {
+    scanBubbles: false,
+  });
+  assert.equal(activity.loadingToolCount, 0);
+  assert.equal(activity.generatingBubbleCount, 1);
+  assert.match(activity.signals.join(","), /generating_bubbles/);
+});
+
 test("getChatActivityByIndex resolves the first recent session", () => {
   previousDbPath = process.env.CURSOR_META_STATE_DB;
   process.env.CURSOR_META_STATE_DB = seedTestDb();

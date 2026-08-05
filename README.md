@@ -9,6 +9,7 @@ For autonomous orchestration (fleets, missions, pulse loops, AGI mode), use the 
 | Layer | Description |
 |-------|-------------|
 | **History** | List, search, show, and export past IDE chats from local SQLite |
+| **Usage** | Per-chat token/cost totals from Cursor dashboard API (requires IDE login) |
 | **Activity** | Detect recently active or in-flight IDE chats from composer state |
 | **Steer IDE chats** | Abort generation (best effort) and send new messages via Agent CLI `--resume` |
 | **Spawn** | Run local Cursor agents via `@cursor/sdk` or the Cursor Agent CLI |
@@ -42,6 +43,12 @@ All history reads stay on disk. Model calls still go through Cursor's API (local
 | `meta_get_run` | Fetch run status/result |
 | `meta_cancel_run` | Cancel an in-progress run |
 | `meta_whoami` | Verify auth (API key or CLI login) |
+| `meta_get_usage_period` | Current billing-cycle usage summary (IDE session token) |
+| `meta_list_chat_usage` | Per-chat cost/token totals (included vs on-demand) for billing cycle or date range |
+| `meta_rank_recent_chat_usage` | Rank N most recent local chats by cost (includes $0); splits included vs on-demand |
+| `meta_chat_usage` | Usage breakdown for one chat (`sessionIndex` or `sessionId`) |
+
+Usage tools read `cursorAuth/accessToken` from local `state.vscdb` (same login as the Cursor IDE). They call `api2.cursor.sh` dashboard RPC and correlate `conversationId` with chat `composerId`.
 
 ## Requirements
 

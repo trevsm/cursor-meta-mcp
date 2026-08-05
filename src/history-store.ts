@@ -48,7 +48,10 @@ function globalDbFile(): string {
 }
 
 function openGlobalDb(): Database.Database {
-  return new Database(globalDbFile(), { readonly: true });
+  const db = new Database(globalDbFile(), { readonly: true, fileMustExist: true });
+  db.pragma("mmap_size = 268435456"); // 256MB mmap — helps on large state.vscdb
+  db.pragma("busy_timeout = 2000");
+  return db;
 }
 
 function openSearchDb(): Database.Database {
@@ -92,35 +95,150 @@ function extractBubbleText(value: string): { role: "user" | "assistant"; content
 export function getSessionIndexForId(id: string): number | undefined {
   const db = openGlobalDb();
   try {
-    const rows = db
+    const row = db
       .prepare(
-        `SELECT composerId FROM composerHeaders
-         WHERE IFNULL(isSubagent, 0) = 0
-         ORDER BY lastUpdatedAt DESC`,
+        `SELECT rn AS sessionIndex
+         FROM (
+           SELECT composerId,
+                  ROW_NUMBER() OVER (ORDER BY lastUpdatedAt DESC) AS rn
+           FROM composerHeaders
+           WHERE IFNULL(isSubagent, 0) = 0
+         )
+         WHERE composerId = ?`,
       )
-      .all() as Array<{ composerId: string }>;
-    const index = rows.findIndex((row) => row.composerId === id);
-    return index >= 0 ? index + 1 : undefined;
+      .get(id) as { sessionIndex?: number } | undefined;
+    return row?.sessionIndex;
   } finally {
     db.close();
   }
+}
+
+export interface LoadChatOptions {
+  /** Max messages to load (most recent). Omit to load up to maxMessagesCap. */
+  maxMessages?: number;
+}
+
+const DEFAULT_SHOW_MESSAGES = 30;
+const MAX_MESSAGES_CAP = 500;
+/** Fetch extra bubbles because many are tool-only shells with no text. */
+const BUBBLE_FETCH_MULTIPLIER = 12;
+const MAX_BUBBLE_FETCH = 180;
+
+function bubbleKeyRange(sessionId: string): { start: string; end: string } {
+  const start = `bubbleId:${sessionId}:`;
+  const end = `${start.slice(0, -1)};`;
+  return { start, end };
+}
+
+function loadBubbleMessages(
+  db: Database.Database,
+  sessionId: string,
+  maxMessages: number,
+): ChatMessage[] {
+  const { start, end } = bubbleKeyRange(sessionId);
+  const bubbleLimit = Math.min(
+    Math.max(maxMessages * BUBBLE_FETCH_MULTIPLIER, maxMessages),
+    MAX_BUBBLE_FETCH,
+  );
+  const bubbles = db
+    .prepare(
+      `SELECT value FROM cursorDiskKV
+       WHERE key >= ? AND key < ?
+       ORDER BY rowid DESC
+       LIMIT ?`,
+    )
+    .all(start, end, bubbleLimit) as Array<{ value: string }>;
+
+  const messages: ChatMessage[] = [];
+  for (const bubble of bubbles.reverse()) {
+    try {
+      const parsed = extractBubbleText(bubble.value);
+      if (!parsed.content && !parsed.toolCalls?.length) continue;
+      // Skip tool-only shells in previews — they bloat payloads without adding context.
+      if (!parsed.content && parsed.toolCalls?.length) continue;
+      messages.push(parsed);
+      if (messages.length >= maxMessages) break;
+    } catch {
+      continue;
+    }
+  }
+  return messages;
+}
+
+function summaryFromHeaderRow(
+  row: {
+    composerId: string;
+    workspaceId: string;
+    createdAt: number;
+    lastUpdatedAt: number;
+    value: string;
+  },
+  sessionIndex: number,
+): ChatSummary {
+  const header = parseHeaderValue(row.value);
+  const workspace = workspaceFromHeader(header);
+  return {
+    sessionIndex,
+    id: row.composerId,
+    title: header.name ?? "(untitled)",
+    workspace,
+    workspaceId: row.workspaceId,
+    timestamp: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.lastUpdatedAt).toISOString(),
+    messageCount: 0,
+    preview: header.subtitle ?? "",
+    isArchived: Boolean(header.isArchived),
+  };
 }
 
 export function listChatSummaries(args: {
   limit?: number;
   offset?: number;
   workspace?: string;
+  includeTotal?: boolean;
 }): { total: number; sessions: ChatSummary[] } {
   const db = openGlobalDb();
   try {
+    const offset = args.offset ?? 0;
+    const limit = args.limit ?? 20;
+    const workspaceFilter = args.workspace?.trim();
+
+    if (workspaceFilter) {
+      const rows = db
+        .prepare(
+          `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
+           FROM composerHeaders
+           WHERE IFNULL(isSubagent, 0) = 0
+           ORDER BY lastUpdatedAt DESC`,
+        )
+        .all() as Array<{
+        composerId: string;
+        workspaceId: string;
+        createdAt: number;
+        lastUpdatedAt: number;
+        value: string;
+      }>;
+
+      const filtered = rows
+        .map((row, index) => summaryFromHeaderRow(row, index + 1))
+        .filter((session) => session.workspace.includes(workspaceFilter));
+      const total = filtered.length;
+      const page = filtered.slice(offset, offset + limit).map((session, index) => ({
+        ...session,
+        sessionIndex: offset + index + 1,
+      }));
+      return { total, sessions: page };
+    }
+
     const rows = db
       .prepare(
         `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
          FROM composerHeaders
          WHERE IFNULL(isSubagent, 0) = 0
-         ORDER BY lastUpdatedAt DESC`,
+         ORDER BY lastUpdatedAt DESC
+         LIMIT ? OFFSET ?`,
       )
-      .all() as Array<{
+      .all(limit, offset) as Array<{
       composerId: string;
       workspaceId: string;
       createdAt: number;
@@ -128,111 +246,153 @@ export function listChatSummaries(args: {
       value: string;
     }>;
 
-    let filtered = rows.map((row, index) => {
-      const header = parseHeaderValue(row.value);
-      const workspace = workspaceFromHeader(header);
-      return {
-        sessionIndex: index + 1,
-        id: row.composerId,
-        title: header.name ?? "(untitled)",
-        workspace,
-        workspaceId: row.workspaceId,
-        timestamp: new Date(row.createdAt).toISOString(),
-        updatedAt: new Date(row.lastUpdatedAt).toISOString(),
-        messageCount: 0,
-        preview: header.subtitle ?? "",
-        isArchived: Boolean(header.isArchived),
-      } satisfies ChatSummary;
-    });
-
-    if (args.workspace) {
-      filtered = filtered.filter((session) => session.workspace.includes(args.workspace!));
+    const sessions = rows.map((row, index) => summaryFromHeaderRow(row, offset + index + 1));
+    let total = sessions.length;
+    if (args.includeTotal !== false) {
+      const totalRow = db
+        .prepare(
+          `SELECT COUNT(*) AS total FROM composerHeaders WHERE IFNULL(isSubagent, 0) = 0`,
+        )
+        .get() as { total: number };
+      total = totalRow.total;
+    } else if (sessions.length === limit) {
+      total = offset + limit + 1; // signal hasMore without full COUNT
+    } else {
+      total = offset + sessions.length;
     }
 
-    const total = filtered.length;
-    const offset = args.offset ?? 0;
-    const limit = args.limit ?? 20;
-    const page = filtered.slice(offset, offset + limit).map((session, index) => ({
-      ...session,
-      sessionIndex: offset + index + 1,
-    }));
-
-    return { total, sessions: page };
+    return { total, sessions };
   } finally {
     db.close();
   }
 }
 
-export function getChatByIndex(sessionIndex: number): ChatSession {
+export function lookupChatSummariesByIds(ids: string[]): Map<string, ChatSummary> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const db = openGlobalDb();
+  try {
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
+         FROM composerHeaders
+         WHERE composerId IN (${placeholders})`,
+      )
+      .all(...uniqueIds) as Array<{
+      composerId: string;
+      workspaceId: string;
+      createdAt: number;
+      lastUpdatedAt: number;
+      value: string;
+    }>;
+
+    const map = new Map<string, ChatSummary>();
+    for (const row of rows) {
+      map.set(
+        row.composerId,
+        summaryFromHeaderRow(row, getSessionIndexForId(row.composerId) ?? 0),
+      );
+    }
+    return map;
+  } finally {
+    db.close();
+  }
+}
+
+function loadChatSession(
+  db: Database.Database,
+  id: string,
+  summary: ChatSummary | undefined,
+  options: LoadChatOptions,
+): ChatSession {
+  let meta = summary;
+  if (!meta) {
+    const headerRow = db
+      .prepare(
+        `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
+         FROM composerHeaders WHERE composerId = ?`,
+      )
+      .get(id) as {
+      composerId: string;
+      workspaceId: string;
+      createdAt: number;
+      lastUpdatedAt: number;
+      value?: string;
+    } | undefined;
+
+    if (!headerRow?.value) {
+      throw new Error(`Chat session ${id} not found.`);
+    }
+
+    meta = summaryFromHeaderRow(
+      {
+        composerId: headerRow.composerId,
+        workspaceId: headerRow.workspaceId,
+        createdAt: headerRow.createdAt,
+        lastUpdatedAt: headerRow.lastUpdatedAt,
+        value: headerRow.value,
+      },
+      getSessionIndexForId(id) ?? 0,
+    );
+  }
+
+  const maxMessages = Math.min(
+    options.maxMessages ?? DEFAULT_SHOW_MESSAGES,
+    MAX_MESSAGES_CAP,
+  );
+  const messages = loadBubbleMessages(db, id, maxMessages);
+
+  return {
+    ...meta,
+    messageCount: messages.length,
+    messages,
+  };
+}
+
+export function getChatByIndex(sessionIndex: number, options: LoadChatOptions = {}): ChatSession {
   if (!Number.isInteger(sessionIndex) || sessionIndex < 1) {
     throw new Error("sessionIndex must be a positive integer (1-based).");
   }
 
-  const page = listChatSummaries({ limit: 1, offset: sessionIndex - 1 });
-  const summary = page.sessions[0];
-  if (!summary) {
-    throw new Error(`Session #${sessionIndex} not found (${page.total} sessions available).`);
-  }
-  return getChatById(summary.id, summary);
-}
-
-export function getChatById(id: string, summary?: ChatSummary): ChatSession {
   const db = openGlobalDb();
   try {
     const headerRow = db
-      .prepare("SELECT value FROM composerHeaders WHERE composerId = ?")
-      .get(id) as { value?: string } | undefined;
-
-    let meta = summary;
-    if (!meta && headerRow?.value) {
-      const header = parseHeaderValue(headerRow.value);
-      meta = {
-        sessionIndex: 0,
-        id,
-        title: header.name ?? "(untitled)",
-        workspace: workspaceFromHeader(header),
-        workspaceId: "unknown",
-        timestamp: new Date(header.createdAt ?? Date.now()).toISOString(),
-        updatedAt: new Date(header.lastUpdatedAt ?? Date.now()).toISOString(),
-        messageCount: 0,
-        preview: header.subtitle ?? "",
-        isArchived: Boolean(header.isArchived),
-      };
-    }
-
-    const bubbles = db
       .prepare(
-        "SELECT value FROM cursorDiskKV WHERE key LIKE ? ORDER BY rowid ASC",
+        `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
+         FROM composerHeaders
+         WHERE IFNULL(isSubagent, 0) = 0
+         ORDER BY lastUpdatedAt DESC
+         LIMIT 1 OFFSET ?`,
       )
-      .all(`bubbleId:${id}:%`) as Array<{ value: string }>;
+      .get(sessionIndex - 1) as {
+      composerId: string;
+      workspaceId: string;
+      createdAt: number;
+      lastUpdatedAt: number;
+      value: string;
+    } | undefined;
 
-    const messages: ChatMessage[] = [];
-    for (const bubble of bubbles) {
-      try {
-        const parsed = extractBubbleText(bubble.value);
-        if (!parsed.content && !parsed.toolCalls?.length) continue;
-        messages.push(parsed);
-      } catch {
-        continue;
-      }
+    if (!headerRow) {
+      throw new Error(`Session #${sessionIndex} not found.`);
     }
 
-    return {
-      ...(meta ?? {
-        sessionIndex: 0,
-        id,
-        title: "(untitled)",
-        workspace: "unknown",
-        workspaceId: "unknown",
-        timestamp: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        messageCount: messages.length,
-        preview: "",
-        isArchived: false,
-      }),
-      messageCount: messages.length,
-      messages,
-    };
+    const summary = summaryFromHeaderRow(headerRow, sessionIndex);
+    return loadChatSession(db, headerRow.composerId, summary, options);
+  } finally {
+    db.close();
+  }
+}
+
+export function getChatById(
+  id: string,
+  summary?: ChatSummary,
+  options: LoadChatOptions = {},
+): ChatSession {
+  const db = openGlobalDb();
+  try {
+    return loadChatSession(db, id, summary, options);
   } finally {
     db.close();
   }

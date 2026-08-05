@@ -63,19 +63,23 @@ async function callTool(name, args = {}) {
 const expectedTools = [
   "meta_abort_chat",
   "meta_cancel_run",
+  "meta_chat_usage",
   "meta_continue_from_chat",
   "meta_create_chat",
   "meta_export_chat",
   "meta_follow_up",
   "meta_get_chat_activity",
   "meta_get_run",
+  "meta_get_usage_period",
   "meta_intercept_agent",
   "meta_intercept_chat",
   "meta_list_active_chats",
   "meta_list_active_runs",
   "meta_list_agent_runs",
+  "meta_list_chat_usage",
   "meta_list_chats",
   "meta_list_local_agents",
+  "meta_rank_recent_chat_usage",
   "meta_search_chats",
   "meta_send_to_chat",
   "meta_show_chat",
@@ -135,6 +139,8 @@ const tests = [
   ["meta_search_chats", { query: "MCP", limit: 2 }],
   ["meta_show_chat", { sessionIndex: 1 }],
   ["meta_whoami", {}],
+  ["meta_get_usage_period", {}],
+  ["meta_list_chat_usage", { limit: 5 }],
 ];
 
 if (process.env.CURSOR_API_KEY) {
