@@ -96,8 +96,24 @@ test("meta_search_chats returns ranked hits", async (t) => {
     return;
   }
 
-  const hits = JSON.parse(textResult(result));
-  assert.ok(Array.isArray(hits));
+  const payload = JSON.parse(textResult(result));
+  assert.ok(Array.isArray(payload.hits));
+  assert.ok(["raw", "phrase", "terms"].includes(payload.queryMode));
+});
+
+test("meta_search_chats survives raw error text with FTS operators", async (t) => {
+  const result = await callMetaTool(new FakeLocalAgentService(), "meta_search_chats", {
+    query: "ReferenceError: something.is not defined!",
+    limit: 2,
+  });
+  if (result.isError) {
+    t.skip("Cursor search unavailable");
+    return;
+  }
+
+  const payload = JSON.parse(textResult(result));
+  assert.ok(Array.isArray(payload.hits));
+  assert.notEqual(payload.queryMode, "raw");
 });
 
 test("meta_export_chat exports markdown and json", async (t) => {

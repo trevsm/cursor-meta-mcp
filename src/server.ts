@@ -199,11 +199,19 @@ export function createServer(
     {
       title: "List Cursor chat sessions",
       description:
-        "List past Cursor IDE chat sessions from local SQLite storage. Returns 1-based sessionIndex values for meta_show_chat and meta_export_chat.",
+        "List past Cursor IDE chat sessions from local SQLite storage. Empty chats are hidden by default. sessionIndex is global and shifts as chats update — prefer the stable id for follow-up calls.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional(),
         offset: z.number().int().min(0).optional(),
-        workspace: z.string().min(1).optional(),
+        workspace: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Substring match on the chat's workspace path"),
+        includeEmpty: z
+          .boolean()
+          .optional()
+          .describe("Include chats with zero stored messages (default false)"),
       },
       annotations: { readOnlyHint: true },
     },
@@ -221,20 +229,24 @@ export function createServer(
     {
       title: "Show Cursor chat session",
       description:
-        "Load content of a past Cursor chat by sessionIndex or sessionId. Returns recent user/assistant text only (default 30 messages; max 500). Tool-only bubbles are omitted.",
+        "Load content of a past Cursor chat by sessionIndex or sessionId. Returns user/assistant text only (default 30 messages; max 500); tool-only bubbles are omitted. Defaults to the most recent messages — set fromStart to read where a problem was first hit. Check `truncated` and `bubbleCount`.",
       inputSchema: {
         sessionIndex: z.number().int().min(1).optional(),
         sessionId: sessionIdSchema.optional(),
         maxMessages: z.number().int().min(1).max(500).optional(),
+        fromStart: z
+          .boolean()
+          .optional()
+          .describe("Read from the beginning of the chat instead of the latest messages"),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionIndex, sessionId, maxMessages }) => {
+    async ({ sessionIndex, sessionId, maxMessages, fromStart }) => {
       try {
         if (!sessionIndex && !sessionId) {
           return errorResult(new Error("Provide sessionIndex or sessionId."));
         }
-        return jsonResult(await showChat({ sessionIndex, sessionId, maxMessages }));
+        return jsonResult(await showChat({ sessionIndex, sessionId, maxMessages, fromStart }));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
       }
@@ -246,12 +258,22 @@ export function createServer(
     {
       title: "Search Cursor chat history",
       description:
-        "Full-text search across local Cursor chat titles/bodies (conversation-search.db). Does not search thinking.text — use meta_search_thinking for chain-of-thought.",
+        "Full-text search across local Cursor chat titles/bodies (conversation-search.db). Safe to paste raw error text — punctuation is escaped automatically. Bare terms are ANDed, so 'FIXORIGIN <symptom>' finds verified fixes; hits also carry hasFixOrigin. Does not search thinking.text — use meta_search_thinking for chain-of-thought.",
       inputSchema: {
-        query: z.string().min(1),
+        query: z.string().min(1).describe("Plain text, an error message, or FTS5 syntax"),
         limit: z.number().int().min(1).max(50).optional(),
-        context: z.number().int().min(0).max(20).optional(),
-        workspace: z.string().min(1).optional(),
+        context: z
+          .number()
+          .int()
+          .min(8)
+          .max(64)
+          .optional()
+          .describe("Snippet width in tokens (default 24)"),
+        workspace: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Substring match on the chat's workspace path"),
       },
       annotations: { readOnlyHint: true },
     },
@@ -317,16 +339,21 @@ export function createServer(
     "meta_export_chat",
     {
       title: "Export Cursor chat session",
-      description: "Export a past chat as markdown or json using 1-based sessionIndex.",
+      description:
+        "Export a past chat as markdown or json by sessionId (stable) or 1-based sessionIndex.",
       inputSchema: {
-        sessionIndex: z.number().int().min(1),
+        sessionIndex: z.number().int().min(1).optional(),
+        sessionId: sessionIdSchema.optional(),
         format: z.enum(["markdown", "json"]).optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ sessionIndex, format }) => {
+    async ({ sessionIndex, sessionId, format }) => {
       try {
-        return jsonResult(await exportChat({ sessionIndex, format }));
+        if (!sessionIndex && !sessionId) {
+          return errorResult(new Error("Provide sessionIndex or sessionId."));
+        }
+        return jsonResult(await exportChat({ sessionIndex, sessionId, format }));
       } catch (error) {
         return errorResult(historyErrorMessage(error));
       }

@@ -12,6 +12,8 @@ export interface ChatSummary {
   timestamp: string;
   updatedAt: string;
   messageCount: number;
+  /** Stored bubbles for this chat. 0 means an empty shell with no conversation. */
+  bubbleCount: number;
   preview: string;
   isArchived: boolean;
 }
@@ -25,14 +27,34 @@ export interface ChatMessage {
 
 export interface ChatSession extends ChatSummary {
   messages: ChatMessage[];
+  /** True when the chat holds more messages than were returned. */
+  truncated: boolean;
+  /** Which end of the transcript `messages` came from. */
+  window: "latest" | "earliest";
 }
 
 export interface SearchHit {
   rank: number;
   sessionId: string;
+  sessionIndex?: number;
   title: string;
   snippet: string;
   updatedAt: string;
+  workspace: string | null;
+  /** Chat contains the FIXORIGIN marker — a verified origin fix, not just a mention. */
+  hasFixOrigin: boolean;
+}
+
+/**
+ * How the raw query reached FTS5. Agents paste error text containing `:`, `!`, and `.`,
+ * all of which are FTS5 operators, so a raw MATCH throws instead of returning nothing.
+ */
+export type FtsQueryMode = "raw" | "phrase" | "terms";
+
+export interface SearchResult {
+  hits: SearchHit[];
+  queryMode: FtsQueryMode;
+  effectiveQuery: string;
 }
 
 function globalStorageDir(): string {
@@ -116,13 +138,14 @@ export function getSessionIndexForId(id: string): number | undefined {
 export interface LoadChatOptions {
   /** Max messages to load (most recent). Omit to load up to maxMessagesCap. */
   maxMessages?: number;
+  /** Read from the start of the chat instead of the most recent messages. */
+  fromStart?: boolean;
 }
 
 const DEFAULT_SHOW_MESSAGES = 30;
 const MAX_MESSAGES_CAP = 500;
-/** Fetch extra bubbles because many are tool-only shells with no text. */
-const BUBBLE_FETCH_MULTIPLIER = 12;
-const MAX_BUBBLE_FETCH = 180;
+/** Bound the worst case on chats with tens of thousands of bubbles. */
+const MAX_BUBBLE_SCAN = 40_000;
 
 function bubbleKeyRange(sessionId: string): { start: string; end: string } {
   const start = `bubbleId:${sessionId}:`;
@@ -130,50 +153,88 @@ function bubbleKeyRange(sessionId: string): { start: string; end: string } {
   return { start, end };
 }
 
+function countBubbles(db: Database.Database, sessionId: string): number {
+  const { start, end } = bubbleKeyRange(sessionId);
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM cursorDiskKV WHERE key >= ? AND key < ?`)
+    .get(start, end) as { n: number };
+  return row.n;
+}
+
+/** ~100x cheaper than COUNT over the key range — use this to screen empty shells. */
+function hasBubbles(db: Database.Database, sessionId: string): boolean {
+  const { start, end } = bubbleKeyRange(sessionId);
+  return (
+    db
+      .prepare(`SELECT 1 FROM cursorDiskKV WHERE key >= ? AND key < ? LIMIT 1`)
+      .get(start, end) !== undefined
+  );
+}
+
+/**
+ * Stream bubbles and stop once `maxMessages` texts are collected. Most bubbles are
+ * tool-only shells with no text, so a fixed row LIMIT silently under-delivers.
+ */
 function loadBubbleMessages(
   db: Database.Database,
   sessionId: string,
   maxMessages: number,
-): ChatMessage[] {
+  fromStart: boolean,
+): { messages: ChatMessage[]; truncated: boolean } {
   const { start, end } = bubbleKeyRange(sessionId);
-  const bubbleLimit = Math.min(
-    Math.max(maxMessages * BUBBLE_FETCH_MULTIPLIER, maxMessages),
-    MAX_BUBBLE_FETCH,
-  );
-  const bubbles = db
+  const iter = db
     .prepare(
       `SELECT value FROM cursorDiskKV
        WHERE key >= ? AND key < ?
-       ORDER BY rowid DESC
-       LIMIT ?`,
+       ORDER BY rowid ${fromStart ? "ASC" : "DESC"}`,
     )
-    .all(start, end, bubbleLimit) as Array<{ value: string }>;
+    .iterate(start, end) as IterableIterator<{ value: string }>;
 
-  const messages: ChatMessage[] = [];
-  for (const bubble of bubbles.reverse()) {
+  const collected: ChatMessage[] = [];
+  let scanned = 0;
+  let truncated = false;
+
+  for (const bubble of iter) {
+    scanned += 1;
+    if (scanned > MAX_BUBBLE_SCAN) {
+      truncated = true;
+      break;
+    }
+    let parsed: ChatMessage;
     try {
-      const parsed = extractBubbleText(bubble.value);
-      if (!parsed.content && !parsed.toolCalls?.length) continue;
-      // Skip tool-only shells in previews — they bloat payloads without adding context.
-      if (!parsed.content && parsed.toolCalls?.length) continue;
-      messages.push(parsed);
-      if (messages.length >= maxMessages) break;
+      parsed = extractBubbleText(bubble.value);
     } catch {
       continue;
     }
+    // Skip tool-only shells — they bloat payloads without adding context.
+    if (!parsed.content) continue;
+    collected.push(parsed);
+    // Collect one extra so `truncated` reflects real overflow, not an exact fit.
+    if (collected.length > maxMessages) {
+      collected.pop();
+      truncated = true;
+      break;
+    }
   }
-  return messages;
+
+  return {
+    messages: fromStart ? collected : collected.reverse(),
+    truncated,
+  };
+}
+
+interface HeaderRow {
+  composerId: string;
+  workspaceId: string;
+  createdAt: number;
+  lastUpdatedAt: number;
+  value: string;
 }
 
 function summaryFromHeaderRow(
-  row: {
-    composerId: string;
-    workspaceId: string;
-    createdAt: number;
-    lastUpdatedAt: number;
-    value: string;
-  },
+  row: HeaderRow,
   sessionIndex: number,
+  bubbleCount = 0,
 ): ChatSummary {
   const header = parseHeaderValue(row.value);
   const workspace = workspaceFromHeader(header);
@@ -186,82 +247,147 @@ function summaryFromHeaderRow(
     timestamp: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.lastUpdatedAt).toISOString(),
     messageCount: 0,
+    bubbleCount,
     preview: header.subtitle ?? "",
     isArchived: Boolean(header.isArchived),
   };
 }
 
+const HEADER_COLUMNS = `composerId, workspaceId, createdAt, lastUpdatedAt, value`;
+const NON_SUBAGENT = `IFNULL(isSubagent, 0) = 0`;
+
 export function listChatSummaries(args: {
   limit?: number;
   offset?: number;
   workspace?: string;
+  /** Include chats with zero bubbles. Defaults true so `offset` stays a global index. */
+  includeEmpty?: boolean;
   includeTotal?: boolean;
-}): { total: number; sessions: ChatSummary[] } {
+}): { total: number | null; hasMore: boolean; sessions: ChatSummary[] } {
   const db = openGlobalDb();
   try {
-    const offset = args.offset ?? 0;
-    const limit = args.limit ?? 20;
+    const offset = Math.max(args.offset ?? 0, 0);
+    const limit = Math.max(args.limit ?? 20, 1);
     const workspaceFilter = args.workspace?.trim();
+    const includeEmpty = args.includeEmpty ?? true;
+    const isFiltered = Boolean(workspaceFilter) || !includeEmpty;
 
-    if (workspaceFilter) {
+    // Unfiltered listing lines up 1:1 with the global index, so SQL can page it.
+    if (!isFiltered) {
       const rows = db
         .prepare(
-          `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
-           FROM composerHeaders
-           WHERE IFNULL(isSubagent, 0) = 0
-           ORDER BY lastUpdatedAt DESC`,
+          `SELECT ${HEADER_COLUMNS} FROM composerHeaders
+           WHERE ${NON_SUBAGENT}
+           ORDER BY lastUpdatedAt DESC
+           LIMIT ? OFFSET ?`,
         )
-        .all() as Array<{
-        composerId: string;
-        workspaceId: string;
-        createdAt: number;
-        lastUpdatedAt: number;
-        value: string;
-      }>;
+        .all(limit + 1, offset) as HeaderRow[];
 
-      const filtered = rows
-        .map((row, index) => summaryFromHeaderRow(row, index + 1))
-        .filter((session) => session.workspace.includes(workspaceFilter));
-      const total = filtered.length;
-      const page = filtered.slice(offset, offset + limit).map((session, index) => ({
-        ...session,
-        sessionIndex: offset + index + 1,
-      }));
-      return { total, sessions: page };
+      const hasMore = rows.length > limit;
+      const sessions = rows
+        .slice(0, limit)
+        .map((row, index) =>
+          summaryFromHeaderRow(row, offset + index + 1, countBubbles(db, row.composerId)),
+        );
+      const total =
+        args.includeTotal === false
+          ? null
+          : (
+              db
+                .prepare(`SELECT COUNT(*) AS n FROM composerHeaders WHERE ${NON_SUBAGENT}`)
+                .get() as { n: number }
+            ).n;
+      return { total, hasMore, sessions };
     }
 
+    // Filtered: walk in global order and keep the real sessionIndex. Renumbering by
+    // page position hands back indexes that resolve to a different chat entirely.
+    const iter = db
+      .prepare(
+        `SELECT ${HEADER_COLUMNS} FROM composerHeaders
+         WHERE ${NON_SUBAGENT}
+         ORDER BY lastUpdatedAt DESC`,
+      )
+      .iterate() as IterableIterator<HeaderRow>;
+
+    const sessions: ChatSummary[] = [];
+    const wantTotal = args.includeTotal === true;
+    let globalIndex = 0;
+    let matched = 0;
+    let hasMore = false;
+
+    for (const row of iter) {
+      globalIndex += 1;
+      if (workspaceFilter) {
+        const workspace = workspaceFromHeader(parseHeaderValue(row.value));
+        if (!workspace.includes(workspaceFilter)) continue;
+      }
+      if (!includeEmpty && !hasBubbles(db, row.composerId)) continue;
+
+      matched += 1;
+      if (matched <= offset) continue;
+      if (sessions.length < limit) {
+        // Exact counts only for rows we actually return.
+        sessions.push(summaryFromHeaderRow(row, globalIndex, countBubbles(db, row.composerId)));
+        continue;
+      }
+      hasMore = true;
+      if (!wantTotal) break;
+    }
+
+    return { total: wantTotal ? matched : null, hasMore, sessions };
+  } finally {
+    db.close();
+  }
+}
+
+/** One window-function pass instead of a full scan per id. */
+export function getSessionIndexesForIds(ids: string[]): Map<string, number> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return new Map();
+
+  const db = openGlobalDb();
+  try {
+    const placeholders = unique.map(() => "?").join(", ");
     const rows = db
       .prepare(
-        `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
-         FROM composerHeaders
-         WHERE IFNULL(isSubagent, 0) = 0
-         ORDER BY lastUpdatedAt DESC
-         LIMIT ? OFFSET ?`,
+        `SELECT composerId, sessionIndex FROM (
+           SELECT composerId,
+                  ROW_NUMBER() OVER (ORDER BY lastUpdatedAt DESC) AS sessionIndex
+           FROM composerHeaders
+           WHERE ${NON_SUBAGENT}
+         )
+         WHERE composerId IN (${placeholders})`,
       )
-      .all(limit, offset) as Array<{
-      composerId: string;
-      workspaceId: string;
-      createdAt: number;
-      lastUpdatedAt: number;
-      value: string;
-    }>;
+      .all(...unique) as Array<{ composerId: string; sessionIndex: number }>;
+    return new Map(rows.map((row) => [row.composerId, row.sessionIndex]));
+  } finally {
+    db.close();
+  }
+}
 
-    const sessions = rows.map((row, index) => summaryFromHeaderRow(row, offset + index + 1));
-    let total = sessions.length;
-    if (args.includeTotal !== false) {
-      const totalRow = db
-        .prepare(
-          `SELECT COUNT(*) AS total FROM composerHeaders WHERE IFNULL(isSubagent, 0) = 0`,
-        )
-        .get() as { total: number };
-      total = totalRow.total;
-    } else if (sessions.length === limit) {
-      total = offset + limit + 1; // signal hasMore without full COUNT
-    } else {
-      total = offset + sessions.length;
+/** Workspace path per chat id, read from composerHeaders (the FTS db has no workspace). */
+export function lookupWorkspacesByIds(ids: string[]): Map<string, string> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return new Map();
+
+  const db = openGlobalDb();
+  try {
+    const placeholders = unique.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT composerId, value FROM composerHeaders WHERE composerId IN (${placeholders})`,
+      )
+      .all(...unique) as Array<{ composerId: string; value: string }>;
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      try {
+        map.set(row.composerId, workspaceFromHeader(parseHeaderValue(row.value)));
+      } catch {
+        continue;
+      }
     }
-
-    return { total, sessions };
+    return map;
   } finally {
     db.close();
   }
@@ -276,23 +402,20 @@ export function lookupChatSummariesByIds(ids: string[]): Map<string, ChatSummary
     const placeholders = uniqueIds.map(() => "?").join(", ");
     const rows = db
       .prepare(
-        `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
-         FROM composerHeaders
-         WHERE composerId IN (${placeholders})`,
+        `SELECT ${HEADER_COLUMNS} FROM composerHeaders WHERE composerId IN (${placeholders})`,
       )
-      .all(...uniqueIds) as Array<{
-      composerId: string;
-      workspaceId: string;
-      createdAt: number;
-      lastUpdatedAt: number;
-      value: string;
-    }>;
+      .all(...uniqueIds) as HeaderRow[];
 
+    const indexes = getSessionIndexesForIds(rows.map((row) => row.composerId));
     const map = new Map<string, ChatSummary>();
     for (const row of rows) {
       map.set(
         row.composerId,
-        summaryFromHeaderRow(row, getSessionIndexForId(row.composerId) ?? 0),
+        summaryFromHeaderRow(
+          row,
+          indexes.get(row.composerId) ?? 0,
+          countBubbles(db, row.composerId),
+        ),
       );
     }
     return map;
@@ -310,30 +433,15 @@ function loadChatSession(
   let meta = summary;
   if (!meta) {
     const headerRow = db
-      .prepare(
-        `SELECT composerId, workspaceId, createdAt, lastUpdatedAt, value
-         FROM composerHeaders WHERE composerId = ?`,
-      )
-      .get(id) as {
-      composerId: string;
-      workspaceId: string;
-      createdAt: number;
-      lastUpdatedAt: number;
-      value?: string;
-    } | undefined;
+      .prepare(`SELECT ${HEADER_COLUMNS} FROM composerHeaders WHERE composerId = ?`)
+      .get(id) as (Omit<HeaderRow, "value"> & { value?: string }) | undefined;
 
     if (!headerRow?.value) {
       throw new Error(`Chat session ${id} not found.`);
     }
 
     meta = summaryFromHeaderRow(
-      {
-        composerId: headerRow.composerId,
-        workspaceId: headerRow.workspaceId,
-        createdAt: headerRow.createdAt,
-        lastUpdatedAt: headerRow.lastUpdatedAt,
-        value: headerRow.value,
-      },
+      { ...headerRow, value: headerRow.value },
       getSessionIndexForId(id) ?? 0,
     );
   }
@@ -342,11 +450,15 @@ function loadChatSession(
     options.maxMessages ?? DEFAULT_SHOW_MESSAGES,
     MAX_MESSAGES_CAP,
   );
-  const messages = loadBubbleMessages(db, id, maxMessages);
+  const fromStart = Boolean(options.fromStart);
+  const { messages, truncated } = loadBubbleMessages(db, id, maxMessages, fromStart);
 
   return {
     ...meta,
     messageCount: messages.length,
+    bubbleCount: countBubbles(db, id),
+    truncated,
+    window: fromStart ? "earliest" : "latest",
     messages,
   };
 }
@@ -398,37 +510,149 @@ export function getChatById(
   }
 }
 
+interface FtsRow {
+  id: string;
+  title: string;
+  updated_at: number;
+  snippet: string;
+}
+
+/** FTS5 tokenizes on non-alphanumerics, so query terms reduce to the same runs. */
+function ftsTokens(query: string): string[] {
+  return query.match(/[\p{L}\p{N}_]+/gu) ?? [];
+}
+
+function quotedPhrase(query: string): string | null {
+  const tokens = ftsTokens(query);
+  return tokens.length > 0 ? `"${tokens.join(" ")}"` : null;
+}
+
+function quotedTerms(query: string): string | null {
+  const tokens = ftsTokens(query);
+  return tokens.length > 0 ? tokens.map((token) => `"${token}"`).join(" ") : null;
+}
+
+function runFtsQuery(
+  db: Database.Database,
+  matchExpr: string,
+  limit: number,
+  snippetTokens: number,
+): FtsRow[] {
+  return db
+    .prepare(
+      `SELECT c.id, c.title, c.updated_at,
+              snippet(conversation_fts, 1, '[', ']', '…', ?) AS snippet
+       FROM conversation_fts
+       JOIN conversations c ON c.fts_rowid = conversation_fts.rowid
+       WHERE conversation_fts MATCH ?
+       ORDER BY rank
+       LIMIT ?`,
+    )
+    .all(snippetTokens, matchExpr, limit) as FtsRow[];
+}
+
+/**
+ * Agents search with raw error text. `ReferenceError:`, `npm ERR!`, and `field.required`
+ * are all FTS5 syntax errors, which surfaced as opaque SQLite failures rather than
+ * "no results". Try the query as written, then as a quoted phrase, then as ANDed terms.
+ */
+function searchWithFallback(
+  db: Database.Database,
+  query: string,
+  limit: number,
+  snippetTokens: number,
+): { rows: FtsRow[]; queryMode: FtsQueryMode; effectiveQuery: string } {
+  const phrase = quotedPhrase(query);
+  const terms = quotedTerms(query);
+  const attempts: Array<{ mode: FtsQueryMode; expr: string }> = [{ mode: "raw", expr: query }];
+  if (phrase && phrase !== query) attempts.push({ mode: "phrase", expr: phrase });
+  if (terms && terms !== phrase && terms !== query) attempts.push({ mode: "terms", expr: terms });
+
+  let firstValid: { rows: FtsRow[]; queryMode: FtsQueryMode; effectiveQuery: string } | null = null;
+  let lastError: unknown;
+
+  for (const attempt of attempts) {
+    let rows: FtsRow[];
+    try {
+      rows = runFtsQuery(db, attempt.expr, limit, snippetTokens);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    const result = { rows, queryMode: attempt.mode, effectiveQuery: attempt.expr };
+    if (rows.length > 0) return result;
+    firstValid ??= result;
+  }
+
+  if (firstValid) return firstValid;
+  throw new Error(
+    `Could not search for ${JSON.stringify(query)}: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+}
+
+/** Chats carrying the FIXORIGIN marker, so hits can be ranked as verified fixes. */
+function fixOriginIds(db: Database.Database): Set<string> {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT c.id FROM conversation_fts
+         JOIN conversations c ON c.fts_rowid = conversation_fts.rowid
+         WHERE conversation_fts MATCH 'FIXORIGIN'`,
+      )
+      .all() as Array<{ id: string }>;
+    return new Set(rows.map((row) => row.id));
+  } catch {
+    return new Set();
+  }
+}
+
 export function searchChats(args: {
   query: string;
   limit?: number;
-}): SearchHit[] {
+  workspace?: string;
+  /** Snippet width in tokens (default 24). */
+  context?: number;
+}): SearchResult {
   const db = openSearchDb();
   try {
-    const limit = args.limit ?? 10;
-    const rows = db
-      .prepare(
-        `SELECT c.id, c.title, c.updated_at,
-                snippet(conversation_fts, 1, '[', ']', '…', 24) AS snippet
-         FROM conversation_fts
-         JOIN conversations c ON c.fts_rowid = conversation_fts.rowid
-         WHERE conversation_fts MATCH ?
-         ORDER BY rank
-         LIMIT ?`,
-      )
-      .all(args.query, limit) as Array<{
-      id: string;
-      title: string;
-      updated_at: number;
-      snippet: string;
-    }>;
+    const limit = Math.max(args.limit ?? 10, 1);
+    const snippetTokens = Math.min(Math.max(args.context ?? 24, 8), 64);
+    const workspaceFilter = args.workspace?.trim();
+    // Workspace lives in state.vscdb, not the FTS db, so over-fetch and filter after.
+    const fetchLimit = workspaceFilter ? Math.min(limit * 8, 200) : limit;
 
-    return rows.map((row, index) => ({
-      rank: index + 1,
-      sessionId: row.id,
-      title: row.title,
-      snippet: row.snippet,
-      updatedAt: new Date(row.updated_at).toISOString(),
-    }));
+    const { rows, queryMode, effectiveQuery } = searchWithFallback(
+      db,
+      args.query,
+      fetchLimit,
+      snippetTokens,
+    );
+    const marked = fixOriginIds(db);
+    const ids = rows.map((row) => row.id);
+    const workspaces = lookupWorkspacesByIds(ids);
+
+    const filtered = workspaceFilter
+      ? rows.filter((row) => (workspaces.get(row.id) ?? "").includes(workspaceFilter))
+      : rows;
+    const page = filtered.slice(0, limit);
+    const indexes = getSessionIndexesForIds(page.map((row) => row.id));
+
+    return {
+      queryMode,
+      effectiveQuery,
+      hits: page.map((row, index) => ({
+        rank: index + 1,
+        sessionId: row.id,
+        sessionIndex: indexes.get(row.id),
+        title: row.title,
+        snippet: row.snippet,
+        updatedAt: new Date(row.updated_at).toISOString(),
+        workspace: workspaces.get(row.id) ?? null,
+        hasFixOrigin: marked.has(row.id),
+      })),
+    };
   } finally {
     db.close();
   }

@@ -4,7 +4,6 @@ import {
   getChatById,
   getChatByIndex,
   getDefaultDataPath,
-  getSessionIndexForId,
   listChatSummaries,
   searchChats as searchStoredChats,
   summarizeSessionForPrompt,
@@ -15,16 +14,29 @@ export async function listChats(args: {
   limit?: number;
   offset?: number;
   workspace?: string;
+  includeEmpty?: boolean;
 }) {
-  const result = listChatSummaries({ ...args, includeTotal: args.offset === 0 ? true : false });
+  const includeEmpty = args.includeEmpty ?? false;
+  const result = listChatSummaries({
+    ...args,
+    includeEmpty,
+    includeTotal: true,
+  });
   return {
     defaultDataPath: getDefaultDataPath(),
     pagination: {
       total: result.total,
       limit: args.limit ?? 20,
       offset: args.offset ?? 0,
-      hasMore: (args.offset ?? 0) + result.sessions.length < result.total,
+      hasMore: result.hasMore,
     },
+    filters: {
+      workspace: args.workspace ?? null,
+      includeEmpty,
+    },
+    note: includeEmpty
+      ? undefined
+      : "Chats with zero stored messages are hidden; pass includeEmpty to see them. sessionIndex stays global, so it is not contiguous here.",
     sessions: result.sessions,
   };
 }
@@ -33,15 +45,22 @@ export async function showChat(args: {
   sessionIndex?: number;
   sessionId?: string;
   maxMessages?: number;
+  fromStart?: boolean;
 }) {
-  const options = { maxMessages: args.maxMessages };
-  if (args.sessionId) {
-    return getChatById(args.sessionId, undefined, options);
-  }
-  if (args.sessionIndex != null) {
-    return getChatByIndex(args.sessionIndex, options);
-  }
-  throw new Error("Provide sessionIndex or sessionId.");
+  const options = { maxMessages: args.maxMessages, fromStart: args.fromStart };
+  const session = args.sessionId
+    ? getChatById(args.sessionId, undefined, options)
+    : args.sessionIndex != null
+      ? getChatByIndex(args.sessionIndex, options)
+      : null;
+  if (!session) throw new Error("Provide sessionIndex or sessionId.");
+
+  return {
+    ...session,
+    note: session.truncated
+      ? `Showing the ${session.window} ${session.messageCount} messages of ${session.bubbleCount} stored bubbles. Raise maxMessages, pass fromStart to read the opening, or use meta_chat_turns for full traversal.`
+      : undefined,
+  };
 }
 
 export async function searchChats(args: {
@@ -50,18 +69,33 @@ export async function searchChats(args: {
   context?: number;
   workspace?: string;
 }) {
-  const hits = searchStoredChats({ query: args.query, limit: args.limit });
-  return hits.map((hit) => ({
-    ...hit,
-    sessionIndex: getSessionIndexForId(hit.sessionId),
-  }));
+  const result = searchStoredChats(args);
+  return {
+    query: args.query,
+    queryMode: result.queryMode,
+    effectiveQuery: result.effectiveQuery,
+    workspace: args.workspace ?? null,
+    hitCount: result.hits.length,
+    note:
+      result.queryMode === "raw"
+        ? undefined
+        : `Raw query was not valid FTS5 syntax; re-ran as a ${result.queryMode} query (${result.effectiveQuery}).`,
+    hits: result.hits,
+  };
 }
 
 export async function exportChat(args: {
-  sessionIndex: number;
+  sessionIndex?: number;
+  sessionId?: string;
   format?: "markdown" | "json";
 }) {
-  const session = getChatByIndex(args.sessionIndex, { maxMessages: 500 });
+  const session = args.sessionId
+    ? getChatById(args.sessionId, undefined, { maxMessages: 500 })
+    : args.sessionIndex != null
+      ? getChatByIndex(args.sessionIndex, { maxMessages: 500 })
+      : null;
+  if (!session) throw new Error("Provide sessionIndex or sessionId.");
+
   if (args.format === "json") {
     return { format: "json", content: JSON.stringify(session, null, 2) };
   }
