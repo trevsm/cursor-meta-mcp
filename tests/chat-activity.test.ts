@@ -136,6 +136,44 @@ test("listActiveChats returns recent sessions", () => {
   assert.equal(sessions[0]?.activityLevel, "active");
 });
 
+test("listActiveChats uses recent bubble time when header timestamp is stale", () => {
+  previousDbPath = process.env.CURSOR_META_STATE_DB;
+  const dbPath = seedTestDb();
+  process.env.CURSOR_META_STATE_DB = dbPath;
+
+  const db = new Database(dbPath);
+  const stale = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  db.prepare("UPDATE composerHeaders SET lastUpdatedAt = ? WHERE composerId = ?").run(
+    stale,
+    "11111111-1111-1111-1111-111111111111",
+  );
+  db.prepare("UPDATE cursorDiskKV SET value = ? WHERE key = ?").run(
+    JSON.stringify({
+      status: "completed",
+      generatingBubbleIds: [],
+    }),
+    "composerData:11111111-1111-1111-1111-111111111111",
+  );
+  db.prepare("UPDATE cursorDiskKV SET value = ? WHERE key = ?").run(
+    JSON.stringify({
+      type: 1,
+      text: "stop trying to debug",
+      createdAt: new Date().toISOString(),
+    }),
+    "bubbleId:11111111-1111-1111-1111-111111111111:1",
+  );
+  db.close();
+
+  const sessions = listActiveChats({
+    limit: 5,
+    withinMs: 60 * 60 * 1000,
+    includeSessionIds: ["11111111-1111-1111-1111-111111111111"],
+  });
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.sessionId, "11111111-1111-1111-1111-111111111111");
+  assert.ok(Date.now() - Date.parse(sessions[0]!.updatedAt) < 60 * 1000);
+});
+
 test("abortIdeChatInStorage marks composer state aborted", () => {
   previousDbPath = process.env.CURSOR_META_STATE_DB;
   const dbPath = seedTestDb();

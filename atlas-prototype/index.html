@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- PROTOTYPE — Conversation Atlas UI sketch. Three variants via ?variant=A|B|C -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Conversation Atlas — PROTOTYPE</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="atlas-top-chrome">
+    <header>
+      <h1>conversation atlas</h1>
+      <button type="button" id="search-trigger" class="search-trigger">
+        <span class="search-trigger-text">search conversations…</span>
+        <kbd class="search-kbd">⌘K</kbd>
+      </button>
+    </header>
+    <nav class="crumb-bar hidden" id="crumb-bar" aria-label="Breadcrumb">
+      <div class="crumb" id="crumb"></div>
+    </nav>
+    <div class="atlas-status-bar" id="status" aria-live="polite"></div>
+  </div>
+  <main id="app"></main>
+  <div id="omni" class="omni hidden" aria-hidden="true"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -20,7 +20,17 @@
     "test:fast": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx tests/*.test.ts",
     "test:files": "CURSOR_META_HOME=\"${TMPDIR:-/tmp}/cursor-meta-test-$$\" node --import tsx scripts/run-with-worker-node.mjs --test --experimental-test-module-mocks --import tsx",
     "test:coverage": "npm test",
-    "test:logged": "node --import tsx scripts/run-tests-logged.mjs"
+    "test:logged": "node --import tsx scripts/run-tests-logged.mjs",
+    "atlas-prototype": "npm run build && node --import tsx scripts/run-with-worker-node.mjs scripts/atlas-serve.mjs",
+    "atlas-index": "npm run build && node --import tsx scripts/run-with-worker-node.mjs scripts/atlas-index.mjs",
+    "atlas-cluster": "npm run build && node --import tsx scripts/run-with-worker-node.mjs scripts/atlas-cluster.mjs",
+    "atlas-archive": "npm run build && node --import tsx scripts/run-with-worker-node.mjs scripts/atlas-archive.mjs",
+    "atlas-archive-watch": "npm run build && node --import tsx scripts/run-with-worker-node.mjs scripts/atlas-archive-watch.mjs",
+    "atlas-archive-watch:install": "node --import tsx scripts/run-with-worker-node.mjs scripts/install-atlas-archive-watcher.mjs",
+    "atlas-app:install": "node --import tsx scripts/run-with-worker-node.mjs scripts/install-atlas-archive-watcher.mjs",
+    "atlas-app:icons": "node --import tsx scripts/run-with-worker-node.mjs scripts/install-atlas-icons.mjs",
+    "atlas-app:uninstall": "node --import tsx scripts/run-with-worker-node.mjs scripts/uninstall-atlas-archive-watcher.mjs",
+    "atlas-archive-watch:uninstall": "node --import tsx scripts/run-with-worker-node.mjs scripts/uninstall-atlas-archive-watcher.mjs"
   },
   "keywords": [
     "mcp",

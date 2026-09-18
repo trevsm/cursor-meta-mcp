@@ -29,6 +29,8 @@ export interface ListActiveChatsArgs {
   includeIdle?: boolean;
   /** Cap header rows scanned (defaults to max(limit * 4, 40)). */
   maxScan?: number;
+  /** Always evaluate these sessions (e.g. atlas index) even if header recency is stale. */
+  includeSessionIds?: string[];
 }
 
 export interface GetChatActivityOptions {
@@ -79,20 +81,26 @@ function parseComposerData(raw: string | null | undefined) {
 const LOADING_TOOL_STATUSES = new Set(["loading", "running", "started", "pending"]);
 const IDLE_COMPOSER_STATUSES = new Set(["none", "completed", "aborted"]);
 
-function inspectBubble(value: string, cutoffMs: number) {
+function inspectBubble(
+  value: string,
+  options: { loadingCutoffMs?: number } = {},
+) {
   try {
     const bubble = JSON.parse(value) as {
       createdAt?: string;
       toolFormerData?: { status?: string; name?: string };
     };
     const createdAtMs = bubble.createdAt ? Date.parse(bubble.createdAt) : undefined;
-    if (createdAtMs != null && createdAtMs < cutoffMs) {
-      return { latestAt: createdAtMs, loading: false };
-    }
     const status = bubble.toolFormerData?.status;
+    const loading =
+      options.loadingCutoffMs != null &&
+      createdAtMs != null &&
+      createdAtMs >= options.loadingCutoffMs &&
+      status != null &&
+      LOADING_TOOL_STATUSES.has(status);
     return {
       latestAt: createdAtMs,
-      loading: status != null && LOADING_TOOL_STATUSES.has(status),
+      loading,
     };
   } catch {
     return { latestAt: undefined, loading: false };
@@ -119,7 +127,7 @@ function bubbleKeyRange(sessionId: string): { start: string; end: string } {
 function scanBubbleActivity(
   db: Database.Database,
   sessionId: string,
-  cutoffMs: number,
+  options: { scanLoading?: boolean } = {},
 ): { loadingToolCount: number; latestBubbleAt?: string } {
   const { start, end } = bubbleKeyRange(sessionId);
   const bubbles = db
@@ -131,10 +139,11 @@ function scanBubbleActivity(
     )
     .all(start, end) as Array<{ value: string }>;
 
+  const loadingCutoffMs = options.scanLoading ? Date.now() - 2 * 60 * 1000 : undefined;
   let loadingToolCount = 0;
   let latestBubbleAt: string | undefined;
   for (const bubble of bubbles) {
-    const parsed = inspectBubble(bubble.value, cutoffMs);
+    const parsed = inspectBubble(bubble.value, { loadingCutoffMs });
     if (parsed.loading) loadingToolCount += 1;
     if (parsed.latestAt != null) {
       const iso = new Date(parsed.latestAt).toISOString();
@@ -156,7 +165,11 @@ function buildChatActivity(
   const generatingBubbleCount = composerData?.generatingBubbleIds?.length ?? 0;
   const composerStatus = composerData?.status;
   const hasBlockingPendingActions = Boolean(header.hasBlockingPendingActions);
-  const updatedAt = new Date(lastUpdatedAt).toISOString();
+  const headerUpdatedAt = new Date(lastUpdatedAt).toISOString();
+  const updatedAt =
+    bubbleActivity.latestBubbleAt && bubbleActivity.latestBubbleAt > headerUpdatedAt
+      ? bubbleActivity.latestBubbleAt
+      : headerUpdatedAt;
 
   const signals: string[] = [];
   if (generatingBubbleCount > 0) signals.push("generating_bubbles");
@@ -199,11 +212,8 @@ function loadComposerActivity(
     .get(`composerData:${sessionId}`) as { value?: string } | undefined;
   const composerData = parseComposerData(composerRow?.value);
 
-  const scanBubbles =
-    options.scanBubbles ?? shouldScanBubbles(composerData, header);
-  const bubbleActivity = scanBubbles
-    ? scanBubbleActivity(db, sessionId, Date.now() - 2 * 60 * 1000)
-    : { loadingToolCount: 0, latestBubbleAt: undefined };
+  const scanLoading = options.scanBubbles ?? shouldScanBubbles(composerData, header);
+  const bubbleActivity = scanBubbleActivity(db, sessionId, { scanLoading });
 
   return buildChatActivity(sessionId, header, lastUpdatedAt, composerData, bubbleActivity, summary);
 }
@@ -289,11 +299,25 @@ export async function waitForChatSession(
   throw new Error(`Chat session ${sessionId} not found after ${timeoutMs}ms.`);
 }
 
+function loadHeaderRow(
+  db: Database.Database,
+  composerId: string,
+): { composerId: string; value: string; lastUpdatedAt: number } | undefined {
+  return db
+    .prepare(
+      `SELECT composerId, value, lastUpdatedAt
+       FROM composerHeaders
+       WHERE composerId = ? AND IFNULL(isSubagent, 0) = 0`,
+    )
+    .get(composerId) as { composerId: string; value: string; lastUpdatedAt: number } | undefined;
+}
+
 export function listActiveChats(args: ListActiveChatsArgs = {}): ChatActivity[] {
   const withinMs = args.withinMs ?? 5 * 60 * 1000;
   const limit = args.limit ?? 20;
   const maxScan = args.maxScan ?? Math.max(limit * 4, 40);
   const workspaceFilter = args.workspace?.trim();
+  const includeIds = [...new Set((args.includeSessionIds ?? []).filter(Boolean))];
 
   const db = openGlobalDb(true);
   try {
@@ -307,8 +331,15 @@ export function listActiveChats(args: ListActiveChatsArgs = {}): ChatActivity[] 
       )
       .all(maxScan) as Array<{ composerId: string; value: string; lastUpdatedAt: number }>;
 
+    const rowById = new Map(rows.map((row) => [row.composerId, row]));
+    for (const sessionId of includeIds) {
+      if (rowById.has(sessionId)) continue;
+      const row = loadHeaderRow(db, sessionId);
+      if (row) rowById.set(sessionId, row);
+    }
+
     const activities: ChatActivity[] = [];
-    for (const row of rows) {
+    for (const row of rowById.values()) {
       const header = parseHeaderValue(row.value);
       if (workspaceFilter) {
         const workspace = workspaceFromHeader(header);
@@ -321,17 +352,17 @@ export function listActiveChats(args: ListActiveChatsArgs = {}): ChatActivity[] 
         row.value,
         row.lastUpdatedAt,
         undefined,
-        { scanBubbles: false },
+        {},
       );
 
       const isRecent = Date.now() - Date.parse(activity.updatedAt) <= withinMs;
       if (activity.activityLevel === "active" || isRecent || args.includeIdle) {
         activities.push(activity);
       }
-      if (activities.length >= limit) break;
     }
 
-    return activities;
+    activities.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    return activities.slice(0, limit);
   } finally {
     db.close();
   }

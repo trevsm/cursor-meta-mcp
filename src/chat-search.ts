@@ -235,6 +235,7 @@ function resolveTargetSessions(
   args: {
     sessionId?: string;
     sessionIndex?: number;
+    sessionIds?: string[];
     maxSessions: number;
   },
 ): SessionHeader[] {
@@ -263,6 +264,21 @@ function resolveTargetSessions(
       },
     ];
   }
+  if (args.sessionIds?.length) {
+    const placeholders = args.sessionIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT composerId, workspaceId, value
+         FROM composerHeaders
+         WHERE IFNULL(isSubagent, 0) = 0 AND composerId IN (${placeholders})
+         ORDER BY lastUpdatedAt DESC`,
+      )
+      .all(...args.sessionIds) as Array<{ composerId: string; workspaceId: string; value: string }>;
+    return rows.map((row) => ({
+      ...parseSessionHeader(row),
+      sessionIndex: getSessionIndexForId(row.composerId) ?? null,
+    }));
+  }
   return listRecentSessions(db, args.maxSessions);
 }
 
@@ -290,7 +306,9 @@ export function searchThinking(args: {
   scopes?: SearchScope[];
   sessionId?: string;
   sessionIndex?: number;
-  /** Max recent sessions to scan (default 100). Ignored when sessionId/Index set. */
+  /** Explicit session list (e.g. atlas index). Ignored when sessionId/Index set. */
+  sessionIds?: string[];
+  /** Max recent sessions to scan (default 100). Ignored when sessionId/Index/sessionIds set. */
   maxSessions?: number;
   /** Max hits to return (default 30). */
   limit?: number;
@@ -327,6 +345,7 @@ export function searchThinking(args: {
     const sessions = resolveTargetSessions(db, {
       sessionId: args.sessionId,
       sessionIndex: args.sessionIndex,
+      sessionIds: args.sessionIds,
       maxSessions,
     });
 
